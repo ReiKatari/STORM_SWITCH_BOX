@@ -626,7 +626,7 @@ namespace StormSwitchBox.Services
         public static Z3dsMetadata ExtractContainerMetadata(string plainPath, byte[] underlyingMagic, uint frameSize)
         {
             var meta = new Z3dsMetadata();
-            string ver = !string.IsNullOrWhiteSpace(App.AppVersionString) ? App.AppVersionString : "8.0.11";
+            string ver = !string.IsNullOrWhiteSpace(App.AppVersionString) ? App.AppVersionString : "8.0.12";
             meta.SetString("compressor", $"STORM SWITCH BOX {ver}");
             meta.SetString("date", DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ"));
             meta.SetString("maxframesize", frameSize.ToString());

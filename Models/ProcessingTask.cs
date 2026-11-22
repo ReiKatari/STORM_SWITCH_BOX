@@ -823,6 +823,7 @@ namespace StormSwitchBox.Models
         public string MagnetUri { get; set; } = string.Empty;
         public string InfoHash { get; set; } = string.Empty;
         public string DirectTorrentUrl { get; set; } = string.Empty;
+        public string TorrentCachePath { get; set; } = string.Empty;
         public byte[]? TorrentBytes { get; set; }
         public List<PersistedTorrentFileItem> TorrentFiles { get; set; } = new();
         public List<string> CloudLinks { get; set; } = new();

@@ -146,6 +146,10 @@ class MainActivity : Activity() {
     private var trimXciBeforeCompress = true
     private var deleteSourceAfterSuccess = false
     private var deleteRuTrackerSourceAfterSuccess = true
+    private var ruTrackerSpeedLimitMode = "AUTO_HEADROOM"
+    private var ruTrackerCustomSpeedLimitMb = 25.0
+    private var ruTrackerReserveMb = 2.0
+    private val pendingStartupRestartTasks = mutableListOf<BgPipelineTask>()
     private var autoCheckUpdatesOnStartup = true
     private var includeSubfoldersWhenScanning = false
     private var lastBrowseDirPath = "/storage/emulated/0"
@@ -403,10 +407,17 @@ class MainActivity : Activity() {
             val jsonArray = org.json.JSONArray(file.readText(Charsets.UTF_8))
             val existingIds = bgPipelineTasks.map { it.id }.toSet()
 
+            var clearedAndRequeued = false
             for (i in 0 until jsonArray.length()) {
                 val obj = jsonArray.getJSONObject(i)
                 val id = obj.optString("id", "")
                 if (id.isEmpty() || id in existingIds) continue
+
+                val rawStateStr = obj.optString("state", "PAUSED")
+                if (rawStateStr == "CANCELLED") {
+                    clearedAndRequeued = true
+                    continue
+                }
 
                 val tObj = obj.getJSONObject("topicItem")
                 val topicItem = RuTrackerCloudEngine.TopicItem(
@@ -421,13 +432,10 @@ class MainActivity : Activity() {
                     topicUrl = tObj.optString("topicUrl", "")
                 )
 
-                val rawStateStr = obj.optString("state", "PAUSED")
-                val state = when (rawStateStr) {
-                    "COMPLETED" -> BgTaskState.COMPLETED
-                    "CANCELLED" -> BgTaskState.CANCELLED
-                    "FAILED" -> BgTaskState.FAILED
-                    else -> BgTaskState.PAUSED
-                }
+                val resultFilePath = obj.optString("resultFilePath", "")
+                val resultFileObj = if (resultFilePath.isNotEmpty()) File(resultFilePath) else null
+                val isCompleted = rawStateStr == "COMPLETED" ||
+                    (resultFileObj != null && resultFileObj.isFile && resultFileObj.length() > 0L)
 
                 val rfList = mutableListOf<RuTrackerCloudEngine.ReleaseContentFile>()
                 val rfArr = obj.optJSONArray("selectedReleaseFiles")
@@ -470,39 +478,68 @@ class MainActivity : Activity() {
                     )
                 } else StormNczEngine.PreBuildCustomization()
 
-                val resultFilePath = obj.optString("resultFilePath", "")
-                val failureReason = obj.optString("failureReason", "").ifEmpty { null }
-
-                val task = BgPipelineTask(
-                    id = id,
-                    topicItem = topicItem,
-                    title = obj.optString("title", topicItem.title),
-                    titleId = obj.optString("titleId", ""),
-                    targetFormat = obj.optString("targetFormat", "NSZ"),
-                    controller = RuTrackerCloudEngine.TaskExecutionController(),
-                    state = state,
-                    stageTitle = obj.optString("stageTitle", "⏸ Сохранено на паузе"),
-                    progressPct = obj.optInt("progressPct", 0),
-                    detailText = obj.optString("detailText", "Нажмите ▶️ Продолжить для возобновления"),
-                    resultFile = if (resultFilePath.isNotEmpty()) File(resultFilePath) else null,
-                    failureReason = failureReason,
-                    dialogFormatMode = obj.optInt("dialogFormatMode", 0),
-                    selectedReleaseFiles = rfList,
-                    collectedModUrls = jsonArrayToStringList(obj.optJSONArray("collectedModUrls")),
-                    collectedUpdateUrls = jsonArrayToStringList(obj.optJSONArray("collectedUpdateUrls")),
-                    collectedDlcUrls = jsonArrayToStringList(obj.optJSONArray("collectedDlcUrls")),
-                    embedDlcUnlocker = obj.optBoolean("embedDlcUnlocker", false),
-                    deleteSourceAfterVerify = obj.optBoolean("deleteSourceAfterVerify", true),
-                    preBuildCustomization = preBuild,
-                    isThreadAlive = false
-                )
-
-                val logsArr = obj.optJSONArray("stepLogs")
-                if (logsArr != null) {
-                    for (m in 0 until logsArr.length()) task.stepLogs.add(logsArr.getString(m))
+                if (!isCompleted) {
+                    // Очищаем устаревший зависший/паузовый снимок и создаём свежую задачу заново для автоперезапуска
+                    clearedAndRequeued = true
+                    val freshTask = BgPipelineTask(
+                        id = java.util.UUID.randomUUID().toString(),
+                        topicItem = topicItem,
+                        title = obj.optString("title", topicItem.title),
+                        titleId = obj.optString("titleId", ""),
+                        targetFormat = obj.optString("targetFormat", "NSZ"),
+                        controller = RuTrackerCloudEngine.TaskExecutionController(),
+                        state = BgTaskState.RUNNING,
+                        stageTitle = "Этап 1/5: Автоперезапуск...",
+                        progressPct = 0,
+                        detailText = "Незавершённая задача очищена и запущена заново",
+                        resultFile = null,
+                        failureReason = null,
+                        dialogFormatMode = obj.optInt("dialogFormatMode", 0),
+                        selectedReleaseFiles = rfList,
+                        collectedModUrls = jsonArrayToStringList(obj.optJSONArray("collectedModUrls")),
+                        collectedUpdateUrls = jsonArrayToStringList(obj.optJSONArray("collectedUpdateUrls")),
+                        collectedDlcUrls = jsonArrayToStringList(obj.optJSONArray("collectedDlcUrls")),
+                        embedDlcUnlocker = obj.optBoolean("embedDlcUnlocker", false),
+                        deleteSourceAfterVerify = obj.optBoolean("deleteSourceAfterVerify", true),
+                        preBuildCustomization = preBuild,
+                        isThreadAlive = false
+                    )
+                    freshTask.stepLogs.add("[Автоперезапуск] Незавершённая задача очищена и добавлена заново после перезапуска приложения.")
+                    bgPipelineTasks.add(freshTask)
+                    pendingStartupRestartTasks.add(freshTask)
+                } else {
+                    val doneTask = BgPipelineTask(
+                        id = id,
+                        topicItem = topicItem,
+                        title = obj.optString("title", topicItem.title),
+                        titleId = obj.optString("titleId", ""),
+                        targetFormat = obj.optString("targetFormat", "NSZ"),
+                        controller = RuTrackerCloudEngine.TaskExecutionController(),
+                        state = BgTaskState.COMPLETED,
+                        stageTitle = obj.optString("stageTitle", "Готово"),
+                        progressPct = 100,
+                        detailText = obj.optString("detailText", "Сборка завершена"),
+                        resultFile = resultFileObj,
+                        failureReason = null,
+                        dialogFormatMode = obj.optInt("dialogFormatMode", 0),
+                        selectedReleaseFiles = rfList,
+                        collectedModUrls = jsonArrayToStringList(obj.optJSONArray("collectedModUrls")),
+                        collectedUpdateUrls = jsonArrayToStringList(obj.optJSONArray("collectedUpdateUrls")),
+                        collectedDlcUrls = jsonArrayToStringList(obj.optJSONArray("collectedDlcUrls")),
+                        embedDlcUnlocker = obj.optBoolean("embedDlcUnlocker", false),
+                        deleteSourceAfterVerify = obj.optBoolean("deleteSourceAfterVerify", true),
+                        preBuildCustomization = preBuild,
+                        isThreadAlive = false
+                    )
+                    val logsArr = obj.optJSONArray("stepLogs")
+                    if (logsArr != null) {
+                        for (m in 0 until logsArr.length()) doneTask.stepLogs.add(logsArr.getString(m))
+                    }
+                    bgPipelineTasks.add(doneTask)
                 }
-
-                bgPipelineTasks.add(task)
+            }
+            if (clearedAndRequeued) {
+                persistBgTasksToDisk()
             }
         } catch (_: Throwable) {}
     }
@@ -1090,6 +1127,19 @@ class MainActivity : Activity() {
 
         buildUserInterface()
         appendLog("STORM SWITCH BOX ${BuildConfig.VERSION_NAME} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) готов к работе.")
+        if (pendingStartupRestartTasks.isNotEmpty()) {
+            val toRestart = pendingStartupRestartTasks.toList()
+            pendingStartupRestartTasks.clear()
+            mainHandler.postDelayed({
+                val thNow = themes.getOrElse(currentThemeIndex) { themes[0] }
+                for (t in toRestart) {
+                    if (!t.isThreadAlive && t.state != BgTaskState.COMPLETED && t.state != BgTaskState.CANCELLED) {
+                        launchOrResumePipelineWorker(t, thNow)
+                    }
+                }
+                refreshTaskManagerUI(thNow)
+            }, 900L)
+        }
         // Автоматическая проверка обновлений с GitHub при запуске
         if (autoCheckUpdatesOnStartup) {
             checkForUpdatesFromGitHub(isManualClick = false)
@@ -1256,6 +1306,12 @@ class MainActivity : Activity() {
                 trimXciBeforeCompress = json.optBoolean("trimXci", true)
                 deleteSourceAfterSuccess = json.optBoolean("deleteSource", false)
                 deleteRuTrackerSourceAfterSuccess = json.optBoolean("deleteRuTrackerSource", deleteRuTrackerSourceAfterSuccess)
+                ruTrackerSpeedLimitMode = json.optString("ruTrackerSpeedLimitMode", "AUTO_HEADROOM")
+                ruTrackerCustomSpeedLimitMb = json.optDouble("ruTrackerCustomSpeedLimitMb", 25.0).coerceIn(1.0, 1000.0)
+                ruTrackerReserveMb = json.optDouble("ruTrackerReserveMb", 2.0).coerceIn(0.5, 50.0)
+                RuTrackerCloudEngine.speedLimitMode = ruTrackerSpeedLimitMode
+                RuTrackerCloudEngine.customSpeedLimitMb = ruTrackerCustomSpeedLimitMb
+                RuTrackerCloudEngine.reserveBandwidthMb = ruTrackerReserveMb
                 autoCheckUpdatesOnStartup = json.optBoolean("autoCheckUpdates", true)
                 includeSubfoldersWhenScanning = json.optBoolean("includeSubfoldersWhenScanning", false)
                 lastBrowseDirPath = json.optString("lastBrowseDir", "/storage/emulated/0")
@@ -1296,6 +1352,12 @@ class MainActivity : Activity() {
             json.put("trimXci", trimXciBeforeCompress)
             json.put("deleteSource", deleteSourceAfterSuccess)
             json.put("deleteRuTrackerSource", deleteRuTrackerSourceAfterSuccess)
+            json.put("ruTrackerSpeedLimitMode", ruTrackerSpeedLimitMode)
+            json.put("ruTrackerCustomSpeedLimitMb", ruTrackerCustomSpeedLimitMb)
+            json.put("ruTrackerReserveMb", ruTrackerReserveMb)
+            RuTrackerCloudEngine.speedLimitMode = ruTrackerSpeedLimitMode
+            RuTrackerCloudEngine.customSpeedLimitMb = ruTrackerCustomSpeedLimitMb
+            RuTrackerCloudEngine.reserveBandwidthMb = ruTrackerReserveMb
             json.put("autoCheckUpdates", autoCheckUpdatesOnStartup)
             json.put("includeSubfoldersWhenScanning", includeSubfoldersWhenScanning)
             json.put("outputDir", customOutputDir.absolutePath)
@@ -4701,8 +4763,22 @@ class MainActivity : Activity() {
         )
 
         val cleanDefaultTitle = StormNczEngine.extractCleanGameTitle(item.title)
+        val oldUpdRegex = Regex("""(?i)(?:^|[\\/\s_\-\(\[])old(?:[\s_\-/]*update|\b)|старое|устаревш""")
+        val selectedCurrentFiles = releaseFiles.filter { it.selected && !oldUpdRegex.containsMatchIn(it.relativePath) && !oldUpdRegex.containsMatchIn(it.fileName) }
+        val maxPatchCode = selectedCurrentFiles.mapNotNull { rf ->
+            Regex("""\[v(\d{5,10})]""", RegexOption.IGNORE_CASE).find(rf.relativePath.ifBlank { rf.fileName })?.groupValues?.get(1)?.toLongOrNull()
+        }.maxOrNull() ?: 0L
+        val matchingFileVer = selectedCurrentFiles
+            .filter { rf ->
+                val p = Regex("""\[v(\d{5,10})]""", RegexOption.IGNORE_CASE).find(rf.relativePath.ifBlank { rf.fileName })?.groupValues?.get(1)?.toLongOrNull() ?: 0L
+                maxPatchCode <= 0L || p == maxPatchCode
+            }
+            .mapNotNull { rf -> StormNczEngine.extractDisplayVersionFromFileName(rf.relativePath.ifBlank { rf.fileName }) }
+            .firstOrNull()
         val verMatch = Regex("\\b(v\\d+(?:\\.\\d+)+)\\b", RegexOption.IGNORE_CASE).find(item.title)
-        val defaultVerStr = verMatch?.groupValues?.get(1)?.removePrefix("v")?.removePrefix("V") ?: "1.0.1"
+        val defaultVerStr = matchingFileVer
+            ?: verMatch?.groupValues?.get(1)?.removePrefix("v")?.removePrefix("V")
+            ?: "1.0.1"
         fun extForMode(m: Int): String = when (m) {
             0 -> "nsz"
             1 -> "xcz"
@@ -4759,6 +4835,33 @@ class MainActivity : Activity() {
             saveSettings()
         }
         formatAndOptionsCard.addView(rtDlgDeleteSourceCheck)
+
+        val speedLimitOptions = listOf(
+            "Авто (макс - 2 МБ/с)" to ("AUTO_HEADROOM" to 0.0),
+            "Без лимита" to ("UNLIMITED" to 0.0),
+            "5 МБ/с" to ("CUSTOM" to 5.0),
+            "10 МБ/с" to ("CUSTOM" to 10.0),
+            "15 МБ/с" to ("CUSTOM" to 15.0),
+            "25 МБ/с" to ("CUSTOM" to 25.0),
+            "40 МБ/с" to ("CUSTOM" to 40.0)
+        )
+        val curSpeedIdx = when (ruTrackerSpeedLimitMode.uppercase()) {
+            "UNLIMITED" -> 1
+            "CUSTOM" -> speedLimitOptions.indexOfFirst { it.second.first == "CUSTOM" && kotlin.math.abs(it.second.second - ruTrackerCustomSpeedLimitMb) < 0.6 }.let { if (it >= 0) it else 5 }
+            else -> 0
+        }
+        formatAndOptionsCard.addView(TextView(this).apply {
+            text = "Глобальный лимит скорости скачивания RuTracker:"
+            setTextColor(th.textSecondary)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.2f)
+            setPadding(0, dp(6), 0, dp(2))
+        })
+        formatAndOptionsCard.addView(makeStormDropdown(speedLimitOptions.map { it.first }, curSpeedIdx, th) { pos ->
+            val sel = speedLimitOptions[pos].second
+            ruTrackerSpeedLimitMode = sel.first
+            if (sel.second > 0.0) ruTrackerCustomSpeedLimitMb = sel.second
+            saveSettings()
+        })
         root.addView(formatAndOptionsCard)
 
         // =========================================================================

@@ -697,6 +697,7 @@ namespace StormSwitchBox.Services
             if (metaError && localVersionCode == "0")
                 localVersionCode = "ERR_META";
 
+            bool hasAuthoritativeNacpVer = hasControlMeta && !IsBaseVersion(localDispVer);
             // Вычисляем итоговую версию в локальных переменных ДО единственного вызова App.RunOnUI
             ResolveVersionFromPath(filePath, ref localDispVer, ref localVersionCode);
 
@@ -722,7 +723,7 @@ namespace StormSwitchBox.Services
             if (hasControlMeta && !string.IsNullOrWhiteSpace(localTitleId) &&
                 localTitleId != "0000000000000000" && !IsBaseVersion(localDispVer))
             {
-                App.TitleDb?.RecordObservedDisplayVersion(localTitleId, localVersionCode, localDispVer);
+                App.TitleDb?.RecordObservedDisplayVersion(localTitleId, localVersionCode, localDispVer, isAuthoritative: hasAuthoritativeNacpVer);
             }
 
             var uiApplyTcs = new TaskCompletionSource<bool>();

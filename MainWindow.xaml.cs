@@ -90,6 +90,8 @@ namespace StormSwitchBox
 
             // Загружаем историю обработок
             _ = StormSwitchBox.Services.HistoryService.LoadHistoryAsync();
+            // Инициализируем планировщик задач и автоперезапуск незавершённых задач при старте
+            _ = App.TasksVM;
             
             // По умолчанию загружаем Мульти-контент
             SelectNavigationItemByTag("Multi");
@@ -524,6 +526,7 @@ namespace StormSwitchBox
             
             try { Services.RuTrackerSeedingService.Instance.ShutdownGracefully(); } catch { }
             try { App.TasksVM?.SaveTasksOnExit(); } catch { }
+            try { Services.RuTrackerDownloadQueueService.Instance.FlushQueueStateSync(); } catch { }
             try { App.Settings?.Save(); } catch { }
             
             // Жестко завершаем процесс и все утилиты при закрытии

@@ -197,15 +197,51 @@ namespace StormSwitchBox.Services
         public string SpeedTextDisplay => App.Localization.TranslateText(SpeedAndPeersText);
         public string SpeedAndPeersTextDisplay => App.Localization.TranslateText(SpeedAndPeersText);
 
+        public string SpeedOnlyDisplay
+        {
+            get
+            {
+                string st = EffectiveStage;
+                if (st is "СКАЧИВАНИЕ" or "МЕТАДАННЫЕ")
+                    return $"{(CurrentSpeedBps / (1024.0 * 1024.0)):F2} МБ/с";
+                if (st == "МОДЫ")
+                {
+                    if (!string.IsNullOrWhiteSpace(SpeedAndPeersText) && SpeedAndPeersText.Contains("МБ/с", StringComparison.OrdinalIgnoreCase))
+                        return SpeedAndPeersText;
+                    return App.Localization.TranslateText("Моды");
+                }
+                if (st == "СБОРКА") return App.Localization.TranslateText("Сборка");
+                if (st == "ПАУЗА" || IsPausedByUser) return App.Localization.TranslateText("Пауза");
+                if (st == "ГОТОВО") return App.Localization.TranslateText("Готово");
+                if (st == "ОТМЕНЕНО") return App.Localization.TranslateText("Отменено");
+                if (st == "ОШИБКА") return App.Localization.TranslateText("Ошибка");
+                return App.Localization.TranslateText("В очереди");
+            }
+        }
+
+        public string SeedsPeersDisplay => EffectiveStage is "СКАЧИВАНИЕ" or "МЕТАДАННЫЕ"
+            ? $"{CurrentSeeds} / {CurrentPeers}"
+            : "-";
+
+        public string SeedsPeersTooltip => EffectiveStage is "СКАЧИВАНИЕ" or "МЕТАДАННЫЕ"
+            ? $"{App.Localization.TranslateText("Сиды:")} {CurrentSeeds} | {App.Localization.TranslateText("Пиры:")} {CurrentPeers}"
+            : ProgressDetailsDisplay;
+
         public void NotifyLocalizationChanged()
         {
             OnPropertyChanged(nameof(StageBadgeDisplay));
             OnPropertyChanged(nameof(ProgressDetailsDisplay));
             OnPropertyChanged(nameof(SpeedTextDisplay));
             OnPropertyChanged(nameof(SpeedAndPeersTextDisplay));
+            OnPropertyChanged(nameof(SpeedOnlyDisplay));
+            OnPropertyChanged(nameof(SeedsPeersDisplay));
+            OnPropertyChanged(nameof(SeedsPeersTooltip));
             OnPropertyChanged(nameof(PauseResumeToolTip));
             OnPropertyChanged(nameof(PauseResumeTooltip));
         }
+
+        public string? ActiveLimitFilePath { get; set; }
+        internal long LastWrittenLimitBps { get; set; } = -1;
 
         public CancellationTokenSource? Cts { get; set; }
         public ManualResetEventSlim PauseEvent { get; } = new(true);
@@ -278,9 +314,19 @@ namespace StormSwitchBox.Services
             var targetSpeedColor = ResolveSpeedColor(EffectiveStage);
             if (_speedBrush == null || _speedBrush.Color != targetSpeedColor)
                 SpeedBrush = new SolidColorBrush(targetSpeedColor);
+            bool metricsChanged = Math.Abs(CurrentSpeedBps - RawSpeedBps) > 256.0 ||
+                                  CurrentSeeds != RawSeeds ||
+                                  CurrentPeers != RawPeers ||
+                                  StageBadge == RawStageBadge;
             CurrentSpeedBps = RawSpeedBps;
             CurrentSeeds = RawSeeds;
             CurrentPeers = RawPeers;
+            if (metricsChanged)
+            {
+                OnPropertyChanged(nameof(SpeedOnlyDisplay));
+                OnPropertyChanged(nameof(SeedsPeersDisplay));
+                OnPropertyChanged(nameof(SeedsPeersTooltip));
+            }
         }
 
         public void Dispose()
@@ -312,7 +358,9 @@ namespace StormSwitchBox.Services
         public string TopicId { get; set; } = string.Empty;
         public string TopicTitle { get; set; } = string.Empty;
         public int Seeds { get; set; }
+        public string InfoHash { get; set; } = string.Empty;
         public string MagnetLink { get; set; } = string.Empty;
+        public string TorrentCachePath { get; set; } = string.Empty;
         public string TorrentBytesBase64 { get; set; } = string.Empty;
         public List<PersistedTorrentFileItem> TorrentFiles { get; set; } = new();
         public List<string> CloudLinks { get; set; } = new();
@@ -337,10 +385,10 @@ namespace StormSwitchBox.Services
     {
         public static RuTrackerDownloadQueueService Instance { get; } = new();
 
-        public const int MaxConcurrentDownloads = 16;
+        public const int MaxConcurrentDownloads = 5;
         public const double LowSpeedExemptThresholdBps = 200.0 * 1024.0; // < 200 КБ/с не занимают слот в лимите одновременных закачек
         public const double StartupWarmupSeconds = 8.0;
-        public const int MaxTotalConcurrentDownloads = 64;
+        public const int MaxTotalConcurrentDownloads = 12;
         public ObservableCollection<RuTrackerActiveDownloadItem> Items { get; } = new();
         public ObservableCollection<RuTrackerSeedingItem> SeedingItems => RuTrackerSeedingService.Instance.Items;
         public RuTrackerSeedingService Seeding => RuTrackerSeedingService.Instance;
@@ -348,8 +396,22 @@ namespace StormSwitchBox.Services
 
         private readonly object _syncLock = new();
         private readonly System.Threading.Timer _uiTimer;
-        private static readonly JsonSerializerOptions _queueJsonOptions = new JsonSerializerOptions { WriteIndented = true };
+        private static readonly JsonSerializerOptions _queueJsonOptions = new JsonSerializerOptions { WriteIndented = false };
         private readonly string _queueStatePath;
+
+        private int _queueSaveRequestVersion = 0;
+        private int _queueSaveLoopActive = 0;
+        private readonly SemaphoreSlim _queueSaveSemaphore = new(1, 1);
+
+        private double _observedPeakBps = 0.0;
+        private DateTime _probeStartedUtc = DateTime.MinValue;
+        private DateTime _pinnedHighSinceUtc = DateTime.MinValue;
+        private DateTime _lastReprobeUtc = DateTime.MinValue;
+        private DateTime _lastPeakSaveUtc = DateTime.MinValue;
+        private int _limitTickCounter = 0;
+        private readonly object _limitCalcLock = new();
+
+        public void EnsureInitialized() { }
 
         private RuTrackerDownloadQueueService()
         {
@@ -480,6 +542,11 @@ namespace StormSwitchBox.Services
                 {
                     EvaluateQueuePriorities();
                 }
+            }
+
+            if ((++_limitTickCounter % 4) == 0)
+            {
+                ApplyGlobalSpeedLimitDistribution(snapshot, totalSpeedBps);
             }
 
             int inList = snapshot.Length;
@@ -956,7 +1023,13 @@ namespace StormSwitchBox.Services
                     {
                         item.ActiveTorrentManager = mgr;
                         task.ActiveTorrentManager = mgr;
-                    }).ConfigureAwait(false);
+                    },
+                    onLimitFileReady: lf =>
+                    {
+                        item.ActiveLimitFilePath = lf;
+                        item.LastWrittenLimitBps = -1;
+                    },
+                    initialDownloadLimitBps: GetInitialDownloadLimitBpsForNewItem()).ConfigureAwait(false);
             }
 
             // 2. Скачивание и автораспаковка всех облачных модов / русификаторов
@@ -1270,9 +1343,8 @@ namespace StormSwitchBox.Services
             {
                 unionFiles = createdTasks
                     .SelectMany(c => c.Payload.TorrentFiles)
-                    .Where(f => f.IsSelected)
                     .GroupBy(f => f.RelativePath, StringComparer.OrdinalIgnoreCase)
-                    .Select(g => g.First())
+                    .Select(g => g.FirstOrDefault(x => x.IsSelected) ?? g.First())
                     .ToList();
 
                 var torrentProg = new Progress<TorrentDownloadProgress>(p =>
@@ -1313,7 +1385,13 @@ namespace StormSwitchBox.Services
                         item.ActiveTorrentManager = mgr;
                         foreach (var (t, _, _) in createdTasks)
                             t.ActiveTorrentManager = mgr;
-                    }).ConfigureAwait(false);
+                    },
+                    onLimitFileReady: lf =>
+                    {
+                        item.ActiveLimitFilePath = lf;
+                        item.LastWrittenLimitBps = -1;
+                    },
+                    initialDownloadLimitBps: GetInitialDownloadLimitBpsForNewItem()).ConfigureAwait(false);
             }
 
             // Распаковываем ТОЛЬКО ВЫБРАННЫЕ архивы модов (.7z / .zip / .rar)
@@ -1759,11 +1837,301 @@ namespace StormSwitchBox.Services
             }
         }
 
-        public void BindRestoredTasksFromViewModel(ViewModels.TasksViewModel? vm)
+        public long GetInitialDownloadLimitBpsForNewItem()
+        {
+            var s = App.Settings.Current;
+            string mode = s.RuTrackerSpeedLimitMode ?? "AutoHeadroom";
+            if (string.Equals(mode, "Unlimited", StringComparison.OrdinalIgnoreCase))
+                return 0L;
+            if (string.Equals(mode, "Custom", StringComparison.OrdinalIgnoreCase))
+            {
+                double mb = s.RuTrackerGlobalSpeedLimitMbPerSec;
+                return mb > 0.05 ? (long)Math.Max(128L * 1024L, mb * 1024.0 * 1024.0) : 0L;
+            }
+            lock (_limitCalcLock)
+            {
+                if (_observedPeakBps <= 0.0 && s.RuTrackerObservedPeakBandwidthMbPerSec > 0.5)
+                    _observedPeakBps = s.RuTrackerObservedPeakBandwidthMbPerSec * 1024.0 * 1024.0;
+                if (_observedPeakBps <= 0.0)
+                    return 0L;
+                double reserveMb = Math.Max(0.5, s.RuTrackerAutoHeadroomReserveMbPerSec);
+                long reserveBps = (long)(reserveMb * 1024.0 * 1024.0);
+                return Math.Max(1024L * 1024L, (long)_observedPeakBps - reserveBps);
+            }
+        }
+
+        public void NotifySpeedLimitSettingsChanged()
+        {
+            lock (_limitCalcLock)
+            {
+                _probeStartedUtc = DateTime.MinValue;
+                _pinnedHighSinceUtc = DateTime.MinValue;
+                _lastReprobeUtc = DateTime.MinValue;
+                _limitTickCounter = 0;
+            }
+            RuTrackerActiveDownloadItem[] snapshot;
+            lock (_syncLock) { snapshot = _backingItems.ToArray(); }
+            double totalBps = snapshot
+                .Where(i => i.IsActive && i.EffectiveStage is "СКАЧИВАНИЕ" or "МЕТАДАННЫЕ")
+                .Sum(i => Math.Max(0.0, i.RawSpeedBps));
+            foreach (var it in snapshot)
+                it.LastWrittenLimitBps = -1;
+            ApplyGlobalSpeedLimitDistribution(snapshot, totalBps);
+        }
+
+        private void ApplyGlobalSpeedLimitDistribution(RuTrackerActiveDownloadItem[] snapshot, double totalSpeedBps)
+        {
+            var activeDownloaders = snapshot
+                .Where(i => i.IsActivelyDownloading && i.EffectiveStage is "СКАЧИВАНИЕ" or "МЕТАДАННЫЕ")
+                .ToList();
+            if (activeDownloaders.Count == 0)
+                return;
+
+            var s = App.Settings.Current;
+            string mode = s.RuTrackerSpeedLimitMode ?? "AutoHeadroom";
+            long globalBudgetBps = 0L;
+            DateTime nowUtc = DateTime.UtcNow;
+
+            if (string.Equals(mode, "Unlimited", StringComparison.OrdinalIgnoreCase))
+            {
+                globalBudgetBps = 0L;
+            }
+            else if (string.Equals(mode, "Custom", StringComparison.OrdinalIgnoreCase))
+            {
+                double mb = s.RuTrackerGlobalSpeedLimitMbPerSec;
+                globalBudgetBps = mb > 0.05 ? (long)Math.Max(128L * 1024L, mb * 1024.0 * 1024.0) : 0L;
+            }
+            else
+            {
+                lock (_limitCalcLock)
+                {
+                    if (_observedPeakBps <= 0.0 && s.RuTrackerObservedPeakBandwidthMbPerSec > 0.5)
+                        _observedPeakBps = s.RuTrackerObservedPeakBandwidthMbPerSec * 1024.0 * 1024.0;
+
+                    if (totalSpeedBps > _observedPeakBps && totalSpeedBps > 512.0 * 1024.0)
+                    {
+                        _observedPeakBps = totalSpeedBps;
+                        if ((nowUtc - _lastPeakSaveUtc).TotalSeconds >= 15.0)
+                        {
+                            _lastPeakSaveUtc = nowUtc;
+                            double peakMb = Math.Round(_observedPeakBps / (1024.0 * 1024.0), 2);
+                            _ = Task.Run(async () =>
+                            {
+                                try
+                                {
+                                    s.RuTrackerObservedPeakBandwidthMbPerSec = peakMb;
+                                    await App.Settings.SaveAsync().ConfigureAwait(false);
+                                }
+                                catch { }
+                            });
+                        }
+                    }
+
+                    if (_observedPeakBps <= 0.0)
+                    {
+                        if (_probeStartedUtc == DateTime.MinValue)
+                            _probeStartedUtc = nowUtc;
+                        globalBudgetBps = 0L;
+                    }
+                    else
+                    {
+                        double reserveMb = Math.Max(0.5, s.RuTrackerAutoHeadroomReserveMbPerSec);
+                        long reserveBps = (long)(reserveMb * 1024.0 * 1024.0);
+                        long targetBudget = Math.Max(1024L * 1024L, (long)_observedPeakBps - reserveBps);
+
+                        bool inReprobeWindow = _probeStartedUtc != DateTime.MinValue && (nowUtc - _probeStartedUtc).TotalSeconds < 5.0;
+                        if (inReprobeWindow)
+                        {
+                            globalBudgetBps = 0L;
+                        }
+                        else
+                        {
+                            if (_probeStartedUtc != DateTime.MinValue && (nowUtc - _probeStartedUtc).TotalSeconds >= 5.0)
+                                _probeStartedUtc = DateTime.MinValue;
+
+                            if (totalSpeedBps >= targetBudget * 0.94)
+                            {
+                                if (_pinnedHighSinceUtc == DateTime.MinValue)
+                                    _pinnedHighSinceUtc = nowUtc;
+                                else if ((nowUtc - _pinnedHighSinceUtc).TotalSeconds >= 20.0 &&
+                                         (_lastReprobeUtc == DateTime.MinValue || (nowUtc - _lastReprobeUtc).TotalSeconds >= 60.0))
+                                {
+                                    _pinnedHighSinceUtc = DateTime.MinValue;
+                                    _lastReprobeUtc = nowUtc;
+                                    _probeStartedUtc = nowUtc;
+                                    globalBudgetBps = 0L;
+                                }
+                                else
+                                {
+                                    globalBudgetBps = targetBudget;
+                                }
+                            }
+                            else
+                            {
+                                _pinnedHighSinceUtc = DateTime.MinValue;
+                                globalBudgetBps = targetBudget;
+                            }
+                        }
+                    }
+                }
+            }
+
+            var updates = new List<(RuTrackerActiveDownloadItem Item, string? LimitFile, long AllocBps)>(activeDownloaders.Count);
+            if (globalBudgetBps <= 0L)
+            {
+                foreach (var it in activeDownloaders)
+                {
+                    if (it.LastWrittenLimitBps != 0L)
+                        updates.Add((it, it.ActiveLimitFilePath, 0L));
+                }
+            }
+            else if (activeDownloaders.Count == 1)
+            {
+                var single = activeDownloaders[0];
+                if (single.LastWrittenLimitBps <= 0L || Math.Abs(globalBudgetBps - single.LastWrittenLimitBps) >= 128L * 1024L)
+                    updates.Add((single, single.ActiveLimitFilePath, globalBudgetBps));
+            }
+            else
+            {
+                double[] weights = new double[activeDownloaders.Count];
+                double weightSum = 0.0;
+                for (int k = 0; k < activeDownloaders.Count; k++)
+                {
+                    double w = Math.Max(512.0 * 1024.0, Math.Max(0.0, activeDownloaders[k].RawSpeedBps) * 1.25 + 512.0 * 1024.0);
+                    weights[k] = w;
+                    weightSum += w;
+                }
+                for (int k = 0; k < activeDownloaders.Count; k++)
+                {
+                    var it = activeDownloaders[k];
+                    long alloc = Math.Max(256L * 1024L, (long)(globalBudgetBps * (weights[k] / Math.Max(1.0, weightSum))));
+                    if (it.LastWrittenLimitBps <= 0L || Math.Abs(alloc - it.LastWrittenLimitBps) >= 128L * 1024L)
+                        updates.Add((it, it.ActiveLimitFilePath, alloc));
+                }
+            }
+
+            if (updates.Count == 0)
+                return;
+
+            foreach (var (it, _, alloc) in updates)
+            {
+                it.LastWrittenLimitBps = alloc;
+                var engine = it.ActiveTorrentManager?.Engine;
+                if (engine != null)
+                {
+                    int rate = alloc <= 0 ? 0 : (int)Math.Min(int.MaxValue, alloc);
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            var sb = new MonoTorrent.Client.EngineSettingsBuilder(engine.Settings)
+                            {
+                                MaximumDownloadRate = rate
+                            };
+                            await engine.UpdateSettingsAsync(sb.ToSettings()).ConfigureAwait(false);
+                        }
+                        catch { }
+                    });
+                }
+            }
+
+            _ = Task.Run(() =>
+            {
+                foreach (var (_, lfPath, alloc) in updates)
+                {
+                    if (string.IsNullOrEmpty(lfPath)) continue;
+                    try
+                    {
+                        string tmp = lfPath + ".tmp";
+                        File.WriteAllText(tmp, alloc.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                        File.Move(tmp, lfPath, overwrite: true);
+                    }
+                    catch
+                    {
+                        try { File.WriteAllText(lfPath, alloc.ToString(System.Globalization.CultureInfo.InvariantCulture)); } catch { }
+                    }
+                }
+            });
+        }
+
+        private static string ResolveInfoHashFromPayload(RuTrackerTaskPayload payload)
+        {
+            if (!string.IsNullOrWhiteSpace(payload.Topic?.InfoHash) && payload.Topic.InfoHash.Trim().Length == 40)
+                return payload.Topic.InfoHash.Trim().ToUpperInvariant();
+            if (payload.MagnetLink != null)
+                return payload.MagnetLink.InfoHashes.V1OrV2.ToHex().ToUpperInvariant();
+            if (payload.TorrentBytes != null && payload.TorrentBytes.Length > 64 &&
+                MonoTorrent.Torrent.TryLoad(payload.TorrentBytes, out var parsed) && parsed != null)
+                return parsed.InfoHashes.V1OrV2.ToHex().ToUpperInvariant();
+            return string.Empty;
+        }
+
+        private static void CacheTorrentBytesQuiet(string infoHash, byte[]? torrentBytes)
+        {
+            if (torrentBytes == null || torrentBytes.Length <= 64 || string.IsNullOrWhiteSpace(infoHash))
+                return;
+            string cleanHash = infoHash.Trim().ToUpperInvariant();
+            if (cleanHash.Length != 40) return;
+            _ = Task.Run(() =>
+            {
+                try { RuTrackerModService.TrySaveCachedTorrentBytes(cleanHash, torrentBytes); } catch { }
+            });
+        }
+
+        private static byte[]? LoadTorrentBytesFromCacheOrLegacy(string? infoHash, string? torrentCachePath, string? legacyBase64)
+        {
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(torrentCachePath) && File.Exists(torrentCachePath) && new FileInfo(torrentCachePath).Length > 64)
+                {
+                    byte[] b = File.ReadAllBytes(torrentCachePath);
+                    if (b.Length > 64 && b[0] == (byte)'d') return b;
+                }
+            }
+            catch { }
+
+            if (!string.IsNullOrWhiteSpace(infoHash) && infoHash.Trim().Length == 40)
+            {
+                try
+                {
+                    string cp = RuTrackerModService.GetCachedTorrentFilePath(infoHash.Trim().ToUpperInvariant());
+                    if (File.Exists(cp) && new FileInfo(cp).Length > 64)
+                    {
+                        byte[] b = File.ReadAllBytes(cp);
+                        if (b.Length > 64 && b[0] == (byte)'d') return b;
+                    }
+                }
+                catch { }
+            }
+
+            if (!string.IsNullOrWhiteSpace(legacyBase64))
+            {
+                try
+                {
+                    byte[] b = Convert.FromBase64String(legacyBase64);
+                    if (b.Length > 64)
+                    {
+                        if (!string.IsNullOrWhiteSpace(infoHash))
+                            CacheTorrentBytesQuiet(infoHash, b);
+                        return b;
+                    }
+                }
+                catch { }
+            }
+
+            return null;
+        }
+
+        public void BindRestoredTasksFromViewModel(
+            ViewModels.TasksViewModel? vm,
+            List<PersistedTaskSnapshot>? orphanedRtSnapshots = null)
         {
             if (vm == null) return;
+            bool shouldAutoStart = false;
+
             lock (_syncLock)
             {
+                // 1. Синхронизируем незавершённые свежие задачи из рутрекер-очереди в TasksViewModel без дубликатов
                 foreach (var item in _backingItems)
                 {
                     item.ViewModel = vm;
@@ -1771,66 +2139,209 @@ namespace StormSwitchBox.Services
 
                     for (int i = 0; i < item.CreatedTasks.Count; i++)
                     {
-                        var (oldTask, payload, slot) = item.CreatedTasks[i];
-                        var matchedVmTask = vm.Tasks.FirstOrDefault(t =>
-                            t == oldTask ||
-                            (!string.IsNullOrEmpty(oldTask.Id) && t.Id == oldTask.Id) ||
-                            (!string.IsNullOrEmpty(payload.SlotGameTitle) && t.GameName == payload.SlotGameTitle) ||
-                            (!string.IsNullOrEmpty(oldTask.GameName) && t.GameName == oldTask.GameName) ||
-                            (!string.IsNullOrEmpty(oldTask.OutputFileName) && !string.IsNullOrEmpty(oldTask.OutputFolder) &&
-                             t.OutputFileName == oldTask.OutputFileName && t.OutputFolder == oldTask.OutputFolder));
+                        var (itemTask, payload, slot) = item.CreatedTasks[i];
+                        var dupes = vm.Tasks.Where(vmTask =>
+                            !ReferenceEquals(vmTask, itemTask) &&
+                            ((!string.IsNullOrEmpty(itemTask.Id) && vmTask.Id == itemTask.Id) ||
+                             (vmTask.IsRuTrackerTask && !string.IsNullOrEmpty(itemTask.GameName) && vmTask.GameName == itemTask.GameName &&
+                              vmTask.OutputFolder == itemTask.OutputFolder))).ToList();
+                        foreach (var dup in dupes)
+                            RunOnUiSyncOrAsync(() => vm.Tasks.Remove(dup));
 
-                        if (matchedVmTask != null)
+                        if (!item.IsCompleted && !vm.Tasks.Contains(itemTask))
                         {
-                            if (matchedVmTask.RuTrackerPayload == null)
+                            RunOnUiSyncOrAsync(() =>
                             {
-                                matchedVmTask.RuTrackerPayload = payload;
-                            }
-                            if (matchedVmTask.Cts == null && oldTask.Cts != null)
-                            {
-                                matchedVmTask.Cts = oldTask.Cts;
-                            }
-                            item.CreatedTasks[i] = (matchedVmTask, payload, slot);
-
-                            bool outputExists = false;
-                            string outDir = RuTrackerModDownloaderDialog.ResolveRuTrackerFinalOutputFolder(matchedVmTask.TargetFormat, matchedVmTask.TitleId, matchedVmTask.OutputFolder);
-                            if (Directory.Exists(outDir))
-                            {
-                                string displayTid = RuTrackerModService.NormalizeSwitchBaseApplicationTitleId(matchedVmTask.GameName);
-                                string san = ProcessingTask.SanitizeFileName(matchedVmTask.GameName);
-                                var files = Directory.GetFiles(outDir, "*.*").Where(f =>
-                                    (f.EndsWith(".nsz", StringComparison.OrdinalIgnoreCase) ||
-                                     f.EndsWith(".nsp", StringComparison.OrdinalIgnoreCase) ||
-                                     f.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) ||
-                                     f.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase)) &&
-                                    new FileInfo(f).Length > 0);
-                                outputExists = files.Any(f =>
-                                    (!string.IsNullOrWhiteSpace(matchedVmTask.GameName) && Path.GetFileNameWithoutExtension(f).Contains(matchedVmTask.GameName, StringComparison.OrdinalIgnoreCase)) ||
-                                    (!string.IsNullOrWhiteSpace(san) && Path.GetFileNameWithoutExtension(f).Contains(san, StringComparison.OrdinalIgnoreCase)) ||
-                                    (!string.IsNullOrWhiteSpace(displayTid) && f.Contains(displayTid, StringComparison.OrdinalIgnoreCase)));
-                            }
-
-                            if (item.IsCompleted && outputExists && matchedVmTask.Status == "⏸ Сохранено на паузе")
-                            {
-                                matchedVmTask.Status = "Успешно";
-                                matchedVmTask.Progress = 100;
-                                matchedVmTask.IsRunning = false;
-                                matchedVmTask.IsPaused = false;
-                                matchedVmTask.EnsureFinalMetricsPopulated();
-                            }
-                            else
-                            {
-                                matchedVmTask.EnsureSourceMetricsPopulated();
-                            }
-
-                            if (matchedVmTask.GameIcon == null)
-                            {
-                                HistoryService.TryLoadIconForTask(matchedVmTask);
-                            }
+                                if (!vm.Tasks.Contains(itemTask))
+                                    vm.Tasks.Add(itemTask);
+                                if (itemTask.GameIcon == null)
+                                    HistoryService.TryLoadIconForTask(itemTask);
+                            });
+                            shouldAutoStart = true;
+                        }
+                        else if (!item.IsCompleted)
+                        {
+                            shouldAutoStart = true;
                         }
                     }
                 }
+
+                // 2. Восстанавливаем свежие задачи для снимков из persisted_tasks.json, которых ещё нет в _backingItems
+                if (orphanedRtSnapshots != null && orphanedRtSnapshots.Count > 0)
+                {
+                    foreach (var snap in orphanedRtSnapshots)
+                    {
+                        var rtSnap = snap.RuTrackerSnapshot;
+                        if (rtSnap == null) continue;
+
+                        bool alreadyTracked = _backingItems.Any(b =>
+                            !b.IsCompleted && b.CreatedTasks.Any(ct =>
+                                (!string.IsNullOrEmpty(snap.Id) && ct.Task.Id == snap.Id) ||
+                                (!string.IsNullOrEmpty(rtSnap.TopicId) && ct.Payload.Topic?.TopicId == rtSnap.TopicId &&
+                                 ct.Payload.SlotNumber == rtSnap.SlotNumber && ct.Payload.SlotGameTitle == rtSnap.SlotGameTitle)));
+                        if (alreadyTracked) continue;
+
+                        byte[]? tBytes = rtSnap.TorrentBytes ?? LoadTorrentBytesFromCacheOrLegacy(rtSnap.InfoHash, rtSnap.TorrentCachePath, null);
+                        MonoTorrent.MagnetLink? mag = null;
+                        if (!string.IsNullOrEmpty(rtSnap.MagnetUri))
+                        {
+                            try { MonoTorrent.MagnetLink.TryParse(rtSnap.MagnetUri, out mag); } catch { }
+                        }
+
+                        var cleanMeta = CloneMetadataWithoutBinaryBlobs(snap.CustomMetadata);
+                        var payload = new RuTrackerTaskPayload
+                        {
+                            Topic = new RuTrackerTopicItem
+                            {
+                                TopicId = rtSnap.TopicId,
+                                Title = rtSnap.TopicTitle,
+                                Category = rtSnap.Category,
+                                Seeds = rtSnap.Seeds,
+                                MagnetUri = rtSnap.MagnetUri,
+                                InfoHash = rtSnap.InfoHash,
+                                DirectTorrentUrl = rtSnap.DirectTorrentUrl
+                            },
+                            TorrentBytes = tBytes,
+                            MagnetLink = mag,
+                            TorrentFiles = (rtSnap.TorrentFiles ?? new List<PersistedTorrentFileItem>()).Select(tf => new TorrentFileSelectionItem
+                            {
+                                RelativePath = tf.RelativePath,
+                                Length = tf.Length,
+                                IsSelected = tf.IsSelected,
+                                CategoryBadge = tf.CategoryBadge,
+                                IsRealTorrentFile = tf.IsRealTorrentFile
+                            }).ToList(),
+                            CloudLinks = new List<string>(rtSnap.CloudLinks ?? new List<string>()),
+                            TargetReleaseDir = rtSnap.TargetReleaseDir,
+                            CustomModTitle = rtSnap.CustomModTitle,
+                            AutoBuild = rtSnap.AutoBuild,
+                            HasTorrentSource = rtSnap.HasTorrentSource,
+                            SharedReleaseDir = rtSnap.SharedReleaseDir,
+                            AppendAutoTags = rtSnap.AppendAutoTags,
+                            SlotNumber = rtSnap.SlotNumber,
+                            TotalSlots = rtSnap.TotalSlots,
+                            SlotGameTitle = rtSnap.SlotGameTitle,
+                            PosterUrl = rtSnap.PosterUrl,
+                            CustomMetadata = cleanMeta
+                        };
+
+                        var freshTask = new ProcessingTask
+                        {
+                            Id = Guid.NewGuid().ToString("N").Substring(0, 8),
+                            GameName = snap.GameName,
+                            Operation = string.IsNullOrWhiteSpace(snap.Operation) ? "Multi" : snap.Operation,
+                            SourceFormat = string.IsNullOrWhiteSpace(snap.SourceFormat) ? "MULTI" : snap.SourceFormat,
+                            TargetFormat = string.IsNullOrWhiteSpace(snap.TargetFormat) ? "NSZ" : snap.TargetFormat,
+                            Status = "В очереди",
+                            Progress = 0,
+                            SourceSize = snap.SourceSize,
+                            SourceSizeBytes = snap.SourceSizeBytes,
+                            OutputFolder = RuTrackerModDownloaderDialog.ResolveRuTrackerFinalOutputFolder(snap.TargetFormat, snap.TitleId, snap.OutputFolder),
+                            OutputFileName = snap.OutputFileName,
+                            LogDetails = "[Автоперезапуск] Незавершённая задача очищена и добавлена заново после запуска программы.",
+                            GroupId = snap.GroupId,
+                            TitleId = snap.TitleId,
+                            Is3dsTask = snap.Is3dsTask,
+                            IsSwitch2Task = snap.IsSwitch2Task,
+                            BuildMode = snap.BuildMode,
+                            IsRuTrackerTask = true,
+                            KeepExactOutputFileName = snap.KeepExactOutputFileName,
+                            DeleteSourceAfterVerify = snap.DeleteSourceAfterVerify,
+                            IsRunning = false,
+                            IsPaused = false,
+                            HasActiveWorker = false,
+                            CompressionLevel = snap.CompressionLevel,
+                            FilesCount = snap.FilesCount,
+                            InputFolders = snap.InputFolders,
+                            CustomMetadata = cleanMeta,
+                            RuTrackerPayload = payload
+                        };
+
+                        var freshItem = new RuTrackerActiveDownloadItem
+                        {
+                            BatchId = Guid.NewGuid().ToString("N").Substring(0, 6),
+                            DisplayTitle = snap.GameName,
+                            StageBadge = "В ОЧЕРЕДИ",
+                            ProgressPercent = 0,
+                            ProgressDetails = "Автоперезапуск...",
+                            SpeedAndPeersText = "В очереди",
+                            IsPausedByUser = false,
+                            IsActive = true,
+                            SharedReleaseDir = rtSnap.SharedReleaseDir ?? rtSnap.TargetReleaseDir ?? string.Empty,
+                            HasTorrentSource = rtSnap.HasTorrentSource,
+                            CurrentTopic = payload.Topic,
+                            Service = App.RuTrackerMod.CreateIsolatedDownloadSession(),
+                            ViewModel = vm,
+                            DeleteSourceAfterVerify = snap.DeleteSourceAfterVerify,
+                            Cts = new CancellationTokenSource()
+                        };
+                        freshItem.RawStageBadge = "В ОЧЕРЕДИ";
+                        freshItem.RawStageColor = Windows.UI.Color.FromArgb(255, 100, 116, 139);
+                        freshItem.RawDetails = "Автоперезапуск...";
+                        freshItem.RawSpeedText = "В очереди";
+                        freshItem.PauseEvent.Set();
+
+                        freshTask.OnPauseRequested = () => TogglePauseItem(freshItem);
+                        freshTask.OnResumeRequested = () => TogglePauseItem(freshItem);
+                        freshTask.OnCancelRequested = () => CancelOrRemoveItem(freshItem);
+                        freshItem.CreatedTasks.Add((freshTask, payload, new RuTrackerGameSlotItem { SlotNumber = rtSnap.SlotNumber, GameTitle = rtSnap.SlotGameTitle }));
+
+                        _backingItems.Add(freshItem);
+                        RunOnUiSyncOrAsync(() =>
+                        {
+                            if (!Items.Contains(freshItem))
+                                Items.Add(freshItem);
+                            if (!vm.Tasks.Contains(freshTask))
+                                vm.Tasks.Add(freshTask);
+                            HistoryService.TryLoadIconForTask(freshTask);
+                            freshItem.CommitUiUpdates();
+                        });
+                        shouldAutoStart = true;
+                    }
+                }
             }
+
+            if (shouldAutoStart)
+            {
+                SaveQueueState();
+                _ = Task.Run(async () =>
+                {
+                    await Task.Delay(1000).ConfigureAwait(false);
+                    try { EvaluateQueuePriorities(); } catch { }
+                    SaveQueueState();
+                });
+            }
+        }
+
+        private static GameMetadataEditModel? CloneMetadataWithoutBinaryBlobs(GameMetadataEditModel? src)
+        {
+            if (src == null) return null;
+            return new GameMetadataEditModel
+            {
+                TitleId = src.TitleId,
+                Version = src.Version,
+                TitleNameRussian = src.TitleNameRussian,
+                TitleNameEnglish = src.TitleNameEnglish,
+                Publisher = src.Publisher,
+                SourceFilePath = src.SourceFilePath,
+                CustomIconPath = src.CustomIconPath,
+                OriginalIconBytes = null,
+                CustomIconBytes = null,
+                RawNacpBytes = null,
+                TempExtractDir = src.TempExtractDir,
+                ModNameRomFs = src.ModNameRomFs,
+                ModNameExeFs = src.ModNameExeFs,
+                HasRomFs = src.HasRomFs,
+                HasExeFs = src.HasExeFs,
+                Is3ds = src.Is3ds,
+                BadgeRus = src.BadgeRus,
+                Badge60Fps = src.Badge60Fps,
+                BadgeMod = src.BadgeMod,
+                BadgeAllDlc = src.BadgeAllDlc,
+                CustomBadgeText = src.CustomBadgeText,
+                BadgePosition = src.BadgePosition,
+                CustomAudioWavPath = src.CustomAudioWavPath
+            };
         }
 
         public bool TryResumeTaskFromViewModel(ProcessingTask task, ViewModels.TasksViewModel vm)
@@ -1846,9 +2357,7 @@ namespace StormSwitchBox.Services
             }
 
             if (targetItem == null)
-            {
                 return false;
-            }
 
             targetItem.ViewModel = vm;
             lock (_syncLock)
@@ -1883,9 +2392,7 @@ namespace StormSwitchBox.Services
                 task.PauseEvent.Set();
                 task.EnsureSourceMetricsPopulated();
                 if (task.GameIcon == null)
-                {
                     HistoryService.TryLoadIconForTask(task);
-                }
 
                 targetItem.CommitUiUpdates();
                 EvaluateQueuePriorities();
@@ -1894,7 +2401,6 @@ namespace StormSwitchBox.Services
 
             return true;
         }
-
 
         private static bool GetInjectDlcUnlockerFlag(RuTrackerTaskPayload payload)
         {
@@ -1923,272 +2429,334 @@ namespace StormSwitchBox.Services
             catch { }
         }
 
+        private List<RuTrackerPersistedQueueRecord> BuildQueueRecordsSnapshot()
+        {
+            lock (_syncLock)
+            {
+                return _backingItems.Select(i =>
+                {
+                    var rec = new RuTrackerPersistedQueueRecord
+                    {
+                        BatchId = i.BatchId,
+                        DisplayTitle = i.DisplayTitle,
+                        StageBadge = i.EffectiveStage,
+                        ProgressPercent = i.RawPercent > 0 || i.EffectiveStage == "ГОТОВО" ? i.RawPercent : i.ProgressPercent,
+                        ProgressDetails = !string.IsNullOrEmpty(i.RawDetails) ? i.RawDetails : i.ProgressDetails,
+                        IsPausedByUser = i.IsPausedByUser,
+                        SavedAt = DateTime.Now,
+                        SharedReleaseDir = i.SharedReleaseDir,
+                        HasTorrentSource = i.HasTorrentSource
+                    };
+
+                    if (i.CreatedTasks != null)
+                    {
+                        foreach (var (t, payload, _) in i.CreatedTasks)
+                        {
+                            string infoHash = ResolveInfoHashFromPayload(payload);
+                            string torCachePath = infoHash.Length == 40 ? RuTrackerModService.GetCachedTorrentFilePath(infoHash) : string.Empty;
+                            if (payload.TorrentBytes != null && payload.TorrentBytes.Length > 64 && infoHash.Length == 40)
+                                CacheTorrentBytesQuiet(infoHash, payload.TorrentBytes);
+
+                            rec.Tasks.Add(new RuTrackerPersistedTaskPayload
+                            {
+                                TaskId = t.Id,
+                                PosterUrl = payload.PosterUrl ?? payload.Topic?.PosterUrl ?? string.Empty,
+                                SlotNumber = payload.SlotNumber,
+                                SlotGameTitle = payload.SlotGameTitle,
+                                CustomModTitle = payload.CustomModTitle,
+                                TargetReleaseDir = payload.TargetReleaseDir,
+                                OutputFolder = t.OutputFolder,
+                                OutputFormat = t.TargetFormat,
+                                AutoBuild = payload.AutoBuild,
+                                IncludeTechTags = payload.AppendAutoTags,
+                                InjectDlcUnlocker = GetInjectDlcUnlockerFlag(payload),
+                                DeleteSourceAfterVerify = t.DeleteSourceAfterVerify,
+                                TopicId = payload.Topic?.TopicId ?? string.Empty,
+                                TopicTitle = payload.Topic?.Title ?? string.Empty,
+                                Seeds = payload.Topic?.Seeds ?? 0,
+                                InfoHash = infoHash,
+                                TorrentCachePath = torCachePath,
+                                MagnetLink = payload.MagnetLink?.ToV1String() ?? payload.MagnetLink?.ToString() ?? payload.Topic?.MagnetUri ?? string.Empty,
+                                TorrentBytesBase64 = string.Empty,
+                                TorrentFiles = (payload.TorrentFiles ?? new List<TorrentFileSelectionItem>()).Select(f => new PersistedTorrentFileItem
+                                {
+                                    RelativePath = f.RelativePath,
+                                    Length = f.Length,
+                                    IsSelected = f.IsSelected,
+                                    CategoryBadge = f.CategoryBadge,
+                                    IsRealTorrentFile = f.IsRealTorrentFile
+                                }).ToList(),
+                                CloudLinks = (payload.CloudLinks ?? new List<string>()).ToList(),
+                                TaskTitle = t.GameName
+                            });
+                        }
+                    }
+
+                    return rec;
+                }).ToList();
+            }
+        }
+
         private void SaveQueueState()
+        {
+            Interlocked.Increment(ref _queueSaveRequestVersion);
+            if (Interlocked.CompareExchange(ref _queueSaveLoopActive, 1, 0) == 0)
+            {
+                _ = RunCoalescedQueueSaveLoopAsync();
+            }
+        }
+
+        private async Task RunCoalescedQueueSaveLoopAsync()
         {
             try
             {
-                List<RuTrackerPersistedQueueRecord> records;
-                lock (_syncLock)
+                while (true)
                 {
-                    records = _backingItems.Select(i =>
+                    await Task.Delay(250).ConfigureAwait(false);
+                    int targetVer = Volatile.Read(ref _queueSaveRequestVersion);
+                    var records = BuildQueueRecordsSnapshot();
+                    string json = JsonSerializer.Serialize(records, _queueJsonOptions);
+                    await _queueSaveSemaphore.WaitAsync().ConfigureAwait(false);
+                    try
                     {
-                        var rec = new RuTrackerPersistedQueueRecord
-                        {
-                            BatchId = i.BatchId,
-                            DisplayTitle = i.DisplayTitle,
-                            StageBadge = i.EffectiveStage,
-                            ProgressPercent = i.RawPercent > 0 || i.EffectiveStage == "ГОТОВО" ? i.RawPercent : i.ProgressPercent,
-                            ProgressDetails = !string.IsNullOrEmpty(i.RawDetails) ? i.RawDetails : i.ProgressDetails,
-                            IsPausedByUser = i.IsPausedByUser,
-                            SavedAt = DateTime.Now,
-                            SharedReleaseDir = i.SharedReleaseDir,
-                            HasTorrentSource = i.HasTorrentSource
-                        };
+                        await SafeFileOperations.WriteAllTextAtomicAsync(_queueStatePath, json, flushToDisk: false).ConfigureAwait(false);
+                    }
+                    finally
+                    {
+                        _queueSaveSemaphore.Release();
+                    }
 
-                        if (i.CreatedTasks != null)
-                        {
-                            foreach (var (t, payload, slot) in i.CreatedTasks)
-                            {
-                                rec.Tasks.Add(new RuTrackerPersistedTaskPayload
-                                {
-                                    TaskId = t.Id,
-                                    PosterUrl = payload.PosterUrl ?? payload.Topic?.PosterUrl ?? string.Empty,
-                                    SlotNumber = payload.SlotNumber,
-                                    SlotGameTitle = payload.SlotGameTitle,
-                                    CustomModTitle = payload.CustomModTitle,
-                                    TargetReleaseDir = payload.TargetReleaseDir,
-                                    OutputFolder = t.OutputFolder,
-                                    OutputFormat = t.TargetFormat,
-                                    AutoBuild = payload.AutoBuild,
-                                    IncludeTechTags = payload.AppendAutoTags,
-                                    InjectDlcUnlocker = GetInjectDlcUnlockerFlag(payload),
-                                    DeleteSourceAfterVerify = t.DeleteSourceAfterVerify,
-                                    TopicId = payload.Topic?.TopicId ?? string.Empty,
-                                    TopicTitle = payload.Topic?.Title ?? string.Empty,
-                                    Seeds = payload.Topic?.Seeds ?? 0,
-                                    MagnetLink = payload.MagnetLink?.ToV1String() ?? payload.MagnetLink?.ToString() ?? payload.Topic?.MagnetUri ?? string.Empty,
-                                    TorrentBytesBase64 = payload.TorrentBytes != null ? Convert.ToBase64String(payload.TorrentBytes) : string.Empty,
-                                    TorrentFiles = (payload.TorrentFiles ?? new List<TorrentFileSelectionItem>()).Select(f => new PersistedTorrentFileItem
-                                    {
-                                        RelativePath = f.RelativePath,
-                                        Length = f.Length,
-                                        IsSelected = f.IsSelected,
-                                        CategoryBadge = f.CategoryBadge,
-                                        IsRealTorrentFile = f.IsRealTorrentFile
-                                    }).ToList(),
-                                    CloudLinks = (payload.CloudLinks ?? new List<string>()).ToList(),
-                                    TaskTitle = t.GameName
-                                });
-                            }
-                        }
-
-                        return rec;
-                    }).ToList();
+                    if (Volatile.Read(ref _queueSaveRequestVersion) == targetVer)
+                        break;
                 }
+            }
+            catch { }
+            finally
+            {
+                int lastSeen = Volatile.Read(ref _queueSaveRequestVersion);
+                Volatile.Write(ref _queueSaveLoopActive, 0);
+                if (Volatile.Read(ref _queueSaveRequestVersion) != lastSeen &&
+                    Interlocked.CompareExchange(ref _queueSaveLoopActive, 1, 0) == 0)
+                {
+                    _ = RunCoalescedQueueSaveLoopAsync();
+                }
+            }
+        }
 
+        public void FlushQueueStateSync()
+        {
+            try
+            {
+                Interlocked.Increment(ref _queueSaveRequestVersion);
+                var records = BuildQueueRecordsSnapshot();
                 string json = JsonSerializer.Serialize(records, _queueJsonOptions);
-                SafeFileOperations.WriteAllTextAtomic(_queueStatePath, json, flushToDisk: true);
+                bool acquired = _queueSaveSemaphore.Wait(2000);
+                try
+                {
+                    SafeFileOperations.WriteAllTextAtomic(_queueStatePath, json, flushToDisk: false);
+                }
+                finally
+                {
+                    if (acquired) _queueSaveSemaphore.Release();
+                }
             }
             catch { }
         }
 
         private void LoadPersistedState()
         {
+            bool rewrittenQueue = false;
             try
             {
-                if (File.Exists(_queueStatePath))
+                if (!File.Exists(_queueStatePath)) return;
+                string json = File.ReadAllText(_queueStatePath);
+                var records = JsonSerializer.Deserialize<List<RuTrackerPersistedQueueRecord>>(json);
+                if (records == null || records.Count == 0) return;
+
+                foreach (var r in records)
                 {
-                    string json = File.ReadAllText(_queueStatePath);
-                    var records = JsonSerializer.Deserialize<List<RuTrackerPersistedQueueRecord>>(json);
-                    if (records != null && records.Count > 0)
+                    if (r.StageBadge == "ОТМЕНЕНО")
                     {
-                        foreach (var r in records)
+                        rewrittenQueue = true;
+                        continue;
+                    }
+
+                    bool isCompleted = r.StageBadge == "ГОТОВО";
+                    if (!isCompleted)
+                    {
+                        bool outputExists = false;
+                        var tidMatch = System.Text.RegularExpressions.Regex.Match(r.DisplayTitle ?? string.Empty, @"\b(0[14]00[0-9A-Fa-f]{12})\b");
+                        string displayTid = tidMatch.Success ? tidMatch.Groups[1].Value : string.Empty;
+
+                        if (r.Tasks != null)
                         {
-                            bool isCompleted = r.StageBadge is "ГОТОВО" or "ОТМЕНЕНО" or "ОШИБКА";
-                            bool mayNeedPostBuildHeal = r.StageBadge == "СБОРКА" ||
-                                (r.StageBadge == "ОШИБКА" && (string.IsNullOrWhiteSpace(r.ProgressDetails) || r.ProgressDetails == "Сборка мульти-контента..."));
-                            if (mayNeedPostBuildHeal)
+                            foreach (var tp in r.Tasks)
                             {
-                                bool outputExists = false;
-                                var tidMatch = System.Text.RegularExpressions.Regex.Match(r.DisplayTitle ?? string.Empty, @"\b(0100[0-9A-Fa-f]{12})\b");
-                                string displayTid = tidMatch.Success ? tidMatch.Groups[1].Value : string.Empty;
-
-                                if (r.Tasks != null)
+                                string outDir = RuTrackerModDownloaderDialog.ResolveRuTrackerFinalOutputFolder(tp.OutputFormat, string.Empty, tp.OutputFolder);
+                                string gameName = !string.IsNullOrWhiteSpace(tp.TaskTitle)
+                                    ? tp.TaskTitle
+                                    : (!string.IsNullOrWhiteSpace(tp.SlotGameTitle) ? tp.SlotGameTitle : (r.DisplayTitle ?? string.Empty));
+                                string sanGameName = ProcessingTask.SanitizeFileName(gameName ?? string.Empty);
+                                if (!string.IsNullOrWhiteSpace(outDir) && Directory.Exists(outDir))
                                 {
-                                    foreach (var tp in r.Tasks)
+                                    var files = Directory.GetFiles(outDir, "*.*").Where(f =>
+                                        (f.EndsWith(".nsz", StringComparison.OrdinalIgnoreCase) ||
+                                         f.EndsWith(".nsp", StringComparison.OrdinalIgnoreCase) ||
+                                         f.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) ||
+                                         f.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase)) &&
+                                        new FileInfo(f).Length > 0);
+                                    if (files.Any(f =>
+                                        (!string.IsNullOrWhiteSpace(gameName) && Path.GetFileNameWithoutExtension(f).Contains(gameName, StringComparison.OrdinalIgnoreCase)) ||
+                                        (!string.IsNullOrWhiteSpace(sanGameName) && Path.GetFileNameWithoutExtension(f).Contains(sanGameName, StringComparison.OrdinalIgnoreCase)) ||
+                                        (!string.IsNullOrWhiteSpace(displayTid) && f.Contains(displayTid, StringComparison.OrdinalIgnoreCase)) ||
+                                        (!string.IsNullOrWhiteSpace(tp.TopicId) && f.Contains(tp.TopicId, StringComparison.OrdinalIgnoreCase))))
                                     {
-                                        string outDir = RuTrackerModDownloaderDialog.ResolveRuTrackerFinalOutputFolder(tp.OutputFormat, string.Empty, tp.OutputFolder);
-                                        string gameName = !string.IsNullOrWhiteSpace(tp.TaskTitle)
-                                            ? tp.TaskTitle
-                                            : (!string.IsNullOrWhiteSpace(tp.SlotGameTitle) ? tp.SlotGameTitle : (r.DisplayTitle ?? string.Empty));
-                                        string sanGameName = ProcessingTask.SanitizeFileName(gameName ?? string.Empty);
-                                        if (!string.IsNullOrWhiteSpace(outDir) && Directory.Exists(outDir))
-                                        {
-                                            var files = Directory.GetFiles(outDir, "*.*").Where(f =>
-                                                (f.EndsWith(".nsz", StringComparison.OrdinalIgnoreCase) ||
-                                                 f.EndsWith(".nsp", StringComparison.OrdinalIgnoreCase) ||
-                                                 f.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) ||
-                                                 f.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase)) &&
-                                                new FileInfo(f).Length > 0);
-                                            if (files.Any(f =>
-                                                (!string.IsNullOrWhiteSpace(gameName) && Path.GetFileNameWithoutExtension(f).Contains(gameName, StringComparison.OrdinalIgnoreCase)) ||
-                                                (!string.IsNullOrWhiteSpace(sanGameName) && Path.GetFileNameWithoutExtension(f).Contains(sanGameName, StringComparison.OrdinalIgnoreCase)) ||
-                                                (!string.IsNullOrWhiteSpace(displayTid) && f.Contains(displayTid, StringComparison.OrdinalIgnoreCase)) ||
-                                                (!string.IsNullOrWhiteSpace(tp.TopicId) && f.Contains(tp.TopicId, StringComparison.OrdinalIgnoreCase))))
-                                            {
-                                                outputExists = true;
-                                                break;
-                                            }
-                                        }
+                                        outputExists = true;
+                                        break;
                                     }
                                 }
-                                if (outputExists)
-                                {
-                                    isCompleted = true;
-                                    r.StageBadge = "ГОТОВО";
-                                    r.ProgressPercent = 100.0;
-                                    r.ProgressDetails = "Сборка завершена";
-                                }
                             }
+                        }
 
-                            var item = new RuTrackerActiveDownloadItem
-                            {
-                                BatchId = r.BatchId ?? string.Empty,
-                                DisplayTitle = r.DisplayTitle ?? string.Empty,
-                                StageBadge = isCompleted ? (r.StageBadge ?? "ОТМЕНЕНО") : "ПАУЗА",
-                                ProgressPercent = r.ProgressPercent,
-                                ProgressDetails = r.ProgressDetails ?? string.Empty,
-                                SpeedAndPeersText = r.StageBadge == "ГОТОВО" ? "100% Завершено" : string.Empty,
-                                IsPausedByUser = isCompleted ? r.IsPausedByUser : true,
-                                IsActive = false,
-                                IsBuildCompletedOnDisk = r.StageBadge == "ГОТОВО",
-                                SharedReleaseDir = r.SharedReleaseDir ?? string.Empty,
-                                HasTorrentSource = r.HasTorrentSource,
-                                DeleteSourceAfterVerify = r.Tasks == null || r.Tasks.Count == 0 || r.Tasks.All(tp => tp.DeleteSourceAfterVerify)
-                            };
-                            item.RawPercent = r.ProgressPercent;
-                            item.RawDetails = r.ProgressDetails ?? string.Empty;
-                            item.RawSpeedText = r.StageBadge == "ГОТОВО" ? "100% Завершено" : string.Empty;
-                            item.RawStageBadge = item.StageBadge;
-                            item.RawStageColor = item.StageBadge switch
-                            {
-                                "ГОТОВО" => Windows.UI.Color.FromArgb(255, 34, 197, 94),
-                                "ОТМЕНЕНО" or "ОШИБКА" => Windows.UI.Color.FromArgb(255, 220, 38, 38),
-                                "ПАУЗА" => Windows.UI.Color.FromArgb(255, 217, 119, 6),
-                                _ => Windows.UI.Color.FromArgb(255, 100, 116, 139)
-                            };
-
-                            if (r.Tasks != null && r.Tasks.Count > 0)
-                            {
-                                foreach (var tp in r.Tasks)
-                                {
-                                    ProcessingTask? task = null;
-                                    if (App.TasksVM != null)
-                                    {
-                                        task = App.TasksVM.Tasks.FirstOrDefault(vmTask =>
-                                            (!string.IsNullOrEmpty(tp.TaskId) && vmTask.Id == tp.TaskId) ||
-                                            (!string.IsNullOrEmpty(tp.TaskTitle) && vmTask.GameName == tp.TaskTitle) ||
-                                            (!string.IsNullOrEmpty(tp.SlotGameTitle) && vmTask.GameName == tp.SlotGameTitle) ||
-                                            (!string.IsNullOrEmpty(tp.OutputFolder) && !string.IsNullOrEmpty(tp.TaskTitle) &&
-                                             vmTask.OutputFolder == tp.OutputFolder && vmTask.OutputFileName == ProcessingTask.SanitizeFileName(tp.TaskTitle)));
-                                    }
-
-                                    if (task == null)
-                                    {
-                                        task = new ProcessingTask
-                                        {
-                                            Id = !string.IsNullOrEmpty(tp.TaskId) ? tp.TaskId : Guid.NewGuid().ToString("N").Substring(0, 8),
-                                            GameName = !string.IsNullOrWhiteSpace(tp.TaskTitle) ? tp.TaskTitle : (tp.SlotGameTitle ?? string.Empty),
-                                            TargetFormat = tp.OutputFormat ?? "NSZ",
-                                            OutputFolder = RuTrackerModDownloaderDialog.ResolveRuTrackerFinalOutputFolder(tp.OutputFormat, string.Empty, tp.OutputFolder),
-                                            DeleteSourceAfterVerify = tp.DeleteSourceAfterVerify,
-                                            Progress = r.ProgressPercent,
-                                            Status = isCompleted ? (r.StageBadge == "ГОТОВО" ? "Успешно" : (r.StageBadge ?? "ОТМЕНЕНО")) : "⏸ Сохранено на паузе",
-                                            IsRuTrackerTask = true,
-                                            IsRunning = false,
-                                            IsPaused = !isCompleted
-                                        };
-                                    }
-
-                                    MonoTorrent.MagnetLink? mag = null;
-                                    if (!string.IsNullOrEmpty(tp.MagnetLink))
-                                    {
-                                        try { MonoTorrent.MagnetLink.TryParse(tp.MagnetLink, out mag); } catch { }
-                                    }
-
-                                    byte[]? tBytes = null;
-                                    if (!string.IsNullOrEmpty(tp.TorrentBytesBase64))
-                                    {
-                                        try { tBytes = Convert.FromBase64String(tp.TorrentBytesBase64); } catch { }
-                                    }
-
-                                    var payload = new RuTrackerTaskPayload
-                                    {
-                                        SlotNumber = tp.SlotNumber,
-                                        PosterUrl = tp.PosterUrl ?? string.Empty,
-                                        SlotGameTitle = tp.SlotGameTitle ?? string.Empty,
-                                        CustomModTitle = tp.CustomModTitle ?? string.Empty,
-                                        TargetReleaseDir = tp.TargetReleaseDir ?? string.Empty,
-                                        AutoBuild = tp.AutoBuild,
-                                        AppendAutoTags = tp.IncludeTechTags,
-                                        SharedReleaseDir = r.SharedReleaseDir ?? string.Empty,
-                                        HasTorrentSource = r.HasTorrentSource,
-                                        CloudLinks = (tp.CloudLinks ?? new List<string>()).ToList(),
-                                        TorrentBytes = tBytes,
-                                        MagnetLink = mag,
-                                        Topic = new RuTrackerTopicItem
-                                        {
-                                            TopicId = tp.TopicId ?? string.Empty,
-                                            Title = tp.TopicTitle ?? string.Empty,
-                                            Seeds = tp.Seeds,
-                                            MagnetUri = tp.MagnetLink ?? string.Empty
-                                        },
-                                        TorrentFiles = (tp.TorrentFiles ?? new List<PersistedTorrentFileItem>()).Select(tf => new TorrentFileSelectionItem
-                                        {
-                                            RelativePath = tf.RelativePath ?? string.Empty,
-                                            Length = tf.Length,
-                                            IsSelected = tf.IsSelected,
-                                            CategoryBadge = tf.CategoryBadge ?? string.Empty,
-                                            IsRealTorrentFile = tf.IsRealTorrentFile
-                                        }).ToList()
-                                    };
-                                    SetInjectDlcUnlockerFlag(payload, tp.InjectDlcUnlocker);
-
-                                    task.RuTrackerPayload = payload;
-                                    task.OnPauseRequested = () => TogglePauseItem(item);
-                                    task.OnResumeRequested = () => TogglePauseItem(item);
-                                    task.OnCancelRequested = () => CancelOrRemoveItem(item);
-                                    item.CreatedTasks.Add((task, payload, new RuTrackerGameSlotItem { SlotNumber = tp.SlotNumber }));
-                                }
-                            }
-                            item.Cts = new CancellationTokenSource();
-                            if (!isCompleted && item.CreatedTasks.Count == 0)
-                            {
-                                // Устаревшие записи без данных задач: помечаем "ОТМЕНЕНО", чтобы не блокировать очередь
-                                item.StageBadge = "ОТМЕНЕНО";
-                                item.RawStageBadge = "ОТМЕНЕНО";
-                                item.RawStageColor = Windows.UI.Color.FromArgb(255, 220, 38, 38);
-                                item.RawDetails = "Сессия сброшена";
-                            }
-                            else if (!isCompleted)
-                            {
-                                item.PauseEvent.Reset();
-                            }
-
-                            item.CommitUiUpdates();
-
-                            lock (_syncLock)
-                            {
-                                _backingItems.Add(item);
-                            }
-
-                            RunOnUiSyncOrAsync(() =>
-                            {
-                                Items.Add(item);
-                            });
+                        if (outputExists)
+                        {
+                            isCompleted = true;
+                            r.StageBadge = "ГОТОВО";
+                            r.ProgressPercent = 100.0;
+                            r.ProgressDetails = "Сборка завершена";
                         }
                     }
+
+                    if (!isCompleted && (r.Tasks == null || r.Tasks.Count == 0))
+                    {
+                        rewrittenQueue = true;
+                        continue;
+                    }
+
+                    if (!isCompleted)
+                        rewrittenQueue = true;
+
+                    var item = new RuTrackerActiveDownloadItem
+                    {
+                        BatchId = isCompleted ? (r.BatchId ?? string.Empty) : Guid.NewGuid().ToString("N").Substring(0, 6),
+                        DisplayTitle = r.DisplayTitle ?? string.Empty,
+                        StageBadge = isCompleted ? "ГОТОВО" : "В ОЧЕРЕДИ",
+                        ProgressPercent = isCompleted ? 100.0 : 0.0,
+                        ProgressDetails = isCompleted ? (r.ProgressDetails ?? "Сборка завершена") : "Автоперезапуск...",
+                        SpeedAndPeersText = isCompleted ? "100% Завершено" : "В очереди",
+                        IsPausedByUser = false,
+                        IsActive = !isCompleted,
+                        IsPipelineStarted = false,
+                        IsBuildCompletedOnDisk = isCompleted,
+                        SharedReleaseDir = r.SharedReleaseDir ?? string.Empty,
+                        HasTorrentSource = r.HasTorrentSource,
+                        DeleteSourceAfterVerify = r.Tasks == null || r.Tasks.Count == 0 || r.Tasks.All(tp => tp.DeleteSourceAfterVerify),
+                        Service = !isCompleted ? App.RuTrackerMod.CreateIsolatedDownloadSession() : null,
+                        Cts = new CancellationTokenSource()
+                    };
+                    item.RawPercent = item.ProgressPercent;
+                    item.RawDetails = item.ProgressDetails;
+                    item.RawSpeedText = item.SpeedAndPeersText;
+                    item.RawStageBadge = item.StageBadge;
+                    item.RawStageColor = isCompleted
+                        ? Windows.UI.Color.FromArgb(255, 34, 197, 94)
+                        : Windows.UI.Color.FromArgb(255, 100, 116, 139);
+                    item.PauseEvent.Set();
+
+                    if (r.Tasks != null && r.Tasks.Count > 0)
+                    {
+                        foreach (var tp in r.Tasks)
+                        {
+                            string gameTitle = !string.IsNullOrWhiteSpace(tp.TaskTitle) ? tp.TaskTitle : (tp.SlotGameTitle ?? string.Empty);
+                            var task = new ProcessingTask
+                            {
+                                Id = isCompleted
+                                    ? (!string.IsNullOrEmpty(tp.TaskId) ? tp.TaskId : Guid.NewGuid().ToString("N").Substring(0, 8))
+                                    : Guid.NewGuid().ToString("N").Substring(0, 8),
+                                GameName = gameTitle,
+                                Operation = "Multi",
+                                SourceFormat = "MULTI",
+                                TargetFormat = string.IsNullOrWhiteSpace(tp.OutputFormat) ? "NSZ" : tp.OutputFormat,
+                                OutputFolder = RuTrackerModDownloaderDialog.ResolveRuTrackerFinalOutputFolder(tp.OutputFormat, string.Empty, tp.OutputFolder),
+                                OutputFileName = ProcessingTask.SanitizeFileName(gameTitle),
+                                DeleteSourceAfterVerify = tp.DeleteSourceAfterVerify,
+                                KeepExactOutputFileName = !tp.IncludeTechTags,
+                                Progress = isCompleted ? 100.0 : 0.0,
+                                Status = isCompleted ? "Успешно" : "В очереди",
+                                LogDetails = isCompleted
+                                    ? string.Empty
+                                    : "[Автоперезапуск] Незавершённая задача очищена и добавлена заново после запуска программы.",
+                                IsRuTrackerTask = true,
+                                IsRunning = false,
+                                IsPaused = false,
+                                HasActiveWorker = false,
+                                InputFolders = tp.TargetReleaseDir ?? string.Empty
+                            };
+
+                            MonoTorrent.MagnetLink? mag = null;
+                            if (!string.IsNullOrEmpty(tp.MagnetLink))
+                            {
+                                try { MonoTorrent.MagnetLink.TryParse(tp.MagnetLink, out mag); } catch { }
+                            }
+
+                            byte[]? tBytes = LoadTorrentBytesFromCacheOrLegacy(tp.InfoHash, tp.TorrentCachePath, tp.TorrentBytesBase64);
+
+                            var payload = new RuTrackerTaskPayload
+                            {
+                                SlotNumber = tp.SlotNumber,
+                                PosterUrl = tp.PosterUrl ?? string.Empty,
+                                SlotGameTitle = tp.SlotGameTitle ?? string.Empty,
+                                CustomModTitle = tp.CustomModTitle ?? string.Empty,
+                                TargetReleaseDir = tp.TargetReleaseDir ?? string.Empty,
+                                AutoBuild = tp.AutoBuild,
+                                AppendAutoTags = tp.IncludeTechTags,
+                                SharedReleaseDir = r.SharedReleaseDir ?? string.Empty,
+                                HasTorrentSource = r.HasTorrentSource,
+                                CloudLinks = (tp.CloudLinks ?? new List<string>()).ToList(),
+                                TorrentBytes = tBytes,
+                                MagnetLink = mag,
+                                Topic = new RuTrackerTopicItem
+                                {
+                                    TopicId = tp.TopicId ?? string.Empty,
+                                    Title = tp.TopicTitle ?? string.Empty,
+                                    Seeds = tp.Seeds,
+                                    InfoHash = tp.InfoHash ?? string.Empty,
+                                    MagnetUri = tp.MagnetLink ?? string.Empty
+                                },
+                                TorrentFiles = (tp.TorrentFiles ?? new List<PersistedTorrentFileItem>()).Select(tf => new TorrentFileSelectionItem
+                                {
+                                    RelativePath = tf.RelativePath ?? string.Empty,
+                                    Length = tf.Length,
+                                    IsSelected = tf.IsSelected,
+                                    CategoryBadge = tf.CategoryBadge ?? string.Empty,
+                                    IsRealTorrentFile = tf.IsRealTorrentFile
+                                }).ToList()
+                            };
+                            SetInjectDlcUnlockerFlag(payload, tp.InjectDlcUnlocker);
+
+                            task.RuTrackerPayload = payload;
+                            task.OnPauseRequested = () => TogglePauseItem(item);
+                            task.OnResumeRequested = () => TogglePauseItem(item);
+                            task.OnCancelRequested = () => CancelOrRemoveItem(item);
+                            item.CreatedTasks.Add((task, payload, new RuTrackerGameSlotItem { SlotNumber = tp.SlotNumber, GameTitle = tp.SlotGameTitle ?? gameTitle }));
+                        }
+                    }
+
+                    lock (_syncLock)
+                    {
+                        _backingItems.Add(item);
+                    }
+
+                    RunOnUiSyncOrAsync(() =>
+                    {
+                        if (!Items.Contains(item))
+                            Items.Add(item);
+                        item.CommitUiUpdates();
+                    });
                 }
+
+                if (rewrittenQueue)
+                    SaveQueueState();
             }
             catch { }
         }

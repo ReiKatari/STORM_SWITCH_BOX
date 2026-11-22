@@ -5228,12 +5228,20 @@ namespace StormSwitchBox.Services
             }
         }
 
+        private static int _nextPortCursor = 0;
+
         public static int FindFreeHighListenPort(int preferredStart = 44859, int maxOffset = 90)
         {
-            for (int offset = 0; offset <= maxOffset; offset++)
+            int effectiveSpan = Math.Max(maxOffset + 1, 240);
+            int startStep = (int)((uint)Interlocked.Increment(ref _nextPortCursor) % (uint)effectiveSpan);
+            for (int attempt = 0; attempt < effectiveSpan; attempt++)
             {
+                int offset = (startStep + attempt) % effectiveSpan;
                 int port = preferredStart + offset;
-                if (port > 65000) break;
+                if (port > 65000)
+                {
+                    port = 44859 + (port % 10000);
+                }
                 try
                 {
                     using var tcp = new System.Net.Sockets.TcpListener(IPAddress.Any, port);
@@ -5244,7 +5252,229 @@ namespace StormSwitchBox.Services
                 }
                 catch { }
             }
-            return preferredStart;
+            return preferredStart + startStep;
+        }
+
+        private static bool IsVirtualPadFilePath(string? relativePath)
+        {
+            if (string.IsNullOrWhiteSpace(relativePath)) return false;
+            string norm = "/" + relativePath.Replace('\\', '/').TrimStart('.', '/');
+            return norm.Contains("/.pad/", StringComparison.OrdinalIgnoreCase);
+        }
+
+        internal static bool HasValidSwitchContainerHeader(string filePath, long fileLength, out string reason)
+        {
+            reason = string.Empty;
+            try
+            {
+                string ext = Path.GetExtension(filePath).ToLowerInvariant();
+                if (ext is ".nsp" or ".nsz")
+                {
+                    if (fileLength < 4)
+                    {
+                        reason = $"Усечённый контейнер {Path.GetFileName(filePath)} ({fileLength} байт)";
+                        return false;
+                    }
+                    Span<byte> magic = stackalloc byte[4];
+                    using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                    int r = fs.Read(magic);
+                    if (r < 4 || magic[0] != (byte)'P' || magic[1] != (byte)'F' || magic[2] != (byte)'S' || magic[3] != (byte)'0')
+                    {
+                        reason = $"Повреждён заголовок PFS0 в файле {Path.GetFileName(filePath)} (недокачанный разреженный файл)";
+                        return false;
+                    }
+                }
+                else if (ext is ".xci" or ".xcz")
+                {
+                    if (fileLength < 4096)
+                    {
+                        reason = $"Усечённый контейнер {Path.GetFileName(filePath)} ({fileLength} байт)";
+                        return false;
+                    }
+                    byte[] head = new byte[4096];
+                    using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                    int r = fs.Read(head, 0, head.Length);
+                    bool isHeadMagic = r >= 0x104 && head[0x100] == (byte)'H' && head[0x101] == (byte)'E' && head[0x102] == (byte)'A' && head[0x103] == (byte)'D';
+                    bool hasAnyNonZero = false;
+                    for (int i = 0; i < r; i++)
+                    {
+                        if (head[i] != 0)
+                        {
+                            hasAnyNonZero = true;
+                            break;
+                        }
+                    }
+                    if (!isHeadMagic && !hasAnyNonZero)
+                    {
+                        reason = $"Нулевой разреженный заголовок XCI/XCZ в файле {Path.GetFileName(filePath)}";
+                        return false;
+                    }
+                }
+                return true;
+            }
+            catch (Exception ex)
+            {
+                reason = $"Ошибка проверки заголовка {Path.GetFileName(filePath)}: {ex.Message}";
+                return false;
+            }
+        }
+
+        private static TorrentFileSelectionItem? MatchTorrentFileSelection(
+            string torrentRelPath,
+            IReadOnlyList<TorrentFileSelectionItem> fileSelections)
+        {
+            string fNorm = torrentRelPath.Replace('\\', '/').TrimStart('.', '/');
+            string fFileOnly = Path.GetFileName(torrentRelPath);
+
+            // Pass 1: exact normalized path or directory suffix match
+            foreach (var s in fileSelections)
+            {
+                foreach (var relPath in s.GetEffectiveRelativePaths())
+                {
+                    string sNorm = relPath.Replace('\\', '/').TrimStart('.', '/');
+                    if (string.IsNullOrEmpty(sNorm)) continue;
+                    if (sNorm.Equals(fNorm, StringComparison.OrdinalIgnoreCase) ||
+                        sNorm.EndsWith("/" + fNorm, StringComparison.OrdinalIgnoreCase) ||
+                        fNorm.EndsWith("/" + sNorm, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return s;
+                    }
+                }
+            }
+
+            // Pass 2: basename fallback only when no full relative path matched
+            foreach (var s in fileSelections)
+            {
+                foreach (var relPath in s.GetEffectiveRelativePaths())
+                {
+                    string fn = Path.GetFileName(relPath);
+                    if (!string.IsNullOrEmpty(fn) && fn.Equals(fFileOnly, StringComparison.OrdinalIgnoreCase))
+                        return s;
+                }
+            }
+
+            return null;
+        }
+
+        private static (List<int> SkipIndices, HashSet<string> SkippedRelPaths) ComputeSkippedTorrentEntries(
+            Torrent? parsedTorrent,
+            IReadOnlyList<TorrentFileSelectionItem>? fileSelections)
+        {
+            var skipIdxs = new List<int>();
+            var skippedRelPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            if (fileSelections != null)
+            {
+                foreach (var unsel in fileSelections.Where(f => !f.IsSelected))
+                {
+                    foreach (var rp in unsel.GetEffectiveRelativePaths())
+                    {
+                        string normRp = rp.Replace('\\', '/').TrimStart('.', '/');
+                        if (!string.IsNullOrWhiteSpace(normRp))
+                            skippedRelPaths.Add(normRp);
+                    }
+                }
+            }
+
+            if (parsedTorrent?.Files == null || parsedTorrent.Files.Count == 0 || fileSelections == null || fileSelections.Count == 0)
+                return (skipIdxs, skippedRelPaths);
+
+            var selectedEntries = fileSelections.Where(f => f.IsSelected).ToList();
+            bool treatUnmatchedAsSkipped = selectedEntries.Count > 0;
+
+            for (int fi = 0; fi < parsedTorrent.Files.Count; fi++)
+            {
+                var tf = parsedTorrent.Files[fi];
+                string fNorm = tf.Path.Replace('\\', '/').TrimStart('.', '/');
+                var matchedSel = MatchTorrentFileSelection(tf.Path, fileSelections);
+                bool shouldSkip = (matchedSel != null && !matchedSel.IsSelected) ||
+                                  (treatUnmatchedAsSkipped && matchedSel == null && !IsVirtualPadFilePath(fNorm));
+
+                if (shouldSkip)
+                {
+                    skipIdxs.Add(fi);
+                    if (!string.IsNullOrWhiteSpace(fNorm))
+                        skippedRelPaths.Add(fNorm);
+                }
+            }
+
+            return (skipIdxs, skippedRelPaths);
+        }
+
+        private static bool VerifyDownloadedTorrentFilesIntegrity(
+            string saveDirectory,
+            Torrent? parsedTorrent,
+            IReadOnlyCollection<int> skippedIndices,
+            IReadOnlyList<string> downloadedPaths,
+            out string failureReason)
+        {
+            failureReason = string.Empty;
+
+            if (parsedTorrent?.Files != null && parsedTorrent.Files.Count > 0)
+            {
+                var skipSet = skippedIndices is HashSet<int> hs ? hs : new HashSet<int>(skippedIndices);
+                for (int fi = 0; fi < parsedTorrent.Files.Count; fi++)
+                {
+                    if (skipSet.Contains(fi)) continue;
+                    var tf = parsedTorrent.Files[fi];
+                    string normRel = tf.Path.Replace('\\', '/').TrimStart('.', '/');
+                    if (IsVirtualPadFilePath(normRel) || tf.Length <= 0) continue;
+
+                    string? foundPath = null;
+                    try
+                    {
+                        string direct = StormToolResolver.EnsureSafeSubPath(saveDirectory, tf.Path);
+                        if (File.Exists(direct)) foundPath = direct;
+                    }
+                    catch { }
+
+                    if (foundPath == null && normRel.Contains('/'))
+                    {
+                        string withoutTop = normRel.Substring(normRel.IndexOf('/') + 1);
+                        try
+                        {
+                            string stripped = StormToolResolver.EnsureSafeSubPath(saveDirectory, withoutTop);
+                            if (File.Exists(stripped)) foundPath = stripped;
+                        }
+                        catch { }
+                    }
+
+                    if (foundPath == null)
+                    {
+                        failureReason = $"Отсутствует скачанный файл: {normRel}";
+                        return false;
+                    }
+
+                    long actualLen = new FileInfo(foundPath).Length;
+                    if (actualLen != tf.Length)
+                    {
+                        failureReason = $"Несовпадение размера файла {normRel}: на диске {actualLen}, ожидалось {tf.Length}";
+                        return false;
+                    }
+
+                    if (!HasValidSwitchContainerHeader(foundPath, actualLen, out failureReason))
+                        return false;
+                }
+            }
+
+            foreach (var p in downloadedPaths)
+            {
+                if (!File.Exists(p))
+                {
+                    failureReason = $"Отсутствует выходной файл: {Path.GetFileName(p)}";
+                    return false;
+                }
+                long len = new FileInfo(p).Length;
+                if (len <= 0)
+                {
+                    failureReason = $"Пустой файл (0 байт): {Path.GetFileName(p)}";
+                    return false;
+                }
+                if (!HasValidSwitchContainerHeader(p, len, out failureReason))
+                    return false;
+            }
+
+            return true;
         }
 
         private async Task<(bool RanEmbedded, List<TorrentFileSelectionItem>? Items)> TryResolveMetadataViaEmbeddedLibtorrentAsync(
@@ -5732,7 +5962,9 @@ namespace StormSwitchBox.Services
             int topicSeeds = 0,
             ManualResetEventSlim? pauseEvent = null,
             Action<TorrentManager>? onManagerCreated = null,
-            int stallTimeoutSec = 600)
+            int stallTimeoutSec = 600,
+            Action<string>? onLimitFileReady = null,
+            long initialDownloadLimitBps = 0)
         {
             Directory.CreateDirectory(saveDirectory);
 
@@ -5839,7 +6071,9 @@ namespace StormSwitchBox.Services
                 effectiveTopicId,
                 effectiveTopicSeeds,
                 pauseEvent,
-                rawMagnet).ConfigureAwait(false);
+                rawMagnet,
+                onLimitFileReady,
+                initialDownloadLimitBps).ConfigureAwait(false);
             if (ltResult != null && ltResult.Count > 0)
             {
                 return ltResult;
@@ -6220,6 +6454,17 @@ namespace StormSwitchBox.Services
 
                             if (File.Exists(fullPath))
                             {
+                                long diskLen = new FileInfo(fullPath).Length;
+                                if (f.Length > 0 && diskLen != f.Length)
+                                {
+                                    App.Logger?.Log($"[RuTracker Torrent] Несоответствие размера (MonoTorrent) {Path.GetFileName(fullPath)}: {diskLen}/{f.Length}", LogLevel.Warning);
+                                    continue;
+                                }
+                                if (!HasValidSwitchContainerHeader(fullPath, diskLen, out string headerErr))
+                                {
+                                    App.Logger?.Log($"[RuTracker Torrent] {headerErr}", LogLevel.Warning);
+                                    continue;
+                                }
                                 string ext = Path.GetExtension(fullPath).ToLowerInvariant();
                                 if (ext is ".zip" or ".7z" or ".rar")
                                 {
@@ -6258,6 +6503,11 @@ namespace StormSwitchBox.Services
                             }
                         }
                     }
+                }
+
+                if (downloadedPaths.Count == 0 && (fileSelections == null || fileSelections.Count == 0 || fileSelections.Any(x => x.IsSelected)))
+                {
+                    throw new InvalidOperationException("Не удалось скачать и подтвердить целостность выбранных файлов торрента.");
                 }
 
                 return downloadedPaths;
@@ -7280,7 +7530,9 @@ namespace StormSwitchBox.Services
             string effectiveTopicId,
             int effectiveTopicSeeds,
             ManualResetEventSlim? pauseEvent,
-            MagnetLink? rawMagnet)
+            MagnetLink? rawMagnet,
+            Action<string>? onLimitFileReady = null,
+            long initialDownloadLimitBps = 0)
         {
             string pythonExe = StormToolResolver.ResolvePythonExe()
                 ?? StormToolResolver.ResolveTool(Path.Combine("tools", "nsz", "python.exe"))
@@ -7300,7 +7552,12 @@ namespace StormSwitchBox.Services
             Directory.CreateDirectory(tempDir);
             string peersFile = Path.Combine(tempDir, "peers.txt");
             string controlFile = Path.Combine(tempDir, "control.txt");
+            string limitFile = Path.Combine(tempDir, "limit.txt");
             string? tempTorrentFile = null;
+            string? savedCachedTorrentPath = null;
+            Torrent? parsedTorrent = null;
+            var skipIdxs = new List<int>();
+            var skippedRelativePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             Process? proc = null;
             int? procId = null;
@@ -7308,6 +7565,13 @@ namespace StormSwitchBox.Services
 
             try
             {
+                try
+                {
+                    await File.WriteAllTextAsync(limitFile, Math.Max(0L, initialDownloadLimitBps).ToString(System.Globalization.CultureInfo.InvariantCulture), ct).ConfigureAwait(false);
+                    onLimitFileReady?.Invoke(limitFile);
+                }
+                catch { }
+
                 string ltDhtCacheDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "STORM SWITCH BOX", "dht_cache");
                 Directory.CreateDirectory(ltDhtCacheDir);
                 string ltDhtStateFile = Path.Combine(ltDhtCacheDir, "lt_dht_nodes.bin");
@@ -7318,6 +7582,8 @@ namespace StormSwitchBox.Services
                     $"--save-dir \"{saveDirectory}\"",
                     $"--peers-file \"{peersFile}\"",
                     $"--control-file \"{controlFile}\"",
+                    $"--limit-file \"{limitFile}\"",
+                    $"--download-limit {Math.Max(0L, initialDownloadLimitBps)}",
                     $"--dht-state \"{ltDhtStateFile}\"",
                     $"--listen-port {ltListenPort}",
                     $"--parent-pid {Environment.ProcessId}"
@@ -7325,13 +7591,13 @@ namespace StormSwitchBox.Services
 
                 if (hashLower.Length == 40)
                 {
-                    string cachedTorrentPath = GetCachedTorrentFilePath(hashLower);
-                    if (!string.IsNullOrEmpty(cachedTorrentPath))
+                    savedCachedTorrentPath = GetCachedTorrentFilePath(hashLower);
+                    if (!string.IsNullOrEmpty(savedCachedTorrentPath))
                     {
-                        string? cacheParent = Path.GetDirectoryName(cachedTorrentPath);
+                        string? cacheParent = Path.GetDirectoryName(savedCachedTorrentPath);
                         if (!string.IsNullOrEmpty(cacheParent))
                             Directory.CreateDirectory(cacheParent);
-                        argsList.Add($"--save-torrent \"{cachedTorrentPath}\"");
+                        argsList.Add($"--save-torrent \"{savedCachedTorrentPath}\"");
                     }
                 }
 
@@ -7340,6 +7606,7 @@ namespace StormSwitchBox.Services
                     tempTorrentFile = Path.Combine(tempDir, "release.torrent");
                     await File.WriteAllBytesAsync(tempTorrentFile, rawTorrent, ct).ConfigureAwait(false);
                     argsList.Add($"--torrent \"{tempTorrentFile}\"");
+                    try { Torrent.TryLoad(rawTorrent, out parsedTorrent); } catch { }
                 }
                 else if (rawMagnet != null)
                 {
@@ -7351,59 +7618,13 @@ namespace StormSwitchBox.Services
                     argsList.Add($"--magnet \"{magnetUri}\"");
                 }
 
-                if (fileSelections != null && fileSelections.Count > 0 && fileSelections.Any(f => !f.IsSelected) && rawTorrent != null)
+                (skipIdxs, skippedRelativePaths) = ComputeSkippedTorrentEntries(parsedTorrent, fileSelections);
+                if (skipIdxs.Count > 0)
                 {
-                    try
-                    {
-                        if (Torrent.TryLoad(rawTorrent, out var parsedTorrent) && parsedTorrent.Files != null)
-                        {
-                            var skipIdxs = new List<int>();
-                            for (int fi = 0; fi < parsedTorrent.Files.Count; fi++)
-                            {
-                                var tf = parsedTorrent.Files[fi];
-                                string fNorm = tf.Path.Replace('\\', '/').TrimStart('.').TrimStart('/');
-                                string fFileOnly = Path.GetFileName(tf.Path);
-
-                                var matchedSel = fileSelections.FirstOrDefault(s =>
-                                {
-                                    foreach (var relPath in s.GetEffectiveRelativePaths())
-                                    {
-                                        string sNorm = relPath.Replace('\\', '/').TrimStart('.').TrimStart('/');
-                                        if (sNorm.Equals(fNorm, StringComparison.OrdinalIgnoreCase) ||
-                                            sNorm.EndsWith("/" + fNorm, StringComparison.OrdinalIgnoreCase) ||
-                                            fNorm.EndsWith("/" + sNorm, StringComparison.OrdinalIgnoreCase))
-                                            return true;
-                                        if (Path.GetFileName(relPath).Equals(fFileOnly, StringComparison.OrdinalIgnoreCase))
-                                            return true;
-                                    }
-                                    return false;
-                                });
-
-                                if (matchedSel != null && !matchedSel.IsSelected)
-                                    skipIdxs.Add(fi);
-                            }
-                            if (skipIdxs.Count > 0)
-                                argsList.Add($"--skip-indices {string.Join(",", skipIdxs)}");
-                        }
-                    }
-                    catch { }
+                    argsList.Add($"--skip-indices {string.Join(",", skipIdxs)}");
                 }
 
-                App.Logger?.Log($"[RuTracker Turbo Engine] Задействован встроенный нативный движок libtorrent-rasterbar (Tier 2) для {hashLower}", LogLevel.Info);
-
-                var skippedRelativePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                if (fileSelections != null && fileSelections.Any(f => !f.IsSelected))
-                {
-                    foreach (var unsel in fileSelections.Where(f => !f.IsSelected))
-                    {
-                        foreach (var rp in unsel.GetEffectiveRelativePaths())
-                        {
-                            string normRp = rp.Replace('\\', '/').TrimStart('.', '/');
-                            if (!string.IsNullOrWhiteSpace(normRp))
-                                skippedRelativePaths.Add(normRp);
-                        }
-                    }
-                }
+                App.Logger?.Log($"[RuTracker Turbo Engine] Задействован встроенный нативный движок libtorrent-rasterbar (Tier 2) для {hashLower} (порт {ltListenPort}, пропущено файлов: {skipIdxs.Count})", LogLevel.Info);
 
                 peerFeederCts = new CancellationTokenSource();
                 var feederToken = peerFeederCts.Token;
@@ -7552,7 +7773,10 @@ namespace StormSwitchBox.Services
 
                 string topicLabel = !string.IsNullOrEmpty(effectiveTopicId) ? $"RuTracker #1605 (t={effectiveTopicId})" : "RuTracker #1605";
 
-                while (!proc.HasExited && !ct.IsCancellationRequested)
+                bool reachedFinished = false;
+                string? engineError = null;
+
+                while (!ct.IsCancellationRequested)
                 {
                     string? line = await proc.StandardOutput.ReadLineAsync(ct).ConfigureAwait(false);
                     if (line == null) break;
@@ -7565,11 +7789,17 @@ namespace StormSwitchBox.Services
                             var root = doc.RootElement;
                             string state = root.TryGetProperty("state", out var stEl) ? (stEl.GetString() ?? "") : "";
 
-                            if (state == "paused" || (pauseEvent != null && !pauseEvent.IsSet))
-                                continue;
-
                             if (state == "stopped")
                                 break;
+
+                            if (state == "error")
+                            {
+                                engineError = root.TryGetProperty("error", out var errEl) ? errEl.GetString() : "Ошибка целостности";
+                                break;
+                            }
+
+                            if (state == "paused" || (pauseEvent != null && !pauseEvent.IsSet && state != "finished"))
+                                continue;
 
                             double pct = root.TryGetProperty("pct", out var pEl) ? pEl.GetDouble() : 0.0;
                             long speedBps = root.TryGetProperty("speed_bps", out var spEl) ? spEl.GetInt64() : 0L;
@@ -7602,7 +7832,10 @@ namespace StormSwitchBox.Services
                             });
 
                             if (state == "finished")
+                            {
+                                reachedFinished = true;
                                 break;
+                            }
                         }
                         catch { }
                     }
@@ -7616,12 +7849,29 @@ namespace StormSwitchBox.Services
                 }
 
                 if (proc != null) await proc.WaitForExitAsync(ct).ConfigureAwait(false);
-                if (proc != null && proc.ExitCode != 0)
+                int exitCode = proc?.ExitCode ?? -1;
+                if (!reachedFinished || exitCode != 0)
                 {
                     string errDump;
                     lock (stderrBuilder) { errDump = stderrBuilder.ToString().Trim(); }
-                    if (!string.IsNullOrEmpty(errDump))
-                        App.Logger?.Log($"[RuTracker Turbo Engine] libtorrent завершился с кодом {proc.ExitCode}: {errDump}", LogLevel.Warning);
+                    App.Logger?.Log(
+                        $"[RuTracker Turbo Engine] libtorrent прервался без подтверждённого завершения для {hashLower} (finished={reachedFinished}, exit={exitCode}, err='{engineError ?? ""}'): {errDump}",
+                        LogLevel.Warning);
+                    return null;
+                }
+
+                if (parsedTorrent == null && !string.IsNullOrEmpty(savedCachedTorrentPath) && File.Exists(savedCachedTorrentPath))
+                {
+                    try
+                    {
+                        byte[] resolvedTorBytes = await File.ReadAllBytesAsync(savedCachedTorrentPath, ct).ConfigureAwait(false);
+                        if (Torrent.TryLoad(resolvedTorBytes, out var metaTor))
+                        {
+                            parsedTorrent = metaTor;
+                            (skipIdxs, skippedRelativePaths) = ComputeSkippedTorrentEntries(parsedTorrent, fileSelections);
+                        }
+                    }
+                    catch { }
                 }
 
                 // Собираем только реально выбранные скачанные файлы (исключая .parts и пропущенные файлы)
@@ -7680,6 +7930,12 @@ namespace StormSwitchBox.Services
                             downloadedPaths.Add(targetPath);
                         }
                     }
+                }
+
+                if (!VerifyDownloadedTorrentFilesIntegrity(saveDirectory, parsedTorrent, skipIdxs, downloadedPaths, out string verifyErr))
+                {
+                    App.Logger?.Log($"[RuTracker Turbo Engine] Отклонены недокачанные или повреждённые файлы для {hashLower}: {verifyErr}", LogLevel.Warning);
+                    return null;
                 }
 
                 return downloadedPaths.Count > 0 ? downloadedPaths : null;

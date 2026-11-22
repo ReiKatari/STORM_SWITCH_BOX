@@ -301,6 +301,29 @@
                                 </StackPanel>
                                 <NumberBox HorizontalAlignment="Right" Width="220" Value="{x:Bind Settings.UsedCores, Mode=TwoWay}" Minimum="1" Maximum="{x:Bind MaxCores, Mode=OneTime}" SpinButtonPlacementMode="Inline" ValueChanged="Setting_ValueChanged" VerticalAlignment="Center"/>
                             </Grid>
+
+                            <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
+
+                            <!-- Лимит скорости скачивания RuTracker -->
+                            <Grid>
+                                <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
+                                    <TextBlock x:Name="RtSpeedLimitTitleTxt" Text="Лимит скорости скачивания RuTracker" FontWeight="Medium"/>
+                                    <TextBlock x:Name="RtSpeedLimitDescTxt" Text="Режим Авто оставляет резерв канала (по умолчанию 2 МБ/с) для стабильной работы браузера и системы" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" VerticalAlignment="Center">
+                                    <ComboBox x:Name="RtSpeedLimitModeCombo" Width="220" SelectionChanged="RtSpeedLimitModeCombo_Changed" VerticalAlignment="Center">
+                                        <ComboBoxItem Content="Авто (макс - 2 МБ/с)" Tag="AutoHeadroom"/>
+                                        <ComboBoxItem Content="Пользовательский (МБ/с)" Tag="Custom"/>
+                                        <ComboBoxItem Content="Без лимита" Tag="Unlimited"/>
+                                    </ComboBox>
+                                    <NumberBox x:Name="RtCustomSpeedLimitNumberBox" Width="125" Minimum="1" Maximum="2000" SmallChange="1"
+                                               SpinButtonPlacementMode="Inline" ValueChanged="RtCustomSpeedNumberBox_ValueChanged" VerticalAlignment="Center" Visibility="Collapsed"
+                                               ToolTipService.ToolTip="Общий лимит скорости для всех закачек (МБ/с)"/>
+                                    <NumberBox x:Name="RtReserveSpeedNumberBox" Width="125" Minimum="0.5" Maximum="50" SmallChange="0.5"
+                                               SpinButtonPlacementMode="Inline" ValueChanged="RtReserveSpeedNumberBox_ValueChanged" VerticalAlignment="Center"
+                                               ToolTipService.ToolTip="Резерв скорости от максимума канала в режиме Авто (МБ/с)"/>
+                                </StackPanel>
+                            </Grid>
                         </StackPanel>
                     </Border>
                 </StackPanel>

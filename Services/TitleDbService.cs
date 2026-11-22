@@ -122,8 +122,19 @@ namespace StormSwitchBox.Services
         private const string DbUrl = "https://tinfoil.media/repo/db/titles.json";
         private const string FallbackDbUrl = "https://raw.githubusercontent.com/blawar/titledb/master/US.en.json";
 
-        private readonly ConcurrentDictionary<string, string> _observedDisplayVersions = new(StringComparer.OrdinalIgnoreCase);
+        public sealed class ObservedVersionEntry
+        {
+            public string Version { get; set; } = string.Empty;
+            public bool Authoritative { get; set; }
+        }
+
+        private readonly ConcurrentDictionary<string, ObservedVersionEntry> _observedDisplayVersions = new(StringComparer.OrdinalIgnoreCase);
         private static readonly string _observedVersionsCachePath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "STORM SWITCH BOX",
+            "cache",
+            "known_display_versions_v2.json");
+        private static readonly string _legacyObservedVersionsCachePath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "STORM SWITCH BOX",
             "cache",
@@ -864,22 +875,58 @@ namespace StormSwitchBox.Services
         {
             try
             {
+                // Purge legacy unverified cache (<= 8.0.11) so poisoned old-update versions cannot persist
+                if (File.Exists(_legacyObservedVersionsCachePath))
+                {
+                    try { File.Delete(_legacyObservedVersionsCachePath); } catch { }
+                }
+
                 if (!File.Exists(_observedVersionsCachePath)) return;
                 string json = File.ReadAllText(_observedVersionsCachePath);
-                var loaded = JsonSerializer.Deserialize<Dictionary<string, string>>(json);
+                var loaded = JsonSerializer.Deserialize<Dictionary<string, ObservedVersionEntry>>(json);
                 if (loaded == null) return;
                 foreach (var kvp in loaded)
                 {
-                    if (!string.IsNullOrWhiteSpace(kvp.Key) && IsValidSemanticVersion(kvp.Value))
+                    if (!string.IsNullOrWhiteSpace(kvp.Key) && kvp.Value != null && IsValidSemanticVersion(kvp.Value.Version))
                     {
-                        _observedDisplayVersions[kvp.Key] = kvp.Value.Trim().TrimStart('v', 'V');
+                        _observedDisplayVersions[kvp.Key] = new ObservedVersionEntry
+                        {
+                            Version = kvp.Value.Version.Trim().TrimStart('v', 'V'),
+                            Authoritative = kvp.Value.Authoritative
+                        };
                     }
                 }
             }
             catch { }
         }
 
-        public void RecordObservedDisplayVersion(string? titleId, string? versionCode, string? displayVersion)
+        private void ScheduleSaveObservedDisplayVersions()
+        {
+            if (Interlocked.Exchange(ref _observedVersionsSaveScheduled, 1) == 0)
+            {
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await Task.Delay(1200).ConfigureAwait(false);
+                        var dir = Path.GetDirectoryName(_observedVersionsCachePath);
+                        if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+                        var snap = new Dictionary<string, ObservedVersionEntry>(_observedDisplayVersions, StringComparer.OrdinalIgnoreCase);
+                        string outJson = JsonSerializer.Serialize(snap);
+                        string tmp = _observedVersionsCachePath + ".tmp";
+                        File.WriteAllText(tmp, outJson);
+                        File.Move(tmp, _observedVersionsCachePath, true);
+                    }
+                    catch { }
+                    finally
+                    {
+                        Interlocked.Exchange(ref _observedVersionsSaveScheduled, 0);
+                    }
+                });
+            }
+        }
+
+        public void RecordObservedDisplayVersion(string? titleId, string? versionCode, string? displayVersion, bool isAuthoritative = false)
         {
             try
             {
@@ -892,39 +939,51 @@ namespace StormSwitchBox.Services
                 string cleanVer = displayVersion.Trim().TrimStart('v', 'V');
                 if (!IsValidSemanticVersion(cleanVer)) return;
 
-                string key = $"{baseTid}:{patchCode}";
-                if (_observedDisplayVersions.TryGetValue(key, out var existing) &&
-                    string.Equals(existing, cleanVer, StringComparison.OrdinalIgnoreCase))
+                string tidPrefix = baseTid + ":";
+                foreach (var kvp in _observedDisplayVersions.ToArray())
                 {
-                    return;
+                    if (!kvp.Key.StartsWith(tidPrefix, StringComparison.OrdinalIgnoreCase)) continue;
+                    if (!uint.TryParse(kvp.Key.AsSpan(tidPrefix.Length), out uint otherPatch) || otherPatch == patchCode) continue;
+
+                    if (otherPatch < patchCode)
+                    {
+                        if (!isAuthoritative && CompareSemanticVersions(cleanVer, kvp.Value.Version) < 0)
+                        {
+                            // Reject non-authoritative downgrade below an already observed smaller patch version
+                            return;
+                        }
+                    }
+                    else
+                    {
+                        if (!kvp.Value.Authoritative && CompareSemanticVersions(kvp.Value.Version, cleanVer) < 0)
+                        {
+                            _observedDisplayVersions.TryRemove(kvp.Key, out _);
+                        }
+                    }
                 }
 
-                _observedDisplayVersions[key] = cleanVer;
-                if (Interlocked.Exchange(ref _observedVersionsSaveScheduled, 1) == 0)
+                string key = $"{baseTid}:{patchCode}";
+                if (_observedDisplayVersions.TryGetValue(key, out var existing))
                 {
-                    _ = Task.Run(async () =>
-                    {
-                        try
-                        {
-                            await Task.Delay(1200).ConfigureAwait(false);
-                            var dir = Path.GetDirectoryName(_observedVersionsCachePath);
-                            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-                            var snap = new Dictionary<string, string>(_observedDisplayVersions, StringComparer.OrdinalIgnoreCase);
-                            string outJson = JsonSerializer.Serialize(snap);
-                            File.WriteAllText(_observedVersionsCachePath, outJson);
-                        }
-                        catch { }
-                        finally
-                        {
-                            Interlocked.Exchange(ref _observedVersionsSaveScheduled, 0);
-                        }
-                    });
+                    if (existing.Authoritative && !isAuthoritative)
+                        return;
+                    if (!isAuthoritative && CompareSemanticVersions(cleanVer, existing.Version) <= 0)
+                        return;
+                    if (existing.Authoritative && isAuthoritative && string.Equals(existing.Version, cleanVer, StringComparison.OrdinalIgnoreCase))
+                        return;
                 }
+
+                _observedDisplayVersions[key] = new ObservedVersionEntry
+                {
+                    Version = cleanVer,
+                    Authoritative = isAuthoritative
+                };
+                ScheduleSaveObservedDisplayVersions();
             }
             catch { }
         }
 
-        public bool TryResolveDisplayVersion(string? titleId, int patchCode, out string displayVersion)
+        public bool TryResolveAuthoritativeDisplayVersion(string? titleId, int patchCode, out string displayVersion)
         {
             displayVersion = string.Empty;
             if (string.IsNullOrWhiteSpace(titleId) || patchCode <= 0) return false;
@@ -932,9 +991,10 @@ namespace StormSwitchBox.Services
             if (baseTid.Length != 16) return false;
 
             string cacheKey = $"{baseTid}:{patchCode}";
-            if (_observedDisplayVersions.TryGetValue(cacheKey, out var cachedVer) && IsValidSemanticVersion(cachedVer))
+            if (_observedDisplayVersions.TryGetValue(cacheKey, out var cached) &&
+                cached != null && cached.Authoritative && IsValidSemanticVersion(cached.Version))
             {
-                displayVersion = cachedVer;
+                displayVersion = cached.Version;
                 return true;
             }
 
@@ -954,6 +1014,27 @@ namespace StormSwitchBox.Services
                 IsValidSemanticVersion(updSem))
             {
                 displayVersion = updSem.Trim().TrimStart('v', 'V');
+                return true;
+            }
+
+            return false;
+        }
+
+        public bool TryResolveDisplayVersion(string? titleId, int patchCode, out string displayVersion)
+        {
+            if (TryResolveAuthoritativeDisplayVersion(titleId, patchCode, out displayVersion))
+                return true;
+
+            displayVersion = string.Empty;
+            if (string.IsNullOrWhiteSpace(titleId) || patchCode <= 0) return false;
+            string baseTid = RuTrackerModService.NormalizeSwitchBaseApplicationTitleId(titleId);
+            if (baseTid.Length != 16) return false;
+
+            string cacheKey = $"{baseTid}:{patchCode}";
+            if (_observedDisplayVersions.TryGetValue(cacheKey, out var cached) &&
+                cached != null && IsValidSemanticVersion(cached.Version))
+            {
+                displayVersion = cached.Version;
                 return true;
             }
 

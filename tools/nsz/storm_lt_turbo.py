@@ -50,7 +50,7 @@ DEFAULT_PUBLIC_TRACKERS = [
 ]
 
 
-def build_turbo_settings(listen_port=44859, metadata_only=False):
+def build_turbo_settings(listen_port=44859, metadata_only=False, download_limit=0):
     default_keys = set(lt.default_settings().keys())
     base = {}
     try:
@@ -95,14 +95,14 @@ def build_turbo_settings(listen_port=44859, metadata_only=False):
         "utp_target_delay": 200,
         "allowed_fast_set_size": 5,
         "suggest_mode": 0,
-        "download_rate_limit": 0,
+        "download_rate_limit": max(0, int(download_limit)) if download_limit and int(download_limit) > 0 else 0,
         "upload_rate_limit": 0,
         "peer_turnover": 0,
         "piece_extent_affinity": True,
         "coalesce_reads": True,
         "coalesce_writes": True,
         "rate_limit_ip_overhead": False,
-        "max_queued_disk_bytes": 512 * 1024 * 1024,
+        "max_queued_disk_bytes": 64 * 1024 * 1024,
         "send_buffer_watermark": 67108864,
         "send_buffer_low_watermark": 8388608,
         "send_buffer_watermark_factor": 200,
@@ -117,8 +117,8 @@ def build_turbo_settings(listen_port=44859, metadata_only=False):
         "prefer_rc4": True,
         "peer_fingerprint": "-qB5000-",
         "user_agent": "qBittorrent/5.0.0",
-        "aio_threads": 16,
-        "hashing_threads": 8,
+        "aio_threads": 4,
+        "hashing_threads": 2,
         "dht_bootstrap_nodes": (
             "router.bittorrent.com:6881,"
             "dht.transmissionbt.com:6881,"
@@ -222,6 +222,188 @@ def flush_torrent_cache(ses, handle, timeout_sec=5.0):
         except Exception:
             return
         time.sleep(0.05)
+
+
+def read_limit_file(limit_file):
+    if not limit_file or not os.path.isfile(limit_file):
+        return None
+    try:
+        with open(limit_file, "r", encoding="utf-8", errors="ignore") as lf:
+            raw = lf.read().strip()
+        if not raw:
+            return None
+        val = int(float(raw))
+        return max(0, val)
+    except Exception:
+        return None
+
+
+def apply_download_limit(ses, handle, limit_bps):
+    val = int(limit_bps) if limit_bps and int(limit_bps) > 0 else 0
+    try:
+        ses.apply_settings({"download_rate_limit": val})
+    except Exception:
+        pass
+    if handle is not None:
+        try:
+            handle.set_download_limit(val if val > 0 else -1)
+        except Exception:
+            pass
+
+
+def is_pad_file(fs, idx):
+    try:
+        if hasattr(fs, "file_flags") and hasattr(lt.file_storage, "flag_pad_file"):
+            if (int(fs.file_flags(idx)) & int(lt.file_storage.flag_pad_file)) != 0:
+                return True
+    except Exception:
+        pass
+    try:
+        rel = fs.file_path(idx).replace("\\", "/").lstrip("/")
+        if "/.pad/" in ("/" + rel.lower()):
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def check_all_wanted_file_progress(handle, ti, skip_set):
+    if ti is None:
+        return True, ""
+    try:
+        fs = ti.files()
+        num_files = fs.num_files()
+        fp = handle.file_progress()
+        if fp is None or len(fp) < num_files:
+            return True, ""
+        for i in range(num_files):
+            if i in skip_set or is_pad_file(fs, i):
+                continue
+            expected = fs.file_size(i)
+            if expected > 0 and fp[i] < expected:
+                return False, f"Incomplete file_progress at index {i} ({fs.file_path(i)}): {fp[i]}/{expected}"
+        return True, ""
+    except Exception:
+        return True, ""
+
+
+def verify_downloaded_files_integrity(ti, save_dir, skip_set):
+    if ti is None:
+        return False, "Torrent metadata missing during integrity verification"
+    try:
+        fs = ti.files()
+        num_files = fs.num_files()
+        for i in range(num_files):
+            if i in skip_set or is_pad_file(fs, i):
+                continue
+            expected_size = fs.file_size(i)
+            if expected_size <= 0:
+                continue
+            rel = fs.file_path(i).replace("\\", "/").lstrip("/")
+            full_path = os.path.normpath(os.path.join(save_dir, rel.replace("/", os.sep)))
+            if not os.path.isfile(full_path):
+                return False, f"Missing downloaded file: {rel}"
+            actual_size = os.path.getsize(full_path)
+            if actual_size != expected_size:
+                return False, f"Size mismatch for {rel}: expected {expected_size}, got {actual_size}"
+            ext = os.path.splitext(full_path)[1].lower()
+            if ext in (".nsp", ".nsz"):
+                if actual_size < 4:
+                    return False, f"Truncated Switch container {rel}: {actual_size} bytes"
+                with open(full_path, "rb") as fp:
+                    magic = fp.read(4)
+                if magic != b"PFS0":
+                    return False, f"Corrupted header in {rel}: expected PFS0, got {magic!r}"
+            elif ext in (".xci", ".xcz") and expected_size >= 4096:
+                with open(full_path, "rb") as fp:
+                    head = fp.read(4096)
+                is_head_magic = len(head) >= 0x104 and head[0x100:0x104] == b"HEAD"
+                if not is_head_magic and not any(head):
+                    return False, f"Sparse zero-filled XCI/XCZ header in {rel}"
+        return True, ""
+    except Exception as ex:
+        return False, f"Integrity verification error: {ex}"
+
+
+def finalize_torrent_and_flush(ses, handle, dht_state_path):
+    try:
+        ses.set_alert_mask(lt.alert.category_t.storage_notification | lt.alert.category_t.status_notification)
+    except Exception:
+        pass
+
+    try:
+        handle.unset_flags(lt.torrent_flags.auto_managed)
+    except Exception:
+        pass
+
+    try:
+        handle.pause()
+    except Exception:
+        pass
+
+    pause_deadline = time.time() + 30.0
+    while time.time() < pause_deadline:
+        paused_hit = False
+        try:
+            for a in ses.pop_alerts():
+                if type(a).__name__ == "torrent_paused_alert":
+                    paused_hit = True
+                    break
+        except Exception:
+            break
+        if paused_hit:
+            break
+        try:
+            st_p = handle.status()
+            if (int(st_p.flags) & int(lt.torrent_flags.paused)) != 0:
+                break
+        except Exception:
+            break
+        time.sleep(0.05)
+
+    try:
+        handle.flush_cache()
+        flush_deadline = time.time() + 60.0
+        while time.time() < flush_deadline:
+            flushed = False
+            try:
+                for a in ses.pop_alerts():
+                    if type(a).__name__ == "cache_flushed_alert":
+                        flushed = True
+                        break
+            except Exception:
+                break
+            if flushed:
+                break
+            time.sleep(0.05)
+    except Exception:
+        pass
+
+    save_dht_state_only(ses, dht_state_path)
+
+    try:
+        if handle.is_valid():
+            ses.remove_torrent(handle)
+            rem_deadline = time.time() + 30.0
+            while time.time() < rem_deadline:
+                removed = not handle.is_valid()
+                try:
+                    for a in ses.pop_alerts():
+                        if type(a).__name__ == "torrent_removed_alert":
+                            removed = True
+                            break
+                except Exception:
+                    break
+                if removed:
+                    break
+                time.sleep(0.05)
+    except Exception:
+        pass
+
+    try:
+        ses.pause()
+    except Exception:
+        pass
 
 
 def merge_trackers(existing_trackers):
@@ -1021,6 +1203,8 @@ def main():
     parser.add_argument("--seed-daemon", action="store_true", help="Run persistent multi-torrent seeding daemon controlled via JSON stdin")
     parser.add_argument("--resume-dir", type=str, default=None, help="Directory for FastResume files in seed-daemon mode")
     parser.add_argument("--save-torrent", type=str, default=None, help="Save resolved .torrent file path")
+    parser.add_argument("--download-limit", type=int, default=0, help="Initial download rate limit in bytes/sec (0 = unlimited)")
+    parser.add_argument("--limit-file", type=str, default=None, help="Path to live download rate limit file in bytes/sec")
     parser.add_argument("--timeout", type=float, default=4.5, help="Metadata-only timeout in seconds")
     args = parser.parse_args()
 
@@ -1036,7 +1220,12 @@ def main():
     ses = lt.session()
     if args.dht_state and not args.seed_daemon:
         load_dht_state_only(ses, args.dht_state)
-    ses.apply_settings(build_turbo_settings(args.listen_port, metadata_only=args.metadata_only))
+    init_limit = max(0, int(getattr(args, "download_limit", 0) or 0))
+    if not args.metadata_only and not args.seed_daemon and getattr(args, "limit_file", None):
+        lf_init = read_limit_file(args.limit_file)
+        if lf_init is not None:
+            init_limit = lf_init
+    ses.apply_settings(build_turbo_settings(args.listen_port, metadata_only=args.metadata_only, download_limit=init_limit))
 
     if args.seed_daemon:
         rc = run_seed_daemon(ses, args)
@@ -1064,8 +1253,11 @@ def main():
             if part.isdigit():
                 skip_set.add(int(part))
 
+    file_prio_applied = False
+    ti_snapshot = None
     if args.torrent and os.path.exists(args.torrent):
         info = lt.torrent_info(args.torrent)
+        ti_snapshot = info
         atp = lt.add_torrent_params()
         atp.ti = info
         atp.save_path = args.save_dir
@@ -1077,14 +1269,19 @@ def main():
             atp.trackers = clean_trackers
         except Exception:
             pass
-        if skip_set:
-            try:
-                num_f = info.num_files()
-                atp.file_priorities = [0 if idx in skip_set else 4 for idx in range(num_f)]
-            except Exception:
-                pass
+        try:
+            num_f = info.num_files()
+            atp.file_priorities = [0 if idx in skip_set else 4 for idx in range(num_f)]
+            file_prio_applied = True
+        except Exception:
+            pass
         handle = ses.add_torrent(atp)
         apply_clean_trackers(handle, clean_trackers)
+        if file_prio_applied and skip_set:
+            try:
+                handle.prioritize_files([0 if idx in skip_set else 4 for idx in range(info.num_files())])
+            except Exception:
+                pass
     elif args.magnet:
         atp = lt.parse_magnet_uri(args.magnet)
         atp.save_path = args.save_dir
@@ -1102,19 +1299,19 @@ def main():
         sys.stderr.write("Error: Torrent file does not exist and no valid --magnet was provided.\n")
         sys.exit(1)
 
-    for _fn, _val in (("set_max_connections", -1), ("set_max_uploads", -1), ("set_download_limit", -1), ("set_upload_limit", -1)):
+    for _fn, _val in (("set_max_connections", -1), ("set_max_uploads", -1), ("set_upload_limit", -1)):
         try:
             getattr(handle, _fn)(_val)
         except Exception:
             pass
+    last_applied_limit = init_limit
+    apply_download_limit(ses, handle, init_limit)
 
     try:
         handle.force_reannounce()
         handle.force_dht_announce()
     except Exception:
         pass
-
-    file_prio_applied = False
     connected_peers = set()
     ordered_peers = []
     reinject_cursor = 0
@@ -1184,9 +1381,11 @@ def main():
 
     last_parent_check = 0.0
     last_tracker_reannounce = time.time()
+    finished_verified = False
+    abort_exit_code = 4
     try:
         inject_new_peers(force_now=True)
-        while handle.is_valid():
+        while handle is not None and handle.is_valid():
             now_check = time.time()
             if args.parent_pid and (now_check - last_parent_check) >= 1.0:
                 last_parent_check = now_check
@@ -1197,6 +1396,12 @@ def main():
                         pass
                     flush_torrent_cache(ses, handle)
                     break
+
+            if args.limit_file:
+                new_limit = read_limit_file(args.limit_file)
+                if new_limit is not None and new_limit != last_applied_limit:
+                    last_applied_limit = new_limit
+                    apply_download_limit(ses, handle, new_limit)
 
             if args.control_file and os.path.exists(args.control_file):
                 try:
@@ -1264,18 +1469,25 @@ def main():
                 continue
 
             last_is_meta = False
+            if ti_snapshot is None:
+                try:
+                    ti_snapshot = st.torrent_file if hasattr(st, "torrent_file") and st.torrent_file is not None else handle.torrent_file()
+                except Exception:
+                    ti_snapshot = None
+
             if not file_prio_applied:
                 file_prio_applied = True
                 try:
-                    ti = st.torrent_file if hasattr(st, "torrent_file") and st.torrent_file is not None else handle.torrent_file()
-                    if ti is not None:
-                        num_files = ti.num_files()
+                    if ti_snapshot is not None:
+                        num_files = ti_snapshot.num_files()
                         for i in range(num_files):
                             handle.file_priority(i, 0 if i in skip_set else 4)
                         if args.save_torrent and (not os.path.exists(args.save_torrent) or os.path.getsize(args.save_torrent) <= 64):
-                            save_torrent_info_file(ti, args.save_torrent)
+                            save_torrent_info_file(ti_snapshot, args.save_torrent)
                 except Exception:
                     pass
+                time.sleep(0.35)
+                continue
 
             total_wanted = st.total_wanted
             total_wanted_done = st.total_wanted_done
@@ -1291,25 +1503,68 @@ def main():
             last_done = total_wanted_done
             last_total = total_wanted
 
-            is_finished = st.is_finished or (total_wanted > 0 and total_wanted_done >= total_wanted)
+            complete_state = st.state in (lt.torrent_status.states.finished, lt.torrent_status.states.seeding)
+            is_finished = has_meta and file_prio_applied and complete_state and total_wanted > 0 and total_wanted_done >= total_wanted
             if is_finished:
-                flush_torrent_cache(ses, handle)
-                emit_status(100.0, 0, st.num_seeds, non_seed_peers, swarm, total_wanted, total_wanted, "finished")
+                fp_ok, fp_err = check_all_wanted_file_progress(handle, ti_snapshot, skip_set)
+                if not fp_ok:
+                    emit_status(pct, st.download_rate, st.num_seeds, non_seed_peers, swarm, total_wanted_done, total_wanted, "downloading")
+                    time.sleep(0.3)
+                    continue
+
+                fin_seeds = st.num_seeds
+                finalize_torrent_and_flush(ses, handle, args.dht_state)
+                handle = None
+                ses = None
+
+                ok_disk, disk_err = verify_downloaded_files_integrity(ti_snapshot, args.save_dir, skip_set)
+                if not ok_disk:
+                    err_payload = {
+                        "pct": round(float(pct), 2),
+                        "speed_bps": 0,
+                        "seeds": int(fin_seeds),
+                        "peers": int(non_seed_peers),
+                        "swarm": int(swarm),
+                        "done_bytes": int(total_wanted_done),
+                        "total_bytes": int(total_wanted),
+                        "state": "error",
+                        "error": disk_err,
+                        "is_meta": False,
+                    }
+                    sys.stdout.write(json.dumps(err_payload) + "\n")
+                    sys.stdout.flush()
+                    sys.stderr.write(f"Post-download integrity verification failed: {disk_err}\n")
+                    sys.stderr.flush()
+                    sys.exit(3)
+
+                emit_status(100.0, 0, fin_seeds, non_seed_peers, swarm, total_wanted, total_wanted, "finished")
+                finished_verified = True
                 break
 
             emit_status(pct, st.download_rate, st.num_seeds, non_seed_peers, swarm, total_wanted_done, total_wanted, "downloading")
             time.sleep(0.3)
 
     except KeyboardInterrupt:
-        flush_torrent_cache(ses, handle)
+        if ses is not None and handle is not None:
+            flush_torrent_cache(ses, handle)
+    except SystemExit:
+        raise
     except Exception as ex:
         sys.stderr.write(f"Libtorrent error: {ex}\n")
-        save_dht_state_only(ses, args.dht_state)
+        if ses is not None:
+            save_dht_state_only(ses, args.dht_state)
         sys.exit(2)
 
-    save_dht_state_only(ses, args.dht_state)
+    if ses is not None:
+        save_dht_state_only(ses, args.dht_state)
+        try:
+            ses.pause()
+        except Exception:
+            pass
     sys.stdout.flush()
-    os._exit(0)
+    if finished_verified:
+        sys.exit(0)
+    sys.exit(abort_exit_code)
 
 
 if __name__ == "__main__":

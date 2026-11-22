@@ -2114,13 +2114,41 @@ public partial class TasksViewModel : ObservableObject
 				SaveFilesCount = t.SaveFilesCount,
 				ModNameRomFs = t.ModNameRomFs,
 				ModNameExeFs = t.ModNameExeFs,
-				IconBytes = t.IconBytes,
-				CustomMetadata = t.CustomMetadata
+				IconBytes = null,
+				CustomMetadata = CloneMetadataLight(t.CustomMetadata)
 			};
+
+			if (t.IconBytes != null && t.IconBytes.Length > 64)
+			{
+				var cachedTaskRef = t;
+				var cachedIconCopy = t.IconBytes;
+				_ = Task.Run(() =>
+				{
+					try { HistoryService.SaveTaskIconToCache(cachedTaskRef, cachedIconCopy); } catch { }
+				});
+			}
 
 			if (t.IsRuTrackerTask && t.RuTrackerPayload != null)
 			{
 				var payload = t.RuTrackerPayload;
+				string ih = payload.Topic?.InfoHash ?? string.Empty;
+				if (string.IsNullOrWhiteSpace(ih) && payload.MagnetLink != null)
+					ih = payload.MagnetLink.InfoHashes.V1OrV2.ToHex().ToUpperInvariant();
+				if (string.IsNullOrWhiteSpace(ih) && payload.TorrentBytes != null && payload.TorrentBytes.Length > 64 &&
+					MonoTorrent.Torrent.TryLoad(payload.TorrentBytes, out var parsedTor) && parsedTor != null)
+					ih = parsedTor.InfoHashes.V1OrV2.ToHex().ToUpperInvariant();
+
+				string cleanHash = (ih ?? string.Empty).Trim().ToUpperInvariant();
+				string cachePath = cleanHash.Length == 40 ? RuTrackerModService.GetCachedTorrentFilePath(cleanHash) : string.Empty;
+				if (cleanHash.Length == 40 && payload.TorrentBytes != null && payload.TorrentBytes.Length > 64)
+				{
+					byte[] torBytesCopy = payload.TorrentBytes;
+					_ = Task.Run(() =>
+					{
+						try { RuTrackerModService.TrySaveCachedTorrentBytes(cleanHash, torBytesCopy); } catch { }
+					});
+				}
+
 				snap.RuTrackerSnapshot = new RuTrackerTaskSnapshot
 				{
 					TopicId = payload.Topic?.TopicId ?? "",
@@ -2128,9 +2156,10 @@ public partial class TasksViewModel : ObservableObject
 					Category = payload.Topic?.Category ?? "",
 					Seeds = payload.Topic?.Seeds ?? 0,
 					MagnetUri = payload.MagnetLink?.ToV1String() ?? payload.MagnetLink?.ToString() ?? payload.Topic?.MagnetUri ?? "",
-					InfoHash = payload.Topic?.InfoHash ?? "",
+					InfoHash = cleanHash,
 					DirectTorrentUrl = payload.Topic?.DirectTorrentUrl ?? "",
-					TorrentBytes = payload.TorrentBytes,
+					TorrentCachePath = cachePath,
+					TorrentBytes = null,
 					TorrentFiles = payload.TorrentFiles.Select(tf => new PersistedTorrentFileItem
 					{
 						RelativePath = tf.RelativePath,
@@ -2222,128 +2251,160 @@ public partial class TasksViewModel : ObservableObject
 		catch { }
 	}
 
+	private static GameMetadataEditModel? CloneMetadataLight(GameMetadataEditModel? src)
+	{
+		if (src == null) return null;
+		return new GameMetadataEditModel
+		{
+			TitleId = src.TitleId,
+			Version = src.Version,
+			TitleNameRussian = src.TitleNameRussian,
+			TitleNameEnglish = src.TitleNameEnglish,
+			Publisher = src.Publisher,
+			SourceFilePath = src.SourceFilePath,
+			CustomIconPath = src.CustomIconPath,
+			OriginalIconBytes = null,
+			CustomIconBytes = null,
+			RawNacpBytes = null,
+			TempExtractDir = src.TempExtractDir,
+			ModNameRomFs = src.ModNameRomFs,
+			ModNameExeFs = src.ModNameExeFs,
+			HasRomFs = src.HasRomFs,
+			HasExeFs = src.HasExeFs,
+			Is3ds = src.Is3ds,
+			BadgeRus = src.BadgeRus,
+			Badge60Fps = src.Badge60Fps,
+			BadgeMod = src.BadgeMod,
+			BadgeAllDlc = src.BadgeAllDlc,
+			CustomBadgeText = src.CustomBadgeText,
+			BadgePosition = src.BadgePosition,
+			CustomAudioWavPath = src.CustomAudioWavPath
+		};
+	}
+
 	public void LoadPersistedTasks()
 	{
 		try
 		{
+			RuTrackerDownloadQueueService.Instance.EnsureInitialized();
+
 			string p = GetPersistedTasksPath();
-			if (!File.Exists(p)) return;
-
-			string json = File.ReadAllText(p);
-			var snapshots = System.Text.Json.JsonSerializer.Deserialize<List<PersistedTaskSnapshot>>(json);
-			if (snapshots == null || snapshots.Count == 0) return;
-
-			foreach (var snap in snapshots)
+			List<PersistedTaskSnapshot>? snapshots = null;
+			if (File.Exists(p))
 			{
-				var task = new ProcessingTask
-				{
-					Id = !string.IsNullOrEmpty(snap.Id) ? snap.Id : Guid.NewGuid().ToString("N").Substring(0, 8),
-					GameName = snap.GameName,
-					Operation = snap.Operation,
-					SourceFormat = snap.SourceFormat,
-					TargetFormat = snap.TargetFormat,
-					Status = "⏸ Сохранено на паузе",
-					Progress = snap.Progress,
-					SourceSize = snap.SourceSize,
-					TargetSize = snap.TargetSize,
-					OutputFolder = snap.OutputFolder,
-					OutputFileName = snap.OutputFileName,
-					LogDetails = snap.LogDetails + "\n[Восстановление] Задача восстановлена с паузы при запуске приложения.",
-					GroupId = snap.GroupId,
-					InputFiles = snap.InputFiles ?? new List<string>(),
-					FilesList = snap.FilesList ?? new List<string>(),
-					IsRuTrackerTask = snap.IsRuTrackerTask,
-					KeepExactOutputFileName = snap.KeepExactOutputFileName,
-					DeleteSourceAfterVerify = snap.DeleteSourceAfterVerify,
-					IsRunning = true,
-					IsPaused = true,
-					HasActiveWorker = false,
+				string json = File.ReadAllText(p);
+				snapshots = System.Text.Json.JsonSerializer.Deserialize<List<PersistedTaskSnapshot>>(json);
+				DeletePersistedFilesSafe(p);
+			}
 
-					SourceSizeBytes = snap.SourceSizeBytes,
-					SizeDifference = snap.SizeDifference,
-					CompressionLevel = snap.CompressionLevel,
-					FilesCount = snap.FilesCount,
-					InputFolders = snap.InputFolders,
-					TitleId = snap.TitleId,
-					Is3dsTask = snap.Is3dsTask,
-					IsSwitch2Task = snap.IsSwitch2Task,
-					BuildMode = snap.BuildMode,
-					HasRomFs = snap.HasRomFs,
-					HasExeFs = snap.HasExeFs,
-					HasSaveData = snap.HasSaveData,
-					SaveDataFolder = snap.SaveDataFolder,
-					SaveFilesCount = snap.SaveFilesCount,
-					ModNameRomFs = snap.ModNameRomFs,
-					ModNameExeFs = snap.ModNameExeFs,
-					IconBytes = snap.IconBytes,
-					CustomMetadata = snap.CustomMetadata
-				};
-				task.PauseEvent.Reset();
+			var rtSnapshots = new List<PersistedTaskSnapshot>();
+			int localRestartCount = 0;
 
-				if (string.IsNullOrWhiteSpace(task.TitleId))
+			if (snapshots != null && snapshots.Count > 0)
+			{
+				foreach (var snap in snapshots)
 				{
-					task.TitleId = HistoryService.ExtractTitleId(task) ?? string.Empty;
-				}
-
-				if (snap.IsRuTrackerTask && snap.RuTrackerSnapshot != null)
-				{
-					var rtSnap = snap.RuTrackerSnapshot;
-					MonoTorrent.MagnetLink? magnet = null;
-					if (!string.IsNullOrEmpty(rtSnap.MagnetUri))
+					if (snap.IsRuTrackerTask && snap.RuTrackerSnapshot != null)
 					{
-						try { magnet = MonoTorrent.MagnetLink.Parse(rtSnap.MagnetUri); } catch { }
+						if (snap.RuTrackerSnapshot.TorrentBytes == null &&
+							(!string.IsNullOrWhiteSpace(snap.RuTrackerSnapshot.InfoHash) || !string.IsNullOrWhiteSpace(snap.RuTrackerSnapshot.TorrentCachePath)))
+						{
+							try
+							{
+								string cp = !string.IsNullOrWhiteSpace(snap.RuTrackerSnapshot.TorrentCachePath)
+									? snap.RuTrackerSnapshot.TorrentCachePath
+									: RuTrackerModService.GetCachedTorrentFilePath(snap.RuTrackerSnapshot.InfoHash);
+								if (!string.IsNullOrEmpty(cp) && File.Exists(cp) && new FileInfo(cp).Length > 64)
+								{
+									snap.RuTrackerSnapshot.TorrentBytes = File.ReadAllBytes(cp);
+								}
+							}
+							catch { }
+						}
+						rtSnapshots.Add(snap);
+						continue;
 					}
 
-					var payload = new RuTrackerTaskPayload
+					var validInputs = (snap.InputFiles ?? new List<string>()).Where(f => File.Exists(f) || Directory.Exists(f)).ToList();
+					if (validInputs.Count == 0)
+						continue;
+
+					var task = new ProcessingTask
 					{
-						Topic = new RuTrackerTopicItem
-						{
-							TopicId = rtSnap.TopicId,
-							Title = rtSnap.TopicTitle,
-							Category = rtSnap.Category,
-							Seeds = rtSnap.Seeds,
-							MagnetUri = rtSnap.MagnetUri,
-							InfoHash = rtSnap.InfoHash,
-							DirectTorrentUrl = rtSnap.DirectTorrentUrl
-						},
-						TorrentBytes = rtSnap.TorrentBytes,
-						MagnetLink = magnet,
-						TorrentFiles = rtSnap.TorrentFiles.Select(tf => new TorrentFileSelectionItem
-						{
-							RelativePath = tf.RelativePath,
-							Length = tf.Length,
-							IsSelected = tf.IsSelected,
-							CategoryBadge = tf.CategoryBadge,
-							IsRealTorrentFile = tf.IsRealTorrentFile
-						}).ToList(),
-						CloudLinks = rtSnap.CloudLinks ?? new List<string>(),
-						TargetReleaseDir = rtSnap.TargetReleaseDir,
-						CustomModTitle = rtSnap.CustomModTitle,
-						AutoBuild = rtSnap.AutoBuild,
-						HasTorrentSource = rtSnap.HasTorrentSource,
-						SharedReleaseDir = rtSnap.SharedReleaseDir,
-						AppendAutoTags = rtSnap.AppendAutoTags,
-						SlotNumber = rtSnap.SlotNumber,
-						TotalSlots = rtSnap.TotalSlots,
-						SlotGameTitle = rtSnap.SlotGameTitle,
-						PosterUrl = rtSnap.PosterUrl
+						Id = Guid.NewGuid().ToString("N").Substring(0, 8),
+						GameName = snap.GameName,
+						Operation = snap.Operation,
+						SourceFormat = snap.SourceFormat,
+						TargetFormat = snap.TargetFormat,
+						Status = "Ожидание",
+						Progress = 0,
+						SourceSize = snap.SourceSize,
+						TargetSize = string.Empty,
+						OutputFolder = snap.OutputFolder,
+						OutputFileName = snap.OutputFileName,
+						LogDetails = "[Автоперезапуск] Незавершённая задача очищена и добавлена заново после запуска программы.",
+						GroupId = snap.GroupId,
+						InputFiles = validInputs,
+						FilesList = snap.FilesList ?? new List<string>(),
+						IsRuTrackerTask = false,
+						KeepExactOutputFileName = snap.KeepExactOutputFileName,
+						DeleteSourceAfterVerify = snap.DeleteSourceAfterVerify,
+						IsRunning = false,
+						IsPaused = false,
+						HasActiveWorker = false,
+						SourceSizeBytes = snap.SourceSizeBytes,
+						SizeDifference = string.Empty,
+						CompressionLevel = snap.CompressionLevel,
+						FilesCount = snap.FilesCount,
+						InputFolders = snap.InputFolders,
+						TitleId = snap.TitleId,
+						Is3dsTask = snap.Is3dsTask,
+						IsSwitch2Task = snap.IsSwitch2Task,
+						BuildMode = snap.BuildMode,
+						HasRomFs = snap.HasRomFs,
+						HasExeFs = snap.HasExeFs,
+						HasSaveData = snap.HasSaveData,
+						SaveDataFolder = snap.SaveDataFolder,
+						SaveFilesCount = snap.SaveFilesCount,
+						ModNameRomFs = snap.ModNameRomFs,
+						ModNameExeFs = snap.ModNameExeFs,
+						IconBytes = null,
+						CustomMetadata = CloneMetadataLight(snap.CustomMetadata)
 					};
-					task.RuTrackerPayload = payload;
+					task.PauseEvent.Set();
+
+					if (string.IsNullOrWhiteSpace(task.TitleId))
+					{
+						task.TitleId = HistoryService.ExtractTitleId(task) ?? string.Empty;
+					}
+
+					task.EnsureSourceMetricsPopulated();
+					HistoryService.TryLoadIconForTask(task);
+					Tasks.Add(task);
+					localRestartCount++;
 				}
-
-				task.EnsureSourceMetricsPopulated();
-				HistoryService.TryLoadIconForTask(task);
-
-				Tasks.Add(task);
 			}
 
 			try
 			{
-				RuTrackerDownloadQueueService.Instance.BindRestoredTasksFromViewModel(this);
+				RuTrackerDownloadQueueService.Instance.BindRestoredTasksFromViewModel(this, rtSnapshots);
 			}
 			catch { }
 
-			App.Logger?.Log($"[Задачник] Восстановлено незавершенных задач с паузы: {snapshots.Count}", LogLevel.Info);
+			if (localRestartCount > 0 || rtSnapshots.Count > 0)
+			{
+				SavePersistedTasks();
+				App.Logger?.Log($"[Задачник] Незавершённые задачи очищены и перезапущены заново (локальных: {localRestartCount}, RuTracker: {rtSnapshots.Count}).", LogLevel.Info);
+			}
+
+			if (localRestartCount > 0)
+			{
+				_ = Task.Run(async () =>
+				{
+					await Task.Delay(1200).ConfigureAwait(false);
+					try { await StartAllTasksAsync().ConfigureAwait(false); } catch { }
+				});
+			}
 		}
 		catch (Exception ex)
 		{

@@ -203,6 +203,7 @@ namespace StormSwitchBox.Views.Dialogs
             CookieBox.Text = cfg.RuTrackerCookie ?? string.Empty;
             AutoBuildCheckBox.IsChecked = cfg.RuTrackerAutoBuildTask;
             DeleteRuTrackerSourceCheckBox.IsChecked = cfg.RuTrackerDeleteSourceOnSuccess;
+            SyncSpeedLimitControlsFromSettings();
 
             string normalizedSavedDl = NormalizeNonTempOutputDir(cfg.RuTrackerDownloadFolder);
             string normalizedGlobalOut = NormalizeNonTempOutputDir(cfg.OutputFolder);
@@ -260,6 +261,132 @@ namespace StormSwitchBox.Views.Dialogs
             cfg.RuTrackerAutoBuildTask = AutoBuildCheckBox.IsChecked == true;
             cfg.RuTrackerDeleteSourceOnSuccess = DeleteRuTrackerSourceCheckBox.IsChecked == true;
             _ = App.Settings.SaveAsync();
+        }
+
+        private bool _suppressSpeedLimitCombo = false;
+
+        private void SyncSpeedLimitControlsFromSettings()
+        {
+            if (DownloadSpeedLimitComboBox == null) return;
+            _suppressSpeedLimitCombo = true;
+            try
+            {
+                var cfg = App.Settings.Current;
+                string mode = cfg.RuTrackerSpeedLimitMode ?? "AutoHeadroom";
+                int targetIndex = 0;
+
+                if (string.Equals(mode, "Unlimited", StringComparison.OrdinalIgnoreCase))
+                {
+                    targetIndex = 1;
+                    if (CustomSpeedLimitBox != null) CustomSpeedLimitBox.Visibility = Visibility.Collapsed;
+                }
+                else if (string.Equals(mode, "Custom", StringComparison.OrdinalIgnoreCase))
+                {
+                    double mb = cfg.RuTrackerGlobalSpeedLimitMbPerSec;
+                    string tag = mb switch
+                    {
+                        5.0 => "5",
+                        10.0 => "10",
+                        15.0 => "15",
+                        20.0 => "20",
+                        30.0 => "30",
+                        40.0 => "40",
+                        _ => "Custom"
+                    };
+                    targetIndex = 8;
+                    for (int i = 0; i < DownloadSpeedLimitComboBox.Items.Count; i++)
+                    {
+                        if (DownloadSpeedLimitComboBox.Items[i] is ComboBoxItem cbi &&
+                            string.Equals(cbi.Tag?.ToString(), tag, StringComparison.OrdinalIgnoreCase))
+                        {
+                            targetIndex = i;
+                            break;
+                        }
+                    }
+                    if (CustomSpeedLimitBox != null)
+                    {
+                        CustomSpeedLimitBox.Visibility = tag == "Custom" ? Visibility.Visible : Visibility.Collapsed;
+                        if (mb > 0.05)
+                            CustomSpeedLimitBox.Text = mb.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                    }
+                }
+                else
+                {
+                    targetIndex = 0;
+                    if (CustomSpeedLimitBox != null) CustomSpeedLimitBox.Visibility = Visibility.Collapsed;
+                }
+
+                DownloadSpeedLimitComboBox.SelectedIndex = targetIndex;
+            }
+            finally
+            {
+                _suppressSpeedLimitCombo = false;
+            }
+        }
+
+        private void DownloadSpeedLimitCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (!_isUiInitialized || _suppressSpeedLimitCombo) return;
+            if (DownloadSpeedLimitComboBox?.SelectedItem is not ComboBoxItem item || item.Tag == null) return;
+
+            string tag = item.Tag.ToString() ?? "AutoHeadroom";
+            var cfg = App.Settings.Current;
+            if (string.Equals(tag, "AutoHeadroom", StringComparison.OrdinalIgnoreCase))
+            {
+                cfg.RuTrackerSpeedLimitMode = "AutoHeadroom";
+                if (CustomSpeedLimitBox != null) CustomSpeedLimitBox.Visibility = Visibility.Collapsed;
+            }
+            else if (string.Equals(tag, "Unlimited", StringComparison.OrdinalIgnoreCase))
+            {
+                cfg.RuTrackerSpeedLimitMode = "Unlimited";
+                if (CustomSpeedLimitBox != null) CustomSpeedLimitBox.Visibility = Visibility.Collapsed;
+            }
+            else if (string.Equals(tag, "Custom", StringComparison.OrdinalIgnoreCase))
+            {
+                cfg.RuTrackerSpeedLimitMode = "Custom";
+                if (cfg.RuTrackerGlobalSpeedLimitMbPerSec <= 0.1)
+                    cfg.RuTrackerGlobalSpeedLimitMbPerSec = 25.0;
+                if (CustomSpeedLimitBox != null)
+                {
+                    CustomSpeedLimitBox.Visibility = Visibility.Visible;
+                    _suppressSpeedLimitCombo = true;
+                    CustomSpeedLimitBox.Text = cfg.RuTrackerGlobalSpeedLimitMbPerSec.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                    _suppressSpeedLimitCombo = false;
+                }
+            }
+            else if (double.TryParse(tag, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double presetMb) && presetMb > 0)
+            {
+                cfg.RuTrackerSpeedLimitMode = "Custom";
+                cfg.RuTrackerGlobalSpeedLimitMbPerSec = presetMb;
+                if (CustomSpeedLimitBox != null) CustomSpeedLimitBox.Visibility = Visibility.Collapsed;
+            }
+
+            _ = App.Settings.SaveAsync();
+            RuTrackerDownloadQueueService.Instance.NotifySpeedLimitSettingsChanged();
+        }
+
+        private void CustomSpeedLimitBox_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            if (!_isUiInitialized || _suppressSpeedLimitCombo) return;
+            ApplyCustomSpeedLimitInput();
+        }
+
+        private void CustomSpeedLimitBox_LostFocus(object sender, RoutedEventArgs e)
+        {
+            if (!_isUiInitialized || _suppressSpeedLimitCombo) return;
+            ApplyCustomSpeedLimitInput();
+        }
+
+        private void ApplyCustomSpeedLimitInput()
+        {
+            string raw = (CustomSpeedLimitBox?.Text ?? string.Empty).Trim().Replace(',', '.');
+            if (double.TryParse(raw, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double val) && val >= 0.25 && val <= 2000.0)
+            {
+                App.Settings.Current.RuTrackerSpeedLimitMode = "Custom";
+                App.Settings.Current.RuTrackerGlobalSpeedLimitMbPerSec = Math.Round(val, 2);
+                _ = App.Settings.SaveAsync();
+                RuTrackerDownloadQueueService.Instance.NotifySpeedLimitSettingsChanged();
+            }
         }
 
         private void Dialog_KeyDown(object sender, KeyRoutedEventArgs e)
@@ -487,6 +614,8 @@ namespace StormSwitchBox.Views.Dialogs
                     SeedingSectionRowDef.Height = hasDownloads ? new GridLength(0.55, GridUnitType.Star) : new GridLength(1, GridUnitType.Star);
                 if (SeedingPanelBorder != null)
                     SeedingPanelBorder.Visibility = Visibility.Visible;
+                if (SeedingTableContainer != null)
+                    SeedingTableContainer.Visibility = seedCount > 0 ? Visibility.Visible : Visibility.Collapsed;
                 if (SeedingItemsListView != null)
                     SeedingItemsListView.Visibility = seedCount > 0 ? Visibility.Visible : Visibility.Collapsed;
                 if (SeedingEmptyStatePanel != null)
@@ -2154,8 +2283,34 @@ namespace StormSwitchBox.Views.Dialogs
                     : (!string.IsNullOrEmpty(bestUpdateTid) ? bestUpdateTid
                     : (!string.IsNullOrEmpty(bestOtherTid) ? bestOtherTid : bestStandaloneTid));
 
+                static bool IsOldOrLegacyUpdatePath(string? relPath)
+                {
+                    if (string.IsNullOrWhiteSpace(relPath)) return false;
+                    return System.Text.RegularExpressions.Regex.IsMatch(
+                        relPath,
+                        @"(?i)(?:^|[\\/\s_\-\(\[])old(?:[\s_\-\/]*update|\b)|старое|устаревш");
+                }
+
+                static int ExtractFilePatchCode(string? relPath)
+                {
+                    if (string.IsNullOrWhiteSpace(relPath)) return 0;
+                    int best = 0;
+                    foreach (System.Text.RegularExpressions.Match ivm in System.Text.RegularExpressions.Regex.Matches(
+                        relPath,
+                        @"\[v?(?<iv>\d{5,10})\]|\(\d+\.\d+(?:\.\d+)*\s*-\s*(?<iv>\d+)\)",
+                        System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                    {
+                        if (int.TryParse(ivm.Groups["iv"].Value, out int val) && val > best)
+                            best = val;
+                    }
+                    return best;
+                }
+
+                var nonOldSlotFiles = slotFiles.Where(f => !IsOldOrLegacyUpdatePath(f.RelativePath)).ToList();
+                var patchScanFiles = nonOldSlotFiles.Count > 0 ? nonOldSlotFiles : slotFiles;
+
                 int maxPatchVer = 0;
-                foreach (var f in slotFiles)
+                foreach (var f in patchScanFiles)
                 {
                     string rel = f.RelativePath ?? string.Empty;
                     if (RuTrackerModService.IsStandaloneBonusFile(rel)) continue;
@@ -2226,11 +2381,13 @@ namespace StormSwitchBox.Views.Dialogs
 
                 // Извлекаем семантическую версию (строго без 'v', без выдуманной эвристики 1.{major}.0)
                 string? explicitSemanticVer = null;
+                bool cameFromTrustedSource = false;
                 var candidateVerSources = new List<string>();
-                foreach (var sf in slotFiles)
+                foreach (var sf in patchScanFiles)
                 {
                     if (string.IsNullOrWhiteSpace(sf.RelativePath)) continue;
                     if (RuTrackerModService.IsStandaloneBonusFile(sf.RelativePath)) continue;
+                    if (IsOldOrLegacyUpdatePath(sf.RelativePath)) continue;
                     string rawSfTid = !string.IsNullOrWhiteSpace(sf.DetectedTitleId)
                         ? sf.DetectedTitleId
                         : RuTrackerModService.ExtractTitleId(sf.RelativePath);
@@ -2238,6 +2395,13 @@ namespace StormSwitchBox.Views.Dialogs
                     if (!string.IsNullOrEmpty(bestTid) && !string.IsNullOrEmpty(normSfTid) &&
                         !string.Equals(normSfTid, bestTid, StringComparison.OrdinalIgnoreCase))
                     {
+                        continue;
+                    }
+
+                    int filePatchCode = ExtractFilePatchCode(sf.RelativePath);
+                    if (maxPatchVer > 0 && filePatchCode != maxPatchVer)
+                    {
+                        // Не позволяем старым или базовым файлам ([v327680], [v0]) подменять версию последнего обновления!
                         continue;
                     }
                     candidateVerSources.Add(sf.RelativePath);
@@ -2282,16 +2446,21 @@ namespace StormSwitchBox.Views.Dialogs
                     }
                 }
 
-                // 1. Семантическая версия из имён файлов слота
-                foreach (var srcText in candidateVerSources)
-                    ScanVerTextSource(srcText, scanPatchInt: true);
-
-                // 2. Семантическая версия из локального кэша наблюдённых NACP и TitleDB
-                if (string.IsNullOrEmpty(explicitSemanticVer) && maxPatchVer > 0 && App.TitleDb != null &&
-                    App.TitleDb.TryResolveDisplayVersion(bestTid, maxPatchVer, out var resolvedFromDb) &&
-                    TitleDbService.IsValidSemanticVersion(resolvedFromDb))
+                // 1. Авторитетная NACP / TitleDB версия для (bestTid, maxPatchVer)
+                if (maxPatchVer > 0 && App.TitleDb != null &&
+                    App.TitleDb.TryResolveAuthoritativeDisplayVersion(bestTid, maxPatchVer, out var authVer) &&
+                    TitleDbService.IsValidSemanticVersion(authVer))
                 {
-                    explicitSemanticVer = resolvedFromDb;
+                    explicitSemanticVer = authVer;
+                }
+
+                // 2. Семантическая версия ТОЛЬКО из актуального файла с совпадающим [vN] == maxPatchVer
+                if (string.IsNullOrEmpty(explicitSemanticVer))
+                {
+                    foreach (var srcText in candidateVerSources)
+                        ScanVerTextSource(srcText, scanPatchInt: false);
+                    if (!string.IsNullOrEmpty(explicitSemanticVer))
+                        cameFromTrustedSource = true;
                 }
 
                 // 3. Семантическая версия из HTML шапки темы RuTracker (per-TitleID или общая версия раздачи)
@@ -2300,23 +2469,33 @@ namespace StormSwitchBox.Views.Dialogs
                     TitleDbService.IsValidSemanticVersion(parsedTidVer))
                 {
                     explicitSemanticVer = parsedTidVer;
+                    cameFromTrustedSource = true;
                 }
                 if (string.IsNullOrEmpty(explicitSemanticVer) && _gameSlots.Count == 1 &&
                     TitleDbService.IsValidSemanticVersion(_currentTopicParsedGameVersion))
                 {
                     explicitSemanticVer = _currentTopicParsedGameVersion;
+                    cameFromTrustedSource = true;
                 }
 
-                // 4. Семантическая версия из названия слота или заголовка темы
+                // 4. Фолбэк из неавторитетного кэша known_display_versions_v2.json (например, пока грузится HTML шапки)
+                if (string.IsNullOrEmpty(explicitSemanticVer) && maxPatchVer > 0 && App.TitleDb != null &&
+                    App.TitleDb.TryResolveDisplayVersion(bestTid, maxPatchVer, out var resolvedFromDb) &&
+                    TitleDbService.IsValidSemanticVersion(resolvedFromDb))
+                {
+                    explicitSemanticVer = resolvedFromDb;
+                }
+
+                // 5. Семантическая версия из названия слота или заголовка темы
                 if (string.IsNullOrEmpty(explicitSemanticVer) && !string.IsNullOrWhiteSpace(slot.GameTitle))
                     ScanVerTextSource(slot.GameTitle, scanPatchInt: true);
                 if (string.IsNullOrEmpty(explicitSemanticVer) && _gameSlots.Count == 1 && !string.IsNullOrWhiteSpace(_currentTopicTitle))
                     ScanVerTextSource(_currentTopicTitle, scanPatchInt: _gameSlots.Count == 1);
 
-                // Если знаем внутренний код и семантическую версию из шапки/заголовка - кэшируем связку навсегда
-                if (maxPatchVer > 0 && !string.IsNullOrEmpty(explicitSemanticVer) && !string.IsNullOrEmpty(bestTid))
+                // Кэшируем ТОЛЬКО при получении версии из файла с точным [vN] или из HTML-шапки RuTracker
+                if (cameFromTrustedSource && maxPatchVer > 0 && !string.IsNullOrEmpty(explicitSemanticVer) && !string.IsNullOrEmpty(bestTid))
                 {
-                    App.TitleDb?.RecordObservedDisplayVersion(bestTid, maxPatchVer.ToString(), explicitSemanticVer);
+                    App.TitleDb?.RecordObservedDisplayVersion(bestTid, maxPatchVer.ToString(), explicitSemanticVer, isAuthoritative: false);
                 }
 
                 if (maxPatchVer == 0 && !string.IsNullOrEmpty(explicitSemanticVer) &&
@@ -3374,7 +3553,7 @@ namespace StormSwitchBox.Views.Dialogs
                 : (_targetTask?.GameName ?? $"Release_{DateTime.Now:yyyyMMdd_HHmmss}"));
 
             string sharedReleaseDir = Path.Combine(stagingRootDir, $"{safeSubFolder}_{batchShortId}");
-            Directory.CreateDirectory(sharedReleaseDir);
+            var dirsToCreate = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { sharedReleaseDir };
 
             string globalCustomModTitle = CustomModNameBox.Text?.Trim() ?? string.Empty;
             bool deleteRtSource = DeleteRuTrackerSourceCheckBox.IsChecked == true;
@@ -3412,10 +3591,9 @@ namespace StormSwitchBox.Views.Dialogs
                     : (!string.IsNullOrWhiteSpace(_currentTopicTitle) ? _currentTopicTitle : $"Игра {slot.SlotNumber}");
 
                 var slotFiles = _torrentFiles
-                    .Where(f => f.IsSelected && (_gameSlots.Count <= 1 || f.TargetGameSlot == 0 || f.TargetGameSlot == slot.SlotNumber))
                     .Select(f => new TorrentFileSelectionItem
                     {
-                        IsSelected = true,
+                        IsSelected = f.IsSelected && (_gameSlots.Count <= 1 || f.TargetGameSlot == 0 || f.TargetGameSlot == slot.SlotNumber),
                         RelativePath = f.RelativePath,
                         Length = f.Length,
                         CategoryBadge = f.CategoryBadge,
@@ -3426,25 +3604,6 @@ namespace StormSwitchBox.Views.Dialogs
                         DisplayPath = f.DisplayPath
                     })
                     .ToList();
-
-                if (slotFiles.Count == 0 && hasTorrentSource && _gameSlots.Count <= 1)
-                {
-                    slotFiles = _torrentFiles
-                        .Where(f => f.IsSelected)
-                        .Select(f => new TorrentFileSelectionItem
-                        {
-                            IsSelected = true,
-                            RelativePath = f.RelativePath,
-                            Length = f.Length,
-                            CategoryBadge = f.CategoryBadge,
-                            IsRealTorrentFile = f.IsRealTorrentFile,
-                            TargetGameSlot = f.TargetGameSlot,
-                            GroupedRelativePaths = new List<string>(f.GroupedRelativePaths),
-                            DetectedTitleId = f.DetectedTitleId,
-                            DisplayPath = f.DisplayPath
-                        })
-                        .ToList();
-                }
 
                 var slotDiscussionLinks = _discussionLinks
                     .Where(x => x.IsSelected && (_gameSlots.Count <= 1 || x.TargetGameSlot == 0 || x.TargetGameSlot == slot.SlotNumber))
@@ -3465,13 +3624,13 @@ namespace StormSwitchBox.Views.Dialogs
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .ToList();
 
-                if (_gameSlots.Count > 1 && slotFiles.Count == 0 && slotCloudLinks.Count == 0)
+                if (_gameSlots.Count > 1 && !slotFiles.Any(f => f.IsSelected) && slotCloudLinks.Count == 0)
                     continue;
 
                 string slotTargetDir = activeSlots.Count > 1
                     ? Path.Combine(sharedReleaseDir, $"Part_{slot.SlotNumber}_{SanitizeFolderName(slotTitle)}")
                     : sharedReleaseDir;
-                Directory.CreateDirectory(slotTargetDir);
+                dirsToCreate.Add(slotTargetDir);
 
                 string effectiveModTitle = !string.IsNullOrWhiteSpace(slot.CustomModTitle)
                     ? slot.CustomModTitle.Trim()
@@ -3481,7 +3640,7 @@ namespace StormSwitchBox.Views.Dialogs
                     ? slot.TargetFormat.Trim()
                     : GetDefaultTargetFormat();
                 string slotFinalOutputDir = ResolveRuTrackerFinalOutputFolder(chosenFormat, slot.TitleId, DownloadFolderBox.Text);
-                Directory.CreateDirectory(slotFinalOutputDir);
+                dirsToCreate.Add(slotFinalOutputDir);
 
                 var slotMetadataModel = slot.ToMetadataEditModel();
                 var payload = new RuTrackerTaskPayload
@@ -3551,7 +3710,7 @@ namespace StormSwitchBox.Views.Dialogs
                     }
                     task.InputFolders = slotTargetDir;
                     task.CompressionLevel = ProcessingTask.ComputeDefaultCompressionLevel(chosenFormat, task.IsSwitch2Task);
-                    task.FilesCount = $"{slotFiles.Count} файл(ов)" + (slotCloudLinks.Count > 0 ? $" + {slotCloudLinks.Count} мод." : "");
+                    task.FilesCount = $"{slotFiles.Count(f => f.IsSelected)} файл(ов)" + (slotCloudLinks.Count > 0 ? $" + {slotCloudLinks.Count} мод." : "");
                     task.Cts = batchCts;
                 }
                 else
@@ -3579,7 +3738,7 @@ namespace StormSwitchBox.Views.Dialogs
                         SourceSize = initBytes > 0 ? ProcessingTask.FormatSize(initBytes) : "-",
                         InputFolders = slotTargetDir,
                         CompressionLevel = ProcessingTask.ComputeDefaultCompressionLevel(chosenFormat, false),
-                        FilesCount = $"{slotFiles.Count} файл(ов)" + (slotCloudLinks.Count > 0 ? $" + {slotCloudLinks.Count} мод." : ""),
+                        FilesCount = $"{slotFiles.Count(f => f.IsSelected)} файл(ов)" + (slotCloudLinks.Count > 0 ? $" + {slotCloudLinks.Count} мод." : ""),
                         LogDetails = $"[RuTracker Пакет #{batchShortId}] Старт задачи #{slot.SlotNumber}: {slotTitle} (Формат: {chosenFormat})\nЦелевая папка: {slotTargetDir}",
                         RuTrackerPayload = payload,
                         Cts = batchCts
@@ -3597,6 +3756,20 @@ namespace StormSwitchBox.Views.Dialogs
 
                 createdTasks.Add((task, payload, slot));
             }
+
+            byte[]? preCacheTorBytes = isolatedService.LoadedTorrentBytes;
+            string preCacheHash = currentTopic?.InfoHash ?? string.Empty;
+            await Task.Run(() =>
+            {
+                foreach (var dir in dirsToCreate)
+                {
+                    try { Directory.CreateDirectory(dir); } catch { }
+                }
+                if (preCacheTorBytes != null && preCacheTorBytes.Length > 64 && !string.IsNullOrWhiteSpace(preCacheHash))
+                {
+                    try { RuTrackerModService.TrySaveCachedTorrentBytes(preCacheHash, preCacheTorBytes); } catch { }
+                }
+            }).ConfigureAwait(true);
 
             _viewModel.SavePersistedTasks();
 
@@ -4539,9 +4712,8 @@ namespace StormSwitchBox.Views.Dialogs
             {
                 unionFiles = createdTasks
                     .SelectMany(c => c.Payload.TorrentFiles)
-                    .Where(f => f.IsSelected)
                     .GroupBy(f => f.RelativePath, StringComparer.OrdinalIgnoreCase)
-                    .Select(g => g.First())
+                    .Select(g => g.FirstOrDefault(x => x.IsSelected) ?? g.First())
                     .ToList();
 
                 var torrentProg = new Progress<TorrentDownloadProgress>(p =>

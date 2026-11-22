@@ -32,6 +32,33 @@ import java.util.zip.ZipInputStream
  */
 object RuTrackerCloudEngine {
 
+    @Volatile var speedLimitMode: String = "AUTO_HEADROOM"
+    @Volatile var customSpeedLimitMb: Double = 0.0
+    @Volatile var reserveBandwidthMb: Double = 2.0
+    @Volatile var observedPeakBps: Long = 0L
+
+    private fun computeEffectiveDownloadLimitBps(currentRateBps: Long, dlStartMs: Long, nowMs: Long): Int {
+        return when (speedLimitMode.uppercase()) {
+            "UNLIMITED" -> -1
+            "CUSTOM" -> {
+                val mb = customSpeedLimitMb
+                if (mb > 0.1) (mb * 1024.0 * 1024.0).toInt().coerceAtLeast(128 * 1024) else -1
+            }
+            else -> {
+                if (currentRateBps > observedPeakBps && currentRateBps > 512L * 1024L) {
+                    observedPeakBps = currentRateBps
+                }
+                val elapsed = nowMs - dlStartMs
+                if (observedPeakBps <= 0L || elapsed < 6000L) {
+                    -1
+                } else {
+                    val reserveBps = (reserveBandwidthMb.coerceAtLeast(0.5) * 1024.0 * 1024.0).toLong()
+                    (observedPeakBps - reserveBps).coerceAtLeast(1024L * 1024L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+                }
+            }
+        }
+    }
+
     data class TopicItem(
         val topicId: String,
         val title: String,
@@ -4598,10 +4625,12 @@ object RuTrackerCloudEngine {
             harvestPeersFromHttpTrackersAsync(hashHex, handle, isCancelled)
             injectPeersViaTurboDhtAsync(hashHex, handle, isCancelled)
 
+            val dlStartMs = System.currentTimeMillis()
             var lastDone = -1L
-            var lastProgressMs = System.currentTimeMillis()
+            var lastProgressMs = dlStartMs
             var lastReportMs = 0L
-            var lastAnnounceMs = System.currentTimeMillis()
+            var lastAnnounceMs = dlStartMs
+            var lastAppliedLimitBps = Int.MIN_VALUE
             var dhtCrossed15 = false
             var dhtCrossed60 = false
             var encPolicySoftened = false
@@ -4685,10 +4714,32 @@ object RuTrackerCloudEngine {
 
                 if (now - lastReportMs >= 800L) {
                     lastReportMs = now
+                    val activeDownloadCount = activeDownloadHashes.size.coerceAtLeast(1)
+                    val targetLimit = computeEffectiveDownloadLimitBps(st.downloadRate().toLong(), dlStartMs, now)
+                    val perTorrentLimit = if (targetLimit > 0) (targetLimit / activeDownloadCount).coerceAtLeast(256 * 1024) else -1
+                    if (perTorrentLimit != lastAppliedLimitBps) {
+                        lastAppliedLimitBps = perTorrentLimit
+                        try { handle.swig().set_download_limit(perTorrentLimit) } catch (_: Throwable) {}
+                    }
                     val effectiveSeeds = maxOf(st.numSeeds(), st.listSeeds().coerceAtLeast(0))
                     onProgress(done, total, st.downloadRate().toDouble() / (1024.0 * 1024.0), st.numPeers(), effectiveSeeds)
                 }
-                if (st.isFinished || done >= total || st.state() == org.libtorrent4j.TorrentStatus.State.SEEDING) break
+                val isCompleteState = st.state() == org.libtorrent4j.TorrentStatus.State.FINISHED ||
+                    st.state() == org.libtorrent4j.TorrentStatus.State.SEEDING
+                val appearsFinished = isCompleteState && st.totalWanted() > 0L && done >= total
+                if (appearsFinished) {
+                    val fp = try { handle.fileProgress() } catch (_: Throwable) { null }
+                    val allWantedProgressed = fp == null || fp.size < fileList.size ||
+                        wantedIdx.all { idx -> fileList[idx].second <= 0L || fp[idx] >= fileList[idx].second }
+                    if (allWantedProgressed) {
+                        try {
+                            handle.pause()
+                            handle.flushCache()
+                            Thread.sleep(450)
+                        } catch (_: Throwable) {}
+                        break
+                    }
+                }
                 if (now - lastProgressMs > stallTimeoutSec * 1000L) {
                     val effectiveSeeds = maxOf(st.numSeeds(), st.listSeeds().coerceAtLeast(0))
                     return TorrentDownloadResult(
@@ -4699,7 +4750,33 @@ object RuTrackerCloudEngine {
                 }
                 Thread.sleep(500)
             }
-            val files = wantedIdx.map { File(saveDir, fs.filePath(it)) }.filter { it.isFile && it.length() > 0L }
+            val files = mutableListOf<File>()
+            for (idx in wantedIdx) {
+                val f = File(saveDir, fs.filePath(idx))
+                val expectedLen = fileList[idx].second
+                if (!f.isFile || (expectedLen > 0L && f.length() != expectedLen) || f.length() <= 0L) {
+                    return TorrentDownloadResult(
+                        emptyList(),
+                        "Файл ${f.name} скачан не полностью (${f.length()} / $expectedLen байт)",
+                        ti.name(), hashHex
+                    )
+                }
+                val extLower = f.extension.lowercase()
+                if (extLower == "nsp" || extLower == "nsz") {
+                    val magic = ByteArray(4)
+                    val readOk = try {
+                        java.io.RandomAccessFile(f, "r").use { raf -> raf.read(magic) == 4 }
+                    } catch (_: Throwable) { false }
+                    if (!readOk || magic[0] != 'P'.code.toByte() || magic[1] != 'F'.code.toByte() || magic[2] != 'S'.code.toByte() || magic[3] != '0'.code.toByte()) {
+                        return TorrentDownloadResult(
+                            emptyList(),
+                            "Повреждён заголовок PFS0 в скачанном файле ${f.name}",
+                            ti.name(), hashHex
+                        )
+                    }
+                }
+                files.add(f)
+            }
             if (files.isEmpty()) return TorrentDownloadResult(emptyList(), "Файлы раздачи не найдены после скачивания", ti.name(), hashHex)
             val selRelPaths = wantedIdx.map { fs.filePath(it) }
             val meta = CompletedTorrentMeta(
@@ -5587,8 +5664,11 @@ object RuTrackerCloudEngine {
             }
         }
 
+        val oldUpdPathRegex = Regex("""(?i)(?:^|[\\/\s_\-\(\[])old(?:[\s_\-/]*update|\b)|старое|устаревш""")
         for ((_, group) in updatesByGroup) {
-            val best = group.maxByOrNull { extractNumericFileVersion(it.fileName) }
+            val currentCandidates = group.filter { !oldUpdPathRegex.containsMatchIn(it.relativePath) && !oldUpdPathRegex.containsMatchIn(it.fileName) }
+            val best = (if (currentCandidates.isNotEmpty()) currentCandidates else group)
+                .maxByOrNull { extractNumericFileVersion(it.relativePath.ifBlank { it.fileName }) }
             for (rf in group) {
                 rf.selected = (rf === best)
             }

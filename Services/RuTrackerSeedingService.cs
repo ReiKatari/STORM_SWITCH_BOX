@@ -217,12 +217,39 @@ namespace StormSwitchBox.Services
         public string StageBadgeDisplay => App.Localization.TranslateText(StageBadge);
 
         public string SizeDisplay => FormatBytesStatic(TotalSizeBytes);
+        public string SizeOnlyDisplay => SizeDisplay;
 
         public double Ratio => TotalSizeBytes > 0 ? (double)TotalUploadedBytes / TotalSizeBytes : 0.0;
 
         public string UploadedDisplay => $"{App.Localization.TranslateText("Отдано:")} {FormatBytesStatic(TotalUploadedBytes)}";
+        public string UploadedOnlyDisplay => FormatBytesStatic(TotalUploadedBytes);
 
         public string RatioDisplay => $"{App.Localization.TranslateText("Рейтинг:")} {Ratio:F2}";
+        public string RatioOnlyDisplay => $"{Ratio:F2}";
+
+        public string UploadSpeedOnlyDisplay
+        {
+            get
+            {
+                if (IsPaused || StageBadge == "ПАУЗА")
+                    return App.Localization.TranslateText("На паузе");
+                if (StageBadge == "НЕТ ФАЙЛОВ")
+                    return App.Localization.TranslateText("Нет файлов");
+                if (StageBadge == "ОШИБКА")
+                    return App.Localization.TranslateText("Ошибка");
+                if (StageBadge == "ПРОВЕРКА")
+                    return App.Localization.TranslateText("Проверка...");
+                return FormatSpeedStatic(UploadSpeedBps);
+            }
+        }
+
+        public string PeersSeedsDisplay => StageBadge == "РАЗДАЧА"
+            ? $"{ConnectedLeeches} / {ConnectedSeeds}"
+            : "-";
+
+        public string PeersSeedsTooltip => StageBadge == "РАЗДАЧА"
+            ? $"{App.Localization.TranslateText("Личи:")} {ConnectedLeeches} | {App.Localization.TranslateText("Сиды:")} {ConnectedSeeds}"
+            : SpeedAndPeersDisplay;
 
         public string PauseResumeGlyph => IsPaused ? "\uE768" : "\uE769";
 
@@ -312,8 +339,10 @@ namespace StormSwitchBox.Services
                 _uiTotalUploadedBytes = totalUpNow;
                 OnPropertyChanged(nameof(TotalUploadedBytes));
                 OnPropertyChanged(nameof(UploadedDisplay));
+                OnPropertyChanged(nameof(UploadedOnlyDisplay));
                 OnPropertyChanged(nameof(Ratio));
                 OnPropertyChanged(nameof(RatioDisplay));
+                OnPropertyChanged(nameof(RatioOnlyDisplay));
                 OnPropertyChanged(nameof(TooltipDetails));
             }
 
@@ -336,14 +365,23 @@ namespace StormSwitchBox.Services
                 SpeedBrush = new SolidColorBrush(targetSpeedColor);
 
             OnPropertyChanged(nameof(SpeedAndPeersDisplay));
+            OnPropertyChanged(nameof(UploadSpeedOnlyDisplay));
+            OnPropertyChanged(nameof(PeersSeedsDisplay));
+            OnPropertyChanged(nameof(PeersSeedsTooltip));
         }
 
         public void NotifyLocalizationChanged()
         {
             OnPropertyChanged(nameof(StageBadgeDisplay));
+            OnPropertyChanged(nameof(SizeOnlyDisplay));
             OnPropertyChanged(nameof(UploadedDisplay));
+            OnPropertyChanged(nameof(UploadedOnlyDisplay));
             OnPropertyChanged(nameof(RatioDisplay));
+            OnPropertyChanged(nameof(RatioOnlyDisplay));
             OnPropertyChanged(nameof(SpeedAndPeersDisplay));
+            OnPropertyChanged(nameof(UploadSpeedOnlyDisplay));
+            OnPropertyChanged(nameof(PeersSeedsDisplay));
+            OnPropertyChanged(nameof(PeersSeedsTooltip));
             OnPropertyChanged(nameof(PauseResumeTooltip));
             OnPropertyChanged(nameof(TooltipDetails));
         }

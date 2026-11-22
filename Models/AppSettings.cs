@@ -264,6 +264,10 @@ namespace StormSwitchBox.Models
         public bool RuTrackerDeleteSourceOnSuccess { get; set; } = true;
         public string RuTrackerCfClearance { get; set; } = "";
         public string RuTrackerUserAgent { get; set; } = "";
+        public string RuTrackerSpeedLimitMode { get; set; } = "AutoHeadroom"; // AutoHeadroom, Custom, Unlimited
+        public double RuTrackerGlobalSpeedLimitMbPerSec { get; set; } = 0.0;
+        public double RuTrackerAutoHeadroomReserveMbPerSec { get; set; } = 2.0;
+        public double RuTrackerObservedPeakBandwidthMbPerSec { get; set; } = 0.0;
     }
 }
 

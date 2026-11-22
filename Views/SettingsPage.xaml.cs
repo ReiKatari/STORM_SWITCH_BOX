@@ -151,6 +151,7 @@ namespace StormSwitchBox.Views
             InitializeLanguages();
             PopulateKeysVersion(App.Settings.Current.KeysVersion ?? "");
             InitializeSwitch2Settings();
+            SyncRuTrackerSpeedLimitUi();
 
             // По умолчанию всегда открывается вкладка "Общие" (индекс 0)
             SelectTab(0);
@@ -2296,6 +2297,93 @@ namespace StormSwitchBox.Views
             {
                 App.Logger?.Log($"[Settings] {ex.Message}", Models.LogLevel.Warning);
             }
+        }
+
+        private bool _suppressRtSpeedUi = false;
+
+        private void SyncRuTrackerSpeedLimitUi()
+        {
+            if (RtSpeedLimitModeCombo == null) return;
+            _suppressRtSpeedUi = true;
+            try
+            {
+                var cfg = App.Settings.Current;
+                string mode = cfg.RuTrackerSpeedLimitMode ?? "AutoHeadroom";
+                if (string.Equals(mode, "Unlimited", StringComparison.OrdinalIgnoreCase))
+                {
+                    RtSpeedLimitModeCombo.SelectedIndex = 2;
+                    if (RtCustomSpeedLimitNumberBox != null) RtCustomSpeedLimitNumberBox.Visibility = Visibility.Collapsed;
+                    if (RtReserveSpeedNumberBox != null) RtReserveSpeedNumberBox.Visibility = Visibility.Collapsed;
+                }
+                else if (string.Equals(mode, "Custom", StringComparison.OrdinalIgnoreCase))
+                {
+                    RtSpeedLimitModeCombo.SelectedIndex = 1;
+                    if (RtCustomSpeedLimitNumberBox != null)
+                    {
+                        RtCustomSpeedLimitNumberBox.Visibility = Visibility.Visible;
+                        RtCustomSpeedLimitNumberBox.Value = cfg.RuTrackerGlobalSpeedLimitMbPerSec > 0.25 ? cfg.RuTrackerGlobalSpeedLimitMbPerSec : 25.0;
+                    }
+                    if (RtReserveSpeedNumberBox != null) RtReserveSpeedNumberBox.Visibility = Visibility.Collapsed;
+                }
+                else
+                {
+                    RtSpeedLimitModeCombo.SelectedIndex = 0;
+                    if (RtCustomSpeedLimitNumberBox != null) RtCustomSpeedLimitNumberBox.Visibility = Visibility.Collapsed;
+                    if (RtReserveSpeedNumberBox != null)
+                    {
+                        RtReserveSpeedNumberBox.Visibility = Visibility.Visible;
+                        RtReserveSpeedNumberBox.Value = Math.Clamp(cfg.RuTrackerAutoHeadroomReserveMbPerSec, 0.5, 50.0);
+                    }
+                }
+            }
+            finally
+            {
+                _suppressRtSpeedUi = false;
+            }
+        }
+
+        private async void RtSpeedLimitModeCombo_Changed(object sender, SelectionChangedEventArgs e)
+        {
+            if (!_isSettingsPageLoaded || _suppressRtSpeedUi) return;
+            if (RtSpeedLimitModeCombo?.SelectedItem is not ComboBoxItem item || item.Tag == null) return;
+            try
+            {
+                string tag = item.Tag.ToString() ?? "AutoHeadroom";
+                var cfg = App.Settings.Current;
+                cfg.RuTrackerSpeedLimitMode = tag;
+                if (string.Equals(tag, "Custom", StringComparison.OrdinalIgnoreCase) && cfg.RuTrackerGlobalSpeedLimitMbPerSec <= 0.25)
+                {
+                    cfg.RuTrackerGlobalSpeedLimitMbPerSec = 25.0;
+                }
+                SyncRuTrackerSpeedLimitUi();
+                await App.Settings.SaveAsync();
+                RuTrackerDownloadQueueService.Instance.NotifySpeedLimitSettingsChanged();
+            }
+            catch { }
+        }
+
+        private async void RtCustomSpeedNumberBox_ValueChanged(NumberBox sender, NumberBoxValueChangedEventArgs args)
+        {
+            if (!_isSettingsPageLoaded || _suppressRtSpeedUi || double.IsNaN(args.NewValue)) return;
+            try
+            {
+                App.Settings.Current.RuTrackerGlobalSpeedLimitMbPerSec = Math.Clamp(args.NewValue, 0.5, 2000.0);
+                await App.Settings.SaveAsync();
+                RuTrackerDownloadQueueService.Instance.NotifySpeedLimitSettingsChanged();
+            }
+            catch { }
+        }
+
+        private async void RtReserveSpeedNumberBox_ValueChanged(NumberBox sender, NumberBoxValueChangedEventArgs args)
+        {
+            if (!_isSettingsPageLoaded || _suppressRtSpeedUi || double.IsNaN(args.NewValue)) return;
+            try
+            {
+                App.Settings.Current.RuTrackerAutoHeadroomReserveMbPerSec = Math.Clamp(args.NewValue, 0.5, 50.0);
+                await App.Settings.SaveAsync();
+                RuTrackerDownloadQueueService.Instance.NotifySpeedLimitSettingsChanged();
+            }
+            catch { }
         }
 
         private async void Setting_ValueChanged(NumberBox sender, NumberBoxValueChangedEventArgs args)

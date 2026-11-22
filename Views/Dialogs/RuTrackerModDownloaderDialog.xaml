@@ -1107,10 +1107,10 @@
                     <TextBlock x:Name="QueueSummaryText" Grid.Column="2" Text="Активных закачек нет"
                                FontSize="11" FontFamily="Consolas" Foreground="#CBD5E1" FontWeight="SemiBold" VerticalAlignment="Center"/>
 
-                    <!-- Компактные векторные кнопки управления очередью -->
-                    <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="5" VerticalAlignment="Center" Margin="4,0,0,0">
+                    <!-- Компактные векторные кнопки управления очередью и лимитом скорости -->
+                    <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" Margin="4,0,0,0">
                         <Button x:Name="PauseAllDownloadsBtn" Click="PauseAllDownloads_Click"
-                                Padding="7,0" Height="23" MinHeight="23" CornerRadius="4" FontSize="10.5"
+                                Padding="6,0" Height="23" MinHeight="23" CornerRadius="4" FontSize="10.5"
                                 ToolTipService.ToolTip="Приостановить все активные закачки">
                             <StackPanel Orientation="Horizontal" Spacing="4">
                                 <FontIcon Glyph="&#xE769;" FontSize="10.5"/>
@@ -1118,7 +1118,7 @@
                             </StackPanel>
                         </Button>
                         <Button x:Name="ResumeAllDownloadsBtn" Click="ResumeAllDownloads_Click"
-                                Padding="7,0" Height="23" MinHeight="23" CornerRadius="4" FontSize="10.5"
+                                Padding="6,0" Height="23" MinHeight="23" CornerRadius="4" FontSize="10.5"
                                 ToolTipService.ToolTip="Возобновить закачки в очереди">
                             <StackPanel Orientation="Horizontal" Spacing="4">
                                 <FontIcon Glyph="&#xE768;" FontSize="10.5"/>
@@ -1126,13 +1126,37 @@
                             </StackPanel>
                         </Button>
                         <Button x:Name="ClearFinishedDownloadsBtn" Click="ClearFinishedDownloads_Click"
-                                Padding="7,0" Height="23" MinHeight="23" CornerRadius="4" FontSize="10.5"
+                                Padding="6,0" Height="23" MinHeight="23" CornerRadius="4" FontSize="10.5"
                                 ToolTipService.ToolTip="Очистить завершённые, отменённые и ошибочные закачки">
                             <StackPanel Orientation="Horizontal" Spacing="4">
                                 <FontIcon Glyph="&#xE74D;" FontSize="10.5"/>
                                 <TextBlock Text="Очистить готовые" FontSize="10.5"/>
                             </StackPanel>
                         </Button>
+
+                        <Border Width="1" Height="16" Background="#25354F" Margin="3,0"/>
+
+                        <FontIcon Glyph="&#xEC49;" FontSize="11" Foreground="#38BDF8" VerticalAlignment="Center"/>
+                        <ComboBox x:Name="DownloadSpeedLimitComboBox"
+                                  Height="24" MinHeight="24" MinWidth="148" Padding="8,0,6,0" FontSize="10.5" VerticalAlignment="Center"
+                                  SelectionChanged="DownloadSpeedLimitCombo_SelectionChanged"
+                                  ToolTipService.ToolTip="Глобальный лимит скорости скачивания RuTracker (Авто оставляет 2 МБ/с для системы)">
+                            <ComboBoxItem Content="Авто (макс - 2 МБ/с)" Tag="AutoHeadroom"/>
+                            <ComboBoxItem Content="Без лимита" Tag="Unlimited"/>
+                            <ComboBoxItem Content="5 МБ/с" Tag="5"/>
+                            <ComboBoxItem Content="10 МБ/с" Tag="10"/>
+                            <ComboBoxItem Content="15 МБ/с" Tag="15"/>
+                            <ComboBoxItem Content="20 МБ/с" Tag="20"/>
+                            <ComboBoxItem Content="30 МБ/с" Tag="30"/>
+                            <ComboBoxItem Content="40 МБ/с" Tag="40"/>
+                            <ComboBoxItem Content="Свой..." Tag="Custom"/>
+                        </ComboBox>
+                        <TextBox x:Name="CustomSpeedLimitBox"
+                                 Width="58" Height="24" MinHeight="24" Padding="6,2" FontSize="10.5"
+                                 PlaceholderText="МБ/с" VerticalAlignment="Center" Visibility="Collapsed"
+                                 TextChanged="CustomSpeedLimitBox_TextChanged"
+                                 LostFocus="CustomSpeedLimitBox_LostFocus"
+                                 ToolTipService.ToolTip="Введите ограничение скорости в МБ/с (например, 25)"/>
                     </StackPanel>
 
                     <Border Grid.Column="4"/>
@@ -1156,79 +1180,142 @@
                                    FontSize="11.5" FontStyle="Italic" Foreground="#64748B"
                                    Margin="6,6,0,4" VerticalAlignment="Center" Visibility="Collapsed"/>
 
-                        <Grid x:Name="ActiveDownloadsScrollViewer" Visibility="Collapsed">
-                            <ListView x:Name="ActiveDownloadsItemsControl" SelectionMode="None" MaxHeight="132"
-                                      Background="#090D16" BorderBrush="#1E293B" BorderThickness="1" CornerRadius="6" Padding="2">
-                                <ListView.ItemContainerStyle>
-                                    <Style TargetType="ListViewItem">
-                                        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-                                        <Setter Property="Padding" Value="2,1"/>
-                                        <Setter Property="MinHeight" Value="0"/>
-                                    </Style>
-                                </ListView.ItemContainerStyle>
-                                <ListView.ItemTemplate>
-                                    <DataTemplate>
-                                        <Border Background="#151E2E" BorderBrush="#25354F" BorderThickness="1" CornerRadius="5" Padding="6,2" Margin="0,1" Height="29">
-                                            <Grid ColumnSpacing="8">
-                                                <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="92"/>
-                                                    <ColumnDefinition Width="*"/>
-                                                    <ColumnDefinition Width="135"/>
-                                                    <ColumnDefinition Width="168"/>
-                                                    <ColumnDefinition Width="154"/>
-                                                    <ColumnDefinition Width="Auto"/>
-                                                </Grid.ColumnDefinitions>
+                        <Border x:Name="ActiveDownloadsScrollViewer" Visibility="Collapsed"
+                                Background="#090D16" BorderBrush="#2A3E5E" BorderThickness="1" CornerRadius="6">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="26"/>
+                                    <RowDefinition Height="*"/>
+                                </Grid.RowDefinitions>
 
-                                                <Border Grid.Column="0" Background="{Binding StageBrush}" CornerRadius="3" Padding="6,2" VerticalAlignment="Center" HorizontalAlignment="Stretch">
-                                                    <TextBlock Text="{Binding StageBadgeDisplay}" FontSize="9.5" FontFamily="Consolas" Foreground="White" FontWeight="Bold" VerticalAlignment="Center" TextAlignment="Center"/>
-                                                </Border>
-
-                                                <TextBlock Grid.Column="1" Text="{Binding DisplayTitle}" FontSize="11" FontWeight="SemiBold" Foreground="#F8FAFC"
-                                                           VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{Binding DisplayTitle}"/>
-
-                                                <ProgressBar Grid.Column="2" Value="{Binding ProgressPercent}" Minimum="0" Maximum="100" Height="6" CornerRadius="3" VerticalAlignment="Center"/>
-
-                                                <TextBlock Grid.Column="3" Text="{Binding ProgressDetailsDisplay}" FontSize="10.5" FontFamily="Consolas" Foreground="#CBD5E1"
-                                                           VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
-
-                                                <TextBlock Grid.Column="4" Text="{Binding SpeedTextDisplay}" FontSize="10.5" FontFamily="Consolas" Foreground="{Binding SpeedBrush}" FontWeight="SemiBold"
-                                                           VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
-
-                                                <StackPanel Grid.Column="5" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
-                                                    <Button Click="TogglePauseQueueItem_Click" Tag="{Binding}"
-                                                            Padding="4,2" Width="25" Height="21" MinHeight="21" CornerRadius="3"
-                                                            Background="#25354F" Foreground="#38BDF8" VerticalAlignment="Center"
-                                                            ToolTipService.ToolTip="{Binding PauseResumeTooltip}">
-                                                        <FontIcon Glyph="{Binding PauseResumeGlyph}" FontSize="10.5"/>
-                                                    </Button>
-
-                                                    <Button Click="MoveQueueItemUp_Click" Tag="{Binding}"
-                                                            Padding="4,2" Width="25" Height="21" MinHeight="21" CornerRadius="3"
-                                                            Background="#25354F" Foreground="#CBD5E1" VerticalAlignment="Center"
-                                                            ToolTipService.ToolTip="Поднять выше в очереди закачек">
-                                                        <FontIcon Glyph="&#xE74A;" FontSize="10.5"/>
-                                                    </Button>
-
-                                                    <Button Click="MoveQueueItemDown_Click" Tag="{Binding}"
-                                                            Padding="4,2" Width="25" Height="21" MinHeight="21" CornerRadius="3"
-                                                            Background="#25354F" Foreground="#CBD5E1" VerticalAlignment="Center"
-                                                            ToolTipService.ToolTip="Опустить ниже в очереди закачек">
-                                                        <FontIcon Glyph="&#xE74B;" FontSize="10.5"/>
-                                                    </Button>
-
-                                                    <Button Click="CancelSingleBatch_Click" Tag="{Binding}"
-                                                            Padding="4,2" Width="25" Height="21" MinHeight="21" CornerRadius="3"
-                                                            Background="#7FDC2626" Foreground="White" VerticalAlignment="Center"
-                                                            ToolTipService.ToolTip="Отменить закачку и убрать из списка">
-                                                        <FontIcon Glyph="&#xE711;" FontSize="10.5"/>
-                                                    </Button>
-                                                </StackPanel>
-                                            </Grid>
+                                <!-- Заголовок таблицы закачек с видимыми вертикальными и горизонтальными разделителями -->
+                                <Border Grid.Row="0" Background="#111C33" BorderBrush="#2A3E5E" BorderThickness="0,0,0,1" CornerRadius="5,5,0,0">
+                                    <Grid ColumnSpacing="0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="106"/>
+                                            <ColumnDefinition Width="*" MinWidth="240"/>
+                                            <ColumnDefinition Width="104"/>
+                                            <ColumnDefinition Width="206"/>
+                                            <ColumnDefinition Width="106"/>
+                                            <ColumnDefinition Width="98"/>
+                                            <ColumnDefinition Width="122"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Border Grid.Column="0" BorderBrush="#243754" BorderThickness="0,0,1,0" Padding="6,0">
+                                            <TextBlock Text="Статус" FontSize="10.5" FontWeight="Bold" Foreground="#94A3B8" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                         </Border>
-                                    </DataTemplate>
-                                </ListView.ItemTemplate>
-                            </ListView>
-                        </Grid>
+                                        <Border Grid.Column="1" BorderBrush="#243754" BorderThickness="0,0,1,0" Padding="10,0">
+                                            <TextBlock Text="Игра / раздача" FontSize="10.5" FontWeight="Bold" Foreground="#94A3B8" VerticalAlignment="Center"/>
+                                        </Border>
+                                        <Border Grid.Column="2" BorderBrush="#243754" BorderThickness="0,0,1,0" Padding="6,0">
+                                            <TextBlock Text="Прогресс" FontSize="10.5" FontWeight="Bold" Foreground="#94A3B8" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Border>
+                                        <Border Grid.Column="3" BorderBrush="#243754" BorderThickness="0,0,1,0" Padding="10,0">
+                                            <TextBlock Text="Объём и этап" FontSize="10.5" FontWeight="Bold" Foreground="#94A3B8" VerticalAlignment="Center"/>
+                                        </Border>
+                                        <Border Grid.Column="4" BorderBrush="#243754" BorderThickness="0,0,1,0" Padding="8,0">
+                                            <TextBlock Text="Скорость" FontSize="10.5" FontWeight="Bold" Foreground="#94A3B8" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                                        </Border>
+                                        <Border Grid.Column="5" BorderBrush="#243754" BorderThickness="0,0,1,0" Padding="6,0">
+                                            <TextBlock Text="Сиды / пиры" FontSize="10.5" FontWeight="Bold" Foreground="#94A3B8" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Border>
+                                        <Border Grid.Column="6" Padding="6,0">
+                                            <TextBlock Text="Действия" FontSize="10.5" FontWeight="Bold" Foreground="#94A3B8" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Border>
+                                    </Grid>
+                                </Border>
+
+                                <ListView x:Name="ActiveDownloadsItemsControl" Grid.Row="1" SelectionMode="None" MaxHeight="132"
+                                          Background="Transparent" BorderThickness="0" Padding="0">
+                                    <ListView.ItemContainerStyle>
+                                        <Style TargetType="ListViewItem">
+                                            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                            <Setter Property="Padding" Value="0"/>
+                                            <Setter Property="Margin" Value="0"/>
+                                            <Setter Property="MinHeight" Value="0"/>
+                                        </Style>
+                                    </ListView.ItemContainerStyle>
+                                    <ListView.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border Background="#121A2B" BorderBrush="#1E304D" BorderThickness="0,0,0,1" MinHeight="32">
+                                                <Grid ColumnSpacing="0">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="106"/>
+                                                        <ColumnDefinition Width="*" MinWidth="240"/>
+                                                        <ColumnDefinition Width="104"/>
+                                                        <ColumnDefinition Width="206"/>
+                                                        <ColumnDefinition Width="106"/>
+                                                        <ColumnDefinition Width="98"/>
+                                                        <ColumnDefinition Width="122"/>
+                                                    </Grid.ColumnDefinitions>
+
+                                                    <Border Grid.Column="0" BorderBrush="#1E304D" BorderThickness="0,0,1,0" Padding="6,4">
+                                                        <Border Background="{Binding StageBrush}" CornerRadius="3" Padding="5,2" VerticalAlignment="Center" HorizontalAlignment="Stretch">
+                                                            <TextBlock Text="{Binding StageBadgeDisplay}" FontSize="9.5" FontFamily="Consolas" Foreground="White" FontWeight="Bold" VerticalAlignment="Center" TextAlignment="Center"/>
+                                                        </Border>
+                                                    </Border>
+
+                                                    <Border Grid.Column="1" BorderBrush="#1E304D" BorderThickness="0,0,1,0" Padding="10,4">
+                                                        <TextBlock Text="{Binding DisplayTitle}" FontSize="11" FontWeight="SemiBold" Foreground="#F8FAFC"
+                                                                   VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{Binding DisplayTitle}"/>
+                                                    </Border>
+
+                                                    <Border Grid.Column="2" BorderBrush="#1E304D" BorderThickness="0,0,1,0" Padding="8,4">
+                                                        <ProgressBar Value="{Binding ProgressPercent}" Minimum="0" Maximum="100" Height="6" CornerRadius="3" VerticalAlignment="Center"/>
+                                                    </Border>
+
+                                                    <Border Grid.Column="3" BorderBrush="#1E304D" BorderThickness="0,0,1,0" Padding="10,4">
+                                                        <TextBlock Text="{Binding ProgressDetailsDisplay}" FontSize="10.5" FontFamily="Consolas" Foreground="#CBD5E1"
+                                                                   VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{Binding ProgressDetailsDisplay}"/>
+                                                    </Border>
+
+                                                    <Border Grid.Column="4" BorderBrush="#1E304D" BorderThickness="0,0,1,0" Padding="8,4">
+                                                        <TextBlock Text="{Binding SpeedOnlyDisplay}" FontSize="10.5" FontFamily="Consolas" Foreground="{Binding SpeedBrush}" FontWeight="SemiBold"
+                                                                   VerticalAlignment="Center" HorizontalAlignment="Right" TextTrimming="CharacterEllipsis"/>
+                                                    </Border>
+
+                                                    <Border Grid.Column="5" BorderBrush="#1E304D" BorderThickness="0,0,1,0" Padding="6,4">
+                                                        <TextBlock Text="{Binding SeedsPeersDisplay}" FontSize="10.5" FontFamily="Consolas" Foreground="#94A3B8"
+                                                                   VerticalAlignment="Center" HorizontalAlignment="Center" ToolTipService.ToolTip="{Binding SeedsPeersTooltip}"/>
+                                                    </Border>
+
+                                                    <Border Grid.Column="6" Padding="6,4">
+                                                        <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" HorizontalAlignment="Center">
+                                                            <Button Click="TogglePauseQueueItem_Click" Tag="{Binding}"
+                                                                    Padding="4,2" Width="24" Height="22" MinHeight="22" CornerRadius="3"
+                                                                    Background="#25354F" Foreground="#38BDF8" VerticalAlignment="Center"
+                                                                    ToolTipService.ToolTip="{Binding PauseResumeTooltip}">
+                                                                <FontIcon Glyph="{Binding PauseResumeGlyph}" FontSize="10.5"/>
+                                                            </Button>
+
+                                                            <Button Click="MoveQueueItemUp_Click" Tag="{Binding}"
+                                                                    Padding="4,2" Width="24" Height="22" MinHeight="22" CornerRadius="3"
+                                                                    Background="#25354F" Foreground="#CBD5E1" VerticalAlignment="Center"
+                                                                    ToolTipService.ToolTip="Поднять выше в очереди закачек">
+                                                                <FontIcon Glyph="&#xE74A;" FontSize="10.5"/>
+                                                            </Button>
+
+                                                            <Button Click="MoveQueueItemDown_Click" Tag="{Binding}"
+                                                                    Padding="4,2" Width="24" Height="22" MinHeight="22" CornerRadius="3"
+                                                                    Background="#25354F" Foreground="#CBD5E1" VerticalAlignment="Center"
+                                                                    ToolTipService.ToolTip="Опустить ниже в очереди закачек">
+                                                                <FontIcon Glyph="&#xE74B;" FontSize="10.5"/>
+                                                            </Button>
+
+                                                            <Button Click="CancelSingleBatch_Click" Tag="{Binding}"
+                                                                    Padding="4,2" Width="24" Height="22" MinHeight="22" CornerRadius="3"
+                                                                    Background="#7FDC2626" Foreground="White" VerticalAlignment="Center"
+                                                                    ToolTipService.ToolTip="Отменить закачку и убрать из списка">
+                                                                <FontIcon Glyph="&#xE711;" FontSize="10.5"/>
+                                                            </Button>
+                                                        </StackPanel>
+                                                    </Border>
+                                                </Grid>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ListView.ItemTemplate>
+                                </ListView>
+                            </Grid>
+                        </Border>
                     </Grid>
 
                     <!-- Блок «Раздачи» (видим исключительно на вкладке «Закачки»!) -->
@@ -1283,82 +1370,152 @@
                             </Grid>
 
                             <Grid Grid.Row="1">
-                                <ListView x:Name="SeedingItemsListView" SelectionMode="None"
-                                          Background="#090D16" BorderBrush="#1E293B" BorderThickness="1" CornerRadius="6" Padding="2">
-                                    <ListView.ItemContainerStyle>
-                                        <Style TargetType="ListViewItem">
-                                            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-                                            <Setter Property="Padding" Value="2,1"/>
-                                            <Setter Property="MinHeight" Value="0"/>
-                                        </Style>
-                                    </ListView.ItemContainerStyle>
-                                    <ListView.ItemTemplate>
-                                        <DataTemplate>
-                                            <Border Background="#131E30" BorderBrush="#233754" BorderThickness="1" CornerRadius="5" Padding="7,2" Margin="0,1" Height="34">
-                                                <Grid ColumnSpacing="8">
-                                                    <Grid.ColumnDefinitions>
-                                                        <ColumnDefinition Width="94"/>
-                                                        <ColumnDefinition Width="*"/>
-                                                        <ColumnDefinition Width="86"/>
-                                                        <ColumnDefinition Width="134"/>
-                                                        <ColumnDefinition Width="104"/>
-                                                        <ColumnDefinition Width="216"/>
-                                                        <ColumnDefinition Width="Auto"/>
-                                                    </Grid.ColumnDefinitions>
+                                <Border x:Name="SeedingTableContainer" Background="#091119" BorderBrush="#1E4A3E" BorderThickness="1" CornerRadius="6">
+                                    <Grid>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="26"/>
+                                            <RowDefinition Height="*"/>
+                                        </Grid.RowDefinitions>
 
-                                                    <Border Grid.Column="0" Background="{Binding StageBrush}" CornerRadius="3" Padding="6,2" VerticalAlignment="Center" HorizontalAlignment="Stretch">
-                                                        <TextBlock Text="{Binding StageBadgeDisplay}" FontSize="9.5" FontFamily="Consolas" Foreground="White" FontWeight="Bold" VerticalAlignment="Center" TextAlignment="Center"/>
+                                        <!-- Заголовок таблицы раздач с видимыми вертикальными и горизонтальными разделителями -->
+                                        <Border Grid.Row="0" Background="#0E2027" BorderBrush="#1E4A3E" BorderThickness="0,0,0,1" CornerRadius="5,5,0,0">
+                                            <Grid ColumnSpacing="0">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="106"/>
+                                                    <ColumnDefinition Width="*" MinWidth="220"/>
+                                                    <ColumnDefinition Width="88"/>
+                                                    <ColumnDefinition Width="96"/>
+                                                    <ColumnDefinition Width="72"/>
+                                                    <ColumnDefinition Width="104"/>
+                                                    <ColumnDefinition Width="98"/>
+                                                    <ColumnDefinition Width="122"/>
+                                                </Grid.ColumnDefinitions>
+                                                <Border Grid.Column="0" BorderBrush="#1A3F38" BorderThickness="0,0,1,0" Padding="6,0">
+                                                    <TextBlock Text="Статус" FontSize="10.5" FontWeight="Bold" Foreground="#94A3B8" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                </Border>
+                                                <Border Grid.Column="1" BorderBrush="#1A3F38" BorderThickness="0,0,1,0" Padding="10,0">
+                                                    <TextBlock Text="Раздача" FontSize="10.5" FontWeight="Bold" Foreground="#94A3B8" VerticalAlignment="Center"/>
+                                                </Border>
+                                                <Border Grid.Column="2" BorderBrush="#1A3F38" BorderThickness="0,0,1,0" Padding="8,0">
+                                                    <TextBlock Text="Размер" FontSize="10.5" FontWeight="Bold" Foreground="#94A3B8" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                                                </Border>
+                                                <Border Grid.Column="3" BorderBrush="#1A3F38" BorderThickness="0,0,1,0" Padding="8,0">
+                                                    <TextBlock Text="Отдано" FontSize="10.5" FontWeight="Bold" Foreground="#94A3B8" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                                                </Border>
+                                                <Border Grid.Column="4" BorderBrush="#1A3F38" BorderThickness="0,0,1,0" Padding="6,0">
+                                                    <TextBlock Text="Рейтинг" FontSize="10.5" FontWeight="Bold" Foreground="#94A3B8" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                </Border>
+                                                <Border Grid.Column="5" BorderBrush="#1A3F38" BorderThickness="0,0,1,0" Padding="8,0">
+                                                    <TextBlock Text="Отдача" FontSize="10.5" FontWeight="Bold" Foreground="#94A3B8" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                                                </Border>
+                                                <Border Grid.Column="6" BorderBrush="#1A3F38" BorderThickness="0,0,1,0" Padding="6,0">
+                                                    <TextBlock Text="Личи / сиды" FontSize="10.5" FontWeight="Bold" Foreground="#94A3B8" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                </Border>
+                                                <Border Grid.Column="7" Padding="6,0">
+                                                    <TextBlock Text="Действия" FontSize="10.5" FontWeight="Bold" Foreground="#94A3B8" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                </Border>
+                                            </Grid>
+                                        </Border>
+
+                                        <ListView x:Name="SeedingItemsListView" Grid.Row="1" SelectionMode="None"
+                                                  Background="Transparent" BorderThickness="0" Padding="0">
+                                            <ListView.ItemContainerStyle>
+                                                <Style TargetType="ListViewItem">
+                                                    <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                                    <Setter Property="Padding" Value="0"/>
+                                                    <Setter Property="Margin" Value="0"/>
+                                                    <Setter Property="MinHeight" Value="0"/>
+                                                </Style>
+                                            </ListView.ItemContainerStyle>
+                                            <ListView.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Border Background="#0E1824" BorderBrush="#183834" BorderThickness="0,0,0,1" MinHeight="32">
+                                                        <Grid ColumnSpacing="0">
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="106"/>
+                                                                <ColumnDefinition Width="*" MinWidth="220"/>
+                                                                <ColumnDefinition Width="88"/>
+                                                                <ColumnDefinition Width="96"/>
+                                                                <ColumnDefinition Width="72"/>
+                                                                <ColumnDefinition Width="104"/>
+                                                                <ColumnDefinition Width="98"/>
+                                                                <ColumnDefinition Width="122"/>
+                                                            </Grid.ColumnDefinitions>
+
+                                                            <Border Grid.Column="0" BorderBrush="#183834" BorderThickness="0,0,1,0" Padding="6,4">
+                                                                <Border Background="{Binding StageBrush}" CornerRadius="3" Padding="5,2" VerticalAlignment="Center" HorizontalAlignment="Stretch">
+                                                                    <TextBlock Text="{Binding StageBadgeDisplay}" FontSize="9.5" FontFamily="Consolas" Foreground="White" FontWeight="Bold" VerticalAlignment="Center" TextAlignment="Center"/>
+                                                                </Border>
+                                                            </Border>
+
+                                                            <Border Grid.Column="1" BorderBrush="#183834" BorderThickness="0,0,1,0" Padding="10,4">
+                                                                <TextBlock Text="{Binding DisplayTitle}" FontSize="11.5" FontWeight="SemiBold" Foreground="#F8FAFC"
+                                                                           VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{Binding TooltipDetails}"/>
+                                                            </Border>
+
+                                                            <Border Grid.Column="2" BorderBrush="#183834" BorderThickness="0,0,1,0" Padding="8,4">
+                                                                <TextBlock Text="{Binding SizeOnlyDisplay}" FontSize="10.5" FontFamily="Consolas" Foreground="#94A3B8"
+                                                                           VerticalAlignment="Center" HorizontalAlignment="Right"/>
+                                                            </Border>
+
+                                                            <Border Grid.Column="3" BorderBrush="#183834" BorderThickness="0,0,1,0" Padding="8,4">
+                                                                <TextBlock Text="{Binding UploadedOnlyDisplay}" FontSize="10.5" FontFamily="Consolas" Foreground="#38BDF8" FontWeight="SemiBold"
+                                                                           VerticalAlignment="Center" HorizontalAlignment="Right"/>
+                                                            </Border>
+
+                                                            <Border Grid.Column="4" BorderBrush="#183834" BorderThickness="0,0,1,0" Padding="6,4">
+                                                                <TextBlock Text="{Binding RatioOnlyDisplay}" FontSize="10.5" FontFamily="Consolas" Foreground="{Binding RatioBrush}" FontWeight="Bold"
+                                                                           VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                                                            </Border>
+
+                                                            <Border Grid.Column="5" BorderBrush="#183834" BorderThickness="0,0,1,0" Padding="8,4">
+                                                                <TextBlock Text="{Binding UploadSpeedOnlyDisplay}" FontSize="10.5" FontFamily="Consolas" Foreground="{Binding SpeedBrush}" FontWeight="SemiBold"
+                                                                           VerticalAlignment="Center" HorizontalAlignment="Right" TextTrimming="CharacterEllipsis"/>
+                                                            </Border>
+
+                                                            <Border Grid.Column="6" BorderBrush="#183834" BorderThickness="0,0,1,0" Padding="6,4">
+                                                                <TextBlock Text="{Binding PeersSeedsDisplay}" FontSize="10.5" FontFamily="Consolas" Foreground="#94A3B8"
+                                                                           VerticalAlignment="Center" HorizontalAlignment="Center" ToolTipService.ToolTip="{Binding PeersSeedsTooltip}"/>
+                                                            </Border>
+
+                                                            <Border Grid.Column="7" Padding="6,4">
+                                                                <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" HorizontalAlignment="Center">
+                                                                    <Button Click="TogglePauseSeedingItem_Click" Tag="{Binding}"
+                                                                            Padding="4,2" Width="24" Height="22" MinHeight="22" CornerRadius="3"
+                                                                            Background="#25354F" Foreground="#38BDF8" VerticalAlignment="Center"
+                                                                            ToolTipService.ToolTip="{Binding PauseResumeTooltip}">
+                                                                        <FontIcon Glyph="{Binding PauseResumeGlyph}" FontSize="10.5"/>
+                                                                    </Button>
+
+                                                                    <Button Click="ReannounceSeedingItem_Click" Tag="{Binding}"
+                                                                            Padding="4,2" Width="24" Height="22" MinHeight="22" CornerRadius="3"
+                                                                            Background="#25354F" Foreground="#34D399" VerticalAlignment="Center"
+                                                                            ToolTipService.ToolTip="Обновить трекеры и пиров">
+                                                                        <FontIcon Glyph="&#xE72C;" FontSize="10.5"/>
+                                                                    </Button>
+
+                                                                    <Button Click="OpenSeedingFolder_Click" Tag="{Binding}"
+                                                                            Padding="4,2" Width="24" Height="22" MinHeight="22" CornerRadius="3"
+                                                                            Background="#25354F" Foreground="#CBD5E1" VerticalAlignment="Center"
+                                                                            ToolTipService.ToolTip="Открыть папку раздачи">
+                                                                        <FontIcon Glyph="&#xE8B7;" FontSize="10.5"/>
+                                                                    </Button>
+
+                                                                    <Button Click="RemoveSeedingItem_Click" Tag="{Binding}"
+                                                                            Padding="4,2" Width="24" Height="22" MinHeight="22" CornerRadius="3"
+                                                                            Background="#7FDC2626" Foreground="White" VerticalAlignment="Center"
+                                                                            ToolTipService.ToolTip="Остановить и убрать из раздач (файлы на диске сохранятся)">
+                                                                        <FontIcon Glyph="&#xE711;" FontSize="10.5"/>
+                                                                    </Button>
+                                                                </StackPanel>
+                                                            </Border>
+                                                        </Grid>
                                                     </Border>
-
-                                                    <TextBlock Grid.Column="1" Text="{Binding DisplayTitle}" FontSize="11.5" FontWeight="SemiBold" Foreground="#F8FAFC"
-                                                               VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{Binding TooltipDetails}"/>
-
-                                                    <TextBlock Grid.Column="2" Text="{Binding SizeDisplay}" FontSize="10.5" FontFamily="Consolas" Foreground="#94A3B8"
-                                                               VerticalAlignment="Center" HorizontalAlignment="Right"/>
-
-                                                    <TextBlock Grid.Column="3" Text="{Binding UploadedDisplay}" FontSize="10.5" FontFamily="Consolas" Foreground="#38BDF8" FontWeight="SemiBold"
-                                                               VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
-
-                                                    <TextBlock Grid.Column="4" Text="{Binding RatioDisplay}" FontSize="10.5" FontFamily="Consolas" Foreground="{Binding RatioBrush}" FontWeight="Bold"
-                                                               VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
-
-                                                    <TextBlock Grid.Column="5" Text="{Binding SpeedAndPeersDisplay}" FontSize="10.5" FontFamily="Consolas" Foreground="{Binding SpeedBrush}" FontWeight="SemiBold"
-                                                               VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
-
-                                                    <StackPanel Grid.Column="6" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
-                                                        <Button Click="TogglePauseSeedingItem_Click" Tag="{Binding}"
-                                                                Padding="4,2" Width="25" Height="22" MinHeight="22" CornerRadius="3"
-                                                                Background="#25354F" Foreground="#38BDF8" VerticalAlignment="Center"
-                                                                ToolTipService.ToolTip="{Binding PauseResumeTooltip}">
-                                                            <FontIcon Glyph="{Binding PauseResumeGlyph}" FontSize="10.5"/>
-                                                        </Button>
-
-                                                        <Button Click="ReannounceSeedingItem_Click" Tag="{Binding}"
-                                                                Padding="4,2" Width="25" Height="22" MinHeight="22" CornerRadius="3"
-                                                                Background="#25354F" Foreground="#34D399" VerticalAlignment="Center"
-                                                                ToolTipService.ToolTip="Обновить трекеры и пиров">
-                                                            <FontIcon Glyph="&#xE72C;" FontSize="10.5"/>
-                                                        </Button>
-
-                                                        <Button Click="OpenSeedingFolder_Click" Tag="{Binding}"
-                                                                Padding="4,2" Width="25" Height="22" MinHeight="22" CornerRadius="3"
-                                                                Background="#25354F" Foreground="#CBD5E1" VerticalAlignment="Center"
-                                                                ToolTipService.ToolTip="Открыть папку раздачи">
-                                                            <FontIcon Glyph="&#xE8B7;" FontSize="10.5"/>
-                                                        </Button>
-
-                                                        <Button Click="RemoveSeedingItem_Click" Tag="{Binding}"
-                                                                Padding="4,2" Width="25" Height="22" MinHeight="22" CornerRadius="3"
-                                                                Background="#7FDC2626" Foreground="White" VerticalAlignment="Center"
-                                                                ToolTipService.ToolTip="Остановить и убрать из раздач (файлы на диске сохранятся)">
-                                                            <FontIcon Glyph="&#xE711;" FontSize="10.5"/>
-                                                        </Button>
-                                                    </StackPanel>
-                                                </Grid>
-                                            </Border>
-                                        </DataTemplate>
-                                    </ListView.ItemTemplate>
-                                </ListView>
+                                                </DataTemplate>
+                                            </ListView.ItemTemplate>
+                                        </ListView>
+                                    </Grid>
+                                </Border>
 
                                 <StackPanel x:Name="SeedingEmptyStatePanel" Orientation="Horizontal" Spacing="10"
                                             HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed">
