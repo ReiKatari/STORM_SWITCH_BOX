@@ -147,6 +147,7 @@ class MainActivity : Activity() {
     private var deleteSourceAfterSuccess = false
     private var deleteRuTrackerSourceAfterSuccess = true
     private var autoCheckUpdatesOnStartup = true
+    private var includeSubfoldersWhenScanning = false
     private var lastBrowseDirPath = "/storage/emulated/0"
 
     @Volatile private var isTaskRunning = false
@@ -363,6 +364,8 @@ class MainActivity : Activity() {
                         put("roleBadge", rf.roleBadge)
                         put("selected", rf.selected)
                         put("isRealTorrentFile", rf.isRealTorrentFile)
+                        put("targetGameSlot", rf.targetGameSlot)
+                        put("relativePath", rf.relativePath)
                     }
                     rfArr.put(rfObj)
                 }
@@ -431,14 +434,17 @@ class MainActivity : Activity() {
                 if (rfArr != null) {
                     for (j in 0 until rfArr.length()) {
                         val rfo = rfArr.getJSONObject(j)
+                        val fn = rfo.getString("fileName")
                         rfList.add(
                             RuTrackerCloudEngine.ReleaseContentFile(
-                                fileName = rfo.getString("fileName"),
-                                roleBadge = rfo.optString("roleBadge", "ФАЙЛ"),
+                                fileName = fn,
+                                roleBadge = rfo.optString("roleBadge", "ИГРА"),
                                 sizeBytes = rfo.getLong("sizeBytes"),
                                 titleId = rfo.optString("titleId", ""),
                                 selected = rfo.optBoolean("selected", true),
-                                isRealTorrentFile = rfo.optBoolean("isRealTorrentFile", false)
+                                isRealTorrentFile = rfo.optBoolean("isRealTorrentFile", false),
+                                targetGameSlot = rfo.optInt("targetGameSlot", 1),
+                                relativePath = rfo.optString("relativePath", fn)
                             )
                         )
                     }
@@ -512,6 +518,15 @@ class MainActivity : Activity() {
         thread(name = "bg-pipeline-${task.topicItem.topicId}", isDaemon = true) {
             try {
                 val useBlock = (task.dialogFormatMode == 0 || task.dialogFormatMode == 1)
+                val isSwitch2Target = task.titleId.startsWith("04", ignoreCase = true) ||
+                    task.title.contains("Switch 2", ignoreCase = true)
+                val targetOutDir = if (isSwitch2Target) {
+                    customSwitch2OutputDir.mkdirs()
+                    customSwitch2OutputDir
+                } else {
+                    customOutputDir.mkdirs()
+                    customOutputDir
+                }
                 val res = RuTrackerCloudEngine.downloadTopicAndBuildMultiContent(
                     topic = task.topicItem,
                     modUrls = task.collectedModUrls,
@@ -522,7 +537,7 @@ class MainActivity : Activity() {
                     threads = cpuThreads,
                     romsDir = romsDir,
                     modsRootDir = modsDir,
-                    outputDir = customOutputDir,
+                    outputDir = targetOutDir,
                     isCancelled = { task.controller.isCancelled },
                     onProgress = { _, _ -> },
                     selectedReleaseFiles = task.selectedReleaseFiles,
@@ -555,6 +570,18 @@ class MainActivity : Activity() {
                     detail = "✅ Готово: ${outFile.name} (${StormNczEngine.formatSize(res.compressedBytes)})"
                 )
                 appendLog("✅ Авто-сборка RuTracker завершена: ${outFile.name} (${StormNczEngine.formatSize(res.compressedBytes)})")
+                if (res.success && outFile.exists() && outFile.length() > 0L) {
+                    if (!task.deleteSourceAfterVerify) {
+                        val seedMeta = RuTrackerCloudEngine.consumeLastCompletedSeedingMeta(task.topicItem.topicId)
+                        if (seedMeta != null) {
+                            RuTrackerCloudEngine.addOrUpdateSeeding(task.topicItem.topicId, task.title, seedMeta)
+                            appendLog("📡 Переведено в раздачи: ${task.title.take(50)}")
+                        }
+                    }
+                    // Готовая задача автоматически очищается из активного списка:
+                    // при deleteSourceAfterVerify=true очищается полностью, при false переносится в блок «Раздачи».
+                    bgPipelineTasks.remove(task)
+                }
                 mainHandler.post {
                     Toast.makeText(this@MainActivity, StormLocalization.tr("Готово: ${outFile.name} (${StormNczEngine.formatSize(res.compressedBytes)})".toString(), currentLangCode), Toast.LENGTH_LONG).show()
                 }
@@ -579,16 +606,59 @@ class MainActivity : Activity() {
         }
     }
 
+    @Volatile private var seedingTickerActive = false
+    private var seedingTickerRunnable: Runnable? = null
+
+    private fun startSeedingRefreshTickerIfNeeded() {
+        if (seedingTickerActive || isFinishing) return
+        if (activeTab != 2 || RuTrackerCloudEngine.seedingEntries.isEmpty()) return
+        seedingTickerActive = true
+        val r = object : Runnable {
+            override fun run() {
+                if (!seedingTickerActive || isFinishing || activeTab != 2 || RuTrackerCloudEngine.seedingEntries.isEmpty()) {
+                    seedingTickerActive = false
+                    return
+                }
+                thread(name = "seeding-poll-ui", isDaemon = true) {
+                    RuTrackerCloudEngine.pollSeedingStats()
+                    mainHandler.post {
+                        if (seedingTickerActive && !isFinishing && activeTab == 2) {
+                            refreshTaskManagerUI(themes.getOrElse(currentThemeIndex) { themes[0] })
+                            seedingTickerRunnable?.let { mainHandler.postDelayed(it, 1500L) }
+                        } else {
+                            seedingTickerActive = false
+                        }
+                    }
+                }
+            }
+        }
+        seedingTickerRunnable = r
+        mainHandler.postDelayed(r, 1500L)
+    }
+
+    private fun stopSeedingRefreshTicker() {
+        seedingTickerActive = false
+        seedingTickerRunnable?.let { mainHandler.removeCallbacks(it) }
+        seedingTickerRunnable = null
+    }
+
     fun refreshTaskManagerUI(th: StormTheme = themes.getOrElse(currentThemeIndex) { themes[0] }) {
         mainHandler.post {
             val container = taskManagerContainerView ?: return@post
             container.removeAllViews()
 
             val activeCount = bgPipelineTasks.count { it.state == BgTaskState.RUNNING || it.state == BgTaskState.PAUSED }
-            activeTasksBadgeView?.text = if (activeCount > 0) "Активных задач: $activeCount" else "Все задачи завершены"
-            activeTasksBadgeView?.setTextColor(if (activeCount > 0) th.accent else th.textSecondary)
+            val seedList = RuTrackerCloudEngine.seedingEntries.toList()
+            val activeSeedCount = seedList.count { !it.isPaused }
+            activeTasksBadgeView?.text = when {
+                activeCount > 0 && seedList.isNotEmpty() -> "Задачи: $activeCount • Раздачи: $activeSeedCount/${seedList.size}"
+                activeCount > 0 -> "Активных задач: $activeCount"
+                seedList.isNotEmpty() -> "Раздачи: $activeSeedCount/${seedList.size}"
+                else -> "Все задачи завершены"
+            }
+            activeTasksBadgeView?.setTextColor(if (activeCount > 0 || activeSeedCount > 0) th.accent else th.textSecondary)
 
-            if (bgPipelineTasks.isEmpty()) {
+            if (bgPipelineTasks.isEmpty() && seedList.isEmpty()) {
                 container.addView(TextView(this).apply {
                     text = "Нет активных задач загрузки. Выберите раздачу в каталоге ниже и нажмите «⬇️ Скачать и собрать»."
                     setTextColor(th.textSecondary)
@@ -596,6 +666,15 @@ class MainActivity : Activity() {
                     setPadding(0, dp(4), 0, dp(4))
                 })
                 return@post
+            }
+
+            if (bgPipelineTasks.isEmpty()) {
+                container.addView(TextView(this).apply {
+                    text = "Активных закачек нет."
+                    setTextColor(th.textSecondary)
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+                    setPadding(0, dp(2), 0, dp(6))
+                })
             }
 
             for (task in bgPipelineTasks) {
@@ -775,6 +854,110 @@ class MainActivity : Activity() {
                 card.addView(actionsRow)
                 container.addView(card)
             }
+
+            val seedItemsNow = RuTrackerCloudEngine.seedingEntries.toList()
+            if (seedItemsNow.isNotEmpty()) {
+                val totalUpBps = seedItemsNow.sumOf { it.uploadRateBytesPerSec }
+                val totalUpBytes = seedItemsNow.sumOf { it.uploadedBytes }
+                val upSpeedStr = String.format(Locale("ru", "RU"), "%.2f МБ/с", totalUpBps / (1024.0 * 1024.0))
+
+                val seedHeader = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    background = makeCardDrawable(th.bgElevated, th.accent, 8)
+                    setPadding(dp(10), dp(8), dp(10), dp(8))
+                    layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                        topMargin = dp(4)
+                        bottomMargin = dp(6)
+                    }
+                }
+                seedHeader.addView(TextView(this).apply {
+                    text = "📡 Раздачи (${seedItemsNow.size}) • Отдача: $upSpeedStr • Всего отдано: ${StormNczEngine.formatSize(totalUpBytes)}"
+                    setTextColor(th.accent)
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f)
+                    typeface = Typeface.DEFAULT_BOLD
+                    setPadding(0, 0, 0, dp(6))
+                })
+                val globalSeedBtns = makeUniformButtonRow(bottomMarginDp = 2)
+                globalSeedBtns.addView(makeButton("▶ Запустить все", Color.parseColor("#10B981")) {
+                    RuTrackerCloudEngine.resumeAllSeeding()
+                    refreshTaskManagerUI(th)
+                    startSeedingRefreshTickerIfNeeded()
+                }.apply {
+                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(6) }
+                })
+                globalSeedBtns.addView(makeButton("⏸ Пауза все", Color.parseColor("#D97706")) {
+                    RuTrackerCloudEngine.pauseAllSeeding()
+                    refreshTaskManagerUI(th)
+                }.apply {
+                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                })
+                seedHeader.addView(globalSeedBtns)
+                container.addView(seedHeader)
+
+                for (se in seedItemsNow) {
+                    val sCard = LinearLayout(this).apply {
+                        orientation = LinearLayout.VERTICAL
+                        background = makeCardDrawable(th.bgPrimary, if (se.isPaused) th.border else Color.parseColor("#10B981"), 8)
+                        setPadding(dp(10), dp(8), dp(10), dp(8))
+                        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                            bottomMargin = dp(6)
+                        }
+                    }
+                    val sr1 = LinearLayout(this).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        gravity = Gravity.CENTER_VERTICAL
+                    }
+                    sr1.addView(TextView(this).apply {
+                        text = se.title
+                        setTextColor(th.textPrimary)
+                        setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f)
+                        typeface = Typeface.DEFAULT_BOLD
+                        maxLines = 1
+                        ellipsize = TextUtils.TruncateAt.END
+                        layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                    })
+                    sr1.addView(TextView(this).apply {
+                        text = " ${se.statusText} "
+                        setTextColor(if (se.isPaused) Color.parseColor("#F59E0B") else Color.parseColor("#10B981"))
+                        setTextSize(TypedValue.COMPLEX_UNIT_SP, 10.5f)
+                        typeface = Typeface.DEFAULT_BOLD
+                    })
+                    sCard.addView(sr1)
+
+                    val seSpeedStr = String.format(Locale("ru", "RU"), "%.2f МБ/с", se.uploadRateBytesPerSec / (1024.0 * 1024.0))
+                    val ratioStr = String.format(Locale("ru", "RU"), "%.2f", se.ratio)
+                    sCard.addView(TextView(this).apply {
+                        text = "Отдано: ${StormNczEngine.formatSize(se.uploadedBytes)} / ${StormNczEngine.formatSize(se.totalSizeBytes)} (Ratio $ratioStr) • $seSpeedStr • Пиры: ${se.peers} • Сиды: ${se.seeds}"
+                        setTextColor(th.textSecondary)
+                        setTextSize(TypedValue.COMPLEX_UNIT_SP, 10.2f)
+                        setPadding(0, dp(2), 0, dp(6))
+                    })
+
+                    val sBtns = makeUniformButtonRow(bottomMarginDp = 0)
+                    sBtns.addView(makeButton(if (se.isPaused) "▶ Продолжить" else "⏸ Пауза", if (se.isPaused) Color.parseColor("#10B981") else Color.parseColor("#D97706")) {
+                        RuTrackerCloudEngine.toggleSeedingPause(se.infoHash)
+                        refreshTaskManagerUI(th)
+                        startSeedingRefreshTickerIfNeeded()
+                    }.apply {
+                        layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.2f).apply { marginEnd = dp(4) }
+                    })
+                    sBtns.addView(makeButton("🔄 Анонс", th.bgElevated, th.textPrimary) {
+                        RuTrackerCloudEngine.reannounceSeeding(se.infoHash)
+                        Toast.makeText(this@MainActivity, StormLocalization.tr("Анонс трекерам отправлен".toString(), currentLangCode), Toast.LENGTH_SHORT).show()
+                    }.apply {
+                        layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(4) }
+                    })
+                    sBtns.addView(makeButton("🗑 Убрать", Color.parseColor("#DC2626")) {
+                        RuTrackerCloudEngine.removeSeeding(se.infoHash)
+                        refreshTaskManagerUI(th)
+                    }.apply {
+                        layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                    })
+                    sCard.addView(sBtns)
+                    container.addView(sCard)
+                }
+                startSeedingRefreshTickerIfNeeded()
+            }
         }
     }
 
@@ -837,7 +1020,9 @@ class MainActivity : Activity() {
 
     override fun onPause() {
         super.onPause()
+        stopSeedingRefreshTicker()
         persistBgTasksToDisk()
+        RuTrackerCloudEngine.flushSeedingStateSync()
     }
 
     override fun onStop() {
@@ -852,6 +1037,8 @@ class MainActivity : Activity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        stopSeedingRefreshTicker()
+        RuTrackerCloudEngine.flushSeedingStateSync()
         RuTrackerCloudEngine.detachHostActivity(this)
         if (isFinishing) {
             try { dbiServer?.stop() } catch (_: Throwable) {}
@@ -895,6 +1082,7 @@ class MainActivity : Activity() {
         ensureStormDirectories()
         loadSettings()
         loadPersistedBgTasks(this)
+        RuTrackerCloudEngine.loadAndResumePersistedSeeding()
 
         if (!settingsFile.exists()) {
             currentLangCode = detectDefaultLanguage()
@@ -1069,6 +1257,7 @@ class MainActivity : Activity() {
                 deleteSourceAfterSuccess = json.optBoolean("deleteSource", false)
                 deleteRuTrackerSourceAfterSuccess = json.optBoolean("deleteRuTrackerSource", deleteRuTrackerSourceAfterSuccess)
                 autoCheckUpdatesOnStartup = json.optBoolean("autoCheckUpdates", true)
+                includeSubfoldersWhenScanning = json.optBoolean("includeSubfoldersWhenScanning", false)
                 lastBrowseDirPath = json.optString("lastBrowseDir", "/storage/emulated/0")
                 val savedOut = json.optString("outputDir", "")
                 if (savedOut.isNotBlank()) {
@@ -1108,6 +1297,7 @@ class MainActivity : Activity() {
             json.put("deleteSource", deleteSourceAfterSuccess)
             json.put("deleteRuTrackerSource", deleteRuTrackerSourceAfterSuccess)
             json.put("autoCheckUpdates", autoCheckUpdatesOnStartup)
+            json.put("includeSubfoldersWhenScanning", includeSubfoldersWhenScanning)
             json.put("outputDir", customOutputDir.absolutePath)
             json.put("outputDirSwitch2", customSwitch2OutputDir.absolutePath)
             json.put("outputDir3ds", custom3dsOutputDir.absolutePath)
@@ -1761,6 +1951,19 @@ class MainActivity : Activity() {
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         })
         sourceCard.addView(rowPick2)
+
+        sourceCard.addView(makeStormCheckBox(
+            "Включать подпапки (рекурсивный поиск)",
+            includeSubfoldersWhenScanning,
+            th
+        ) { checked ->
+            includeSubfoldersWhenScanning = checked
+            saveSettings()
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(6)
+            }
+        })
 
         parent.addView(sourceCard)
         parent.addView(buildOutputFoldersCard(th))
@@ -2832,7 +3035,7 @@ class MainActivity : Activity() {
                                 val targetFolder = if (inFile.isDirectory) inFile else inFile.parentFile ?: customOutputDir
                                 StormNczEngine.packFolderToSwitchContainer(
                                     inputFolder = targetFolder,
-                                    outputDir = customOutputDir,
+                                    outputDir = getEffectiveOutputDirForFile(targetFolder),
                                     targetFormatMode = selectedOutputFormat,
                                     useBlockNcz = useBlockForFormat,
                                     zstdLevel = effectiveLevel,
@@ -2878,7 +3081,7 @@ class MainActivity : Activity() {
                                 )
                                 StormNczEngine.buildSmartMultiContentPackage(
                                     inputFiles = listOf(inFile),
-                                    outputDir = customOutputDir,
+                                    outputDir = getEffectiveOutputDirForFile(inFile),
                                     targetFormatMode = selectedOutputFormat,
                                     useBlockNcz = useBlockForFormat,
                                     smartDedup = true,
@@ -3150,8 +3353,28 @@ class MainActivity : Activity() {
             text = "Нажмите «Провести аудит библиотеки», чтобы проанализировать очередь и папку roms."
             setTextColor(th.textSecondary)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
-            setPadding(0, dp(6), 0, dp(8))
+            setPadding(0, dp(6), 0, dp(6))
         }
+
+        val rtUpdateOutTxt = TextView(this).apply {
+            text = "Проверка обновлений версий и новых DLC по каталогу RuTracker (#1605) без учета Standalone."
+            setTextColor(th.textSecondary)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f)
+            setPadding(0, dp(4), 0, dp(6))
+        }
+
+        auditCard.addView(makeStormCheckBox(
+            "Включать подпапки (рекурсивный поиск)",
+            includeSubfoldersWhenScanning,
+            th
+        ) { checked ->
+            includeSubfoldersWhenScanning = checked
+            saveSettings()
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(6)
+            }
+        })
 
         val auditBtnRow = makeUniformButtonRow(bottomMarginDp = 4)
         auditBtnRow.addView(makeButton("🔎 Провести аудит библиотеки", th.accent) {
@@ -3162,7 +3385,7 @@ class MainActivity : Activity() {
                 scanTargets.add(customOutputDir)
                 scanTargets.add(customSwitch2OutputDir)
                 scanTargets.add(custom3dsOutputDir)
-                val rep = StormNczEngine.auditLibraryFolder(scanTargets)
+                val rep = StormNczEngine.auditLibraryFolder(scanTargets, recursive = includeSubfoldersWhenScanning)
                 val text = buildString {
                     appendLine("📊 Результаты аудита коллекции:")
                     appendLine("• Всего проверено образов: ${rep.totalFiles} (${StormNczEngine.formatSize(rep.totalBytes)})")
@@ -3183,8 +3406,8 @@ class MainActivity : Activity() {
         })
 
         auditBtnRow.addView(makeButton("⚡ Оптимизировать найденное", th.bgElevated, th.textPrimary) {
-            val scanTargets = listOf(romsDir) + queuedFiles
-            val rep = StormNczEngine.auditLibraryFolder(scanTargets)
+            val scanTargets = listOf(romsDir, customOutputDir, customSwitch2OutputDir, custom3dsOutputDir) + queuedFiles
+            val rep = StormNczEngine.auditLibraryFolder(scanTargets, recursive = includeSubfoldersWhenScanning)
             var added = 0
             (rep.uncompressedNspFiles + rep.untrimmedCartFiles.map { it.first }).forEach { f ->
                 if (queuedFiles.none { it.canonicalPath == f.canonicalPath }) {
@@ -3199,8 +3422,56 @@ class MainActivity : Activity() {
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         })
 
+        val rtCheckBtn = makeButton("🔄 Проверить обновления по RuTracker", th.bgElevated, th.textPrimary) {
+            rtUpdateOutTxt.text = "🔎 Поиск обновлений версий и новых DLC в базе RuTracker #1605..."
+            thread {
+                val collectedFiles = LinkedHashMap<String, File>()
+                fun collectFrom(target: File) {
+                    if (!target.exists()) return
+                    if (target.isFile) {
+                        val cp = try { target.canonicalPath } catch (_: Exception) { target.absolutePath }
+                        collectedFiles[cp] = target
+                    } else if (target.isDirectory) {
+                        val depth = if (includeSubfoldersWhenScanning) 3 else 1
+                        target.walkTopDown().maxDepth(depth).filter { it.isFile }.forEach { f ->
+                            val cp = try { f.canonicalPath } catch (_: Exception) { f.absolutePath }
+                            collectedFiles[cp] = f
+                        }
+                    }
+                }
+                queuedFiles.forEach { collectFrom(it) }
+                collectFrom(romsDir)
+                collectFrom(customOutputDir)
+                collectFrom(customSwitch2OutputDir)
+                collectFrom(custom3dsOutputDir)
+                val updates = RuTrackerCloudEngine.checkLibraryUpdatesAgainstCatalog(collectedFiles.values.toList())
+                val reportText = if (updates.isEmpty()) {
+                    "✅ Все найденные игры актуальны (проверено файлов: ${collectedFiles.size})."
+                } else {
+                    buildString {
+                        appendLine("🆕 Найдены обновления / новые DLC (${updates.size}):")
+                        for (u in updates.take(20)) {
+                            val parts = mutableListOf<String>()
+                            if (u.hasNewerVersion) parts.add("версия ${u.localVersion} -> ${u.remoteVersion}")
+                            if (u.hasNewerDlc) parts.add("DLC: ${u.localDlcCount} -> ${u.remoteDlcCount}")
+                            appendLine("• ${u.gameName}: ${parts.joinToString(", ")} [t=${u.remoteTopicId}]")
+                        }
+                    }.trim()
+                }
+                mainHandler.post {
+                    rtUpdateOutTxt.text = reportText
+                }
+            }
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(4)
+            }
+        }
+
         auditCard.addView(auditBtnRow)
+        auditCard.addView(rtCheckBtn)
         auditCard.addView(auditOutTxt)
+        auditCard.addView(rtUpdateOutTxt)
         parent.addView(auditCard)
     }
 
@@ -3905,6 +4176,8 @@ class MainActivity : Activity() {
         var currentTask: BgPipelineTask? = bgPipelineTasks.firstOrNull { it.topicItem.topicId == item.topicId && (it.state == BgTaskState.RUNNING || it.state == BgTaskState.PAUSED) }
 
         var releaseFiles = RuTrackerCloudEngine.getReleaseFilesList(item).toMutableList()
+        var gameSlots = RuTrackerCloudEngine.detectGameSlotsForFiles(item.title, releaseFiles)
+        val savedSlotFileSel = HashMap<Int, Set<String>>()
 
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -4021,7 +4294,31 @@ class MainActivity : Activity() {
         var syncUnlockerAutoState: () -> Unit = {}
 
         // =========================================================================
-        // ГРУППА 1: 📦 СОСТАВ РАЗДАЧИ (ФАЙЛЫ ТОРРЕНТА)
+        // ГРУППА 0: 🎮 ИГРЫ И ЧАСТИ В РАЗДАЧЕ (ДВУСТОРОННЯЯ СИНХРОНИЗАЦИЯ С ФАЙЛАМИ)
+        // =========================================================================
+        val slotsCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = makeCardDrawable(th.bgPrimary, th.border, 8)
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(8)
+            }
+        }
+        val slotsSummaryTitle = TextView(this).apply {
+            setTextColor(th.accent)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.8f)
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(0, 0, 0, dp(4))
+        }
+        slotsCard.addView(slotsSummaryTitle)
+        val slotsItemsLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        slotsCard.addView(slotsItemsLayout)
+        root.addView(slotsCard)
+
+        // =========================================================================
+        // ГРУППА 1: 📦 СОСТАВ РАЗДАЧИ (ФАЙЛЫ ТОРРЕНТА ПО КАТЕГОРИЯМ)
         // =========================================================================
         val filesCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -4051,22 +4348,171 @@ class MainActivity : Activity() {
         }
         filesCard.addView(filesItemsLayout)
 
-        fun renderFilesCheckboxes() {
-            filesItemsLayout.removeAllViews()
-            updateFilesSummaryHeader()
-            releaseFiles.forEach { rf ->
-                val cbRow = makeStormCheckBox(
-                    "[${rf.roleBadge}] ${rf.fileName} - ${StormNczEngine.formatSize(rf.sizeBytes)}",
-                    rf.selected,
+        fun updateSlotsHeader() {
+            val enabledCnt = gameSlots.count { it.isEnabled }
+            slotsSummaryTitle.text = "0. 🎮 Игры и части в раздаче ($enabledCnt из ${gameSlots.size})"
+            slotsCard.visibility = if (gameSlots.isNotEmpty()) View.VISIBLE else View.GONE
+        }
+
+        var renderFilesCheckboxes: () -> Unit = {}
+        var renderSlotCheckboxes: () -> Unit = {}
+
+        renderSlotCheckboxes = {
+            slotsItemsLayout.removeAllViews()
+            updateSlotsHeader()
+            for (slot in gameSlots) {
+                val tidSuffix = if (slot.titleId.isNotBlank()) " [${slot.titleId}]" else ""
+                val slotFilesCount = releaseFiles.count { it.targetGameSlot == slot.slotIndex && it.selected }
+                val cbSlot = makeStormCheckBox(
+                    "ИГРА #${slot.slotIndex}: ${slot.gameTitle}$tidSuffix ($slotFilesCount)",
+                    slot.isEnabled,
                     th
                 ) { checked ->
-                    rf.selected = checked
-                    updateFilesSummaryHeader()
+                    slot.isEnabled = checked
+                    val slotFiles = releaseFiles.filter { it.targetGameSlot == slot.slotIndex }
+                    if (!checked) {
+                        val checkedPaths = slotFiles.filter { it.selected }.map { it.relativePath.lowercase() }.toSet()
+                        if (checkedPaths.isNotEmpty()) {
+                            savedSlotFileSel[slot.slotIndex] = checkedPaths
+                        }
+                        slotFiles.forEach { it.selected = false }
+                    } else {
+                        val saved = savedSlotFileSel[slot.slotIndex]
+                        if (!saved.isNullOrEmpty()) {
+                            slotFiles.forEach { it.selected = it.relativePath.lowercase() in saved }
+                        }
+                        if (slotFiles.none { it.selected }) {
+                            RuTrackerCloudEngine.applySmartFileSelection(slotFiles)
+                        }
+                    }
+                    updateSlotsHeader()
+                    renderFilesCheckboxes()
                     syncUnlockerAutoState()
                 }
-                filesItemsLayout.addView(cbRow)
+                slotsItemsLayout.addView(cbSlot)
             }
         }
+
+        renderFilesCheckboxes = {
+            filesItemsLayout.removeAllViews()
+            updateFilesSummaryHeader()
+
+            fun copyDlcText(txt: String, msg: String) {
+                val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                cm.setPrimaryClip(ClipData.newPlainText("DLC", txt))
+                Toast.makeText(this@MainActivity, StormLocalization.tr(msg.toString(), currentLangCode), Toast.LENGTH_SHORT).show()
+            }
+
+            fun renderCategoryGroup(slotFilter: Int?, filesSub: List<RuTrackerCloudEngine.ReleaseContentFile>) {
+                val extraRoles = filesSub.map { it.roleBadge }.distinct().filter { it !in RuTrackerCloudEngine.CANONICAL_ROLE_ORDER }
+                val orderedRoles = RuTrackerCloudEngine.CANONICAL_ROLE_ORDER + extraRoles
+                for (roleName in orderedRoles) {
+                    val catFiles = filesSub.filter { it.roleBadge.equals(roleName, ignoreCase = true) }
+                    if (catFiles.isEmpty()) continue
+
+                    val catHeader = LinearLayout(this).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        gravity = Gravity.CENTER_VERTICAL
+                        setPadding(dp(2), dp(6), dp(2), dp(2))
+                    }
+                    val selCnt = catFiles.count { it.selected }
+                    val catBytes = catFiles.filter { it.selected }.sumOf { it.sizeBytes }
+                    catHeader.addView(TextView(this).apply {
+                        text = "$roleName ($selCnt/${catFiles.size} • ${StormNczEngine.formatSize(catBytes)})"
+                        setTextColor(th.textPrimary)
+                        setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.2f)
+                        typeface = Typeface.DEFAULT_BOLD
+                        layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                    })
+
+                    if (roleName == "ДОПОЛНЕНИЯ" || roleName == "DLC") {
+                        catHeader.addView(makeButton("📋 Все DLC", th.bgElevated, th.accent) {
+                            val allNames = catFiles.joinToString("\n") { RuTrackerCloudEngine.extractCleanDlcName(it.fileName) }
+                            copyDlcText(allNames, "Скопировано названий DLC: ${catFiles.size}")
+                        }.apply {
+                            setPadding(dp(6), dp(2), dp(6), dp(2))
+                            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                                marginEnd = dp(4)
+                            }
+                        })
+                    }
+
+                    val allCatSel = catFiles.all { it.selected }
+                    catHeader.addView(makeButton(if (allCatSel) "Снять" else "Все", th.bgElevated, th.textSecondary) {
+                        val targetState = !allCatSel
+                        catFiles.forEach { it.selected = targetState }
+                        if (targetState && slotFilter != null) {
+                            gameSlots.firstOrNull { it.slotIndex == slotFilter }?.isEnabled = true
+                            renderSlotCheckboxes()
+                        }
+                        renderFilesCheckboxes()
+                        syncUnlockerAutoState()
+                    }.apply {
+                        setPadding(dp(6), dp(2), dp(6), dp(2))
+                    })
+                    filesItemsLayout.addView(catHeader)
+
+                    for (rf in catFiles) {
+                        val isDlcItem = roleName == "ДОПОЛНЕНИЯ" || roleName == "DLC"
+                        val displayLabel = if (isDlcItem) {
+                            "${RuTrackerCloudEngine.extractCleanDlcName(rf.fileName)} - ${StormNczEngine.formatSize(rf.sizeBytes)}"
+                        } else {
+                            "${rf.fileName} - ${StormNczEngine.formatSize(rf.sizeBytes)}"
+                        }
+                        val cbRow = makeStormCheckBox(displayLabel, rf.selected, th) { checked ->
+                            rf.selected = checked
+                            if (checked) {
+                                gameSlots.firstOrNull { it.slotIndex == rf.targetGameSlot }?.let { sl ->
+                                    if (!sl.isEnabled) {
+                                        sl.isEnabled = true
+                                    }
+                                }
+                            }
+                            renderSlotCheckboxes()
+                            updateFilesSummaryHeader()
+                            syncUnlockerAutoState()
+                        }
+
+                        if (isDlcItem) {
+                            val rowWrap = LinearLayout(this).apply {
+                                orientation = LinearLayout.HORIZONTAL
+                                gravity = Gravity.CENTER_VERTICAL
+                                layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                            }
+                            cbRow.layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                            rowWrap.addView(cbRow)
+                            rowWrap.addView(makeButton("📋", th.bgElevated, th.textPrimary) {
+                                val cleanDlc = RuTrackerCloudEngine.extractCleanDlcName(rf.fileName)
+                                copyDlcText(cleanDlc, "Скопировано: $cleanDlc")
+                            }.apply {
+                                setPadding(dp(8), dp(2), dp(8), dp(2))
+                            })
+                            filesItemsLayout.addView(rowWrap)
+                        } else {
+                            filesItemsLayout.addView(cbRow)
+                        }
+                    }
+                }
+            }
+
+            if (gameSlots.size > 1) {
+                for (slot in gameSlots) {
+                    val slotFiles = releaseFiles.filter { it.targetGameSlot == slot.slotIndex }
+                    if (slotFiles.isEmpty()) continue
+                    filesItemsLayout.addView(TextView(this).apply {
+                        text = "🎮 ИГРА #${slot.slotIndex}: ${slot.gameTitle}"
+                        setTextColor(th.accent)
+                        setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.4f)
+                        typeface = Typeface.DEFAULT_BOLD
+                        setPadding(dp(2), dp(8), dp(2), dp(2))
+                    })
+                    renderCategoryGroup(slot.slotIndex, slotFiles)
+                }
+            } else {
+                renderCategoryGroup(gameSlots.firstOrNull()?.slotIndex, releaseFiles)
+            }
+        }
+        renderSlotCheckboxes()
         renderFilesCheckboxes()
 
         // Асинхронно предзагружаем .torrent файл для мгновенного отображения реального состава
@@ -4075,19 +4521,31 @@ class MainActivity : Activity() {
             if (realPrefetched.isNotEmpty()) {
                 mainHandler.post {
                     val hadRealFiles = releaseFiles.any { it.isRealTorrentFile }
+                    val disabledSlotSet = gameSlots.filter { !it.isEnabled }.map { it.slotIndex }.toSet()
                     if (hadRealFiles) {
-                        val oldSel = releaseFiles.filter { it.selected }.map { it.fileName.lowercase() }.toSet()
+                        val oldSel = releaseFiles.filter { it.selected }.map { it.relativePath.lowercase() }.toSet()
                         for (rf in realPrefetched) {
-                            rf.selected = (rf.fileName.lowercase() in oldSel)
-                        }
-                    } else {
-                        val allWereSelected = releaseFiles.isEmpty() || releaseFiles.all { it.selected }
-                        val selectedRoles = releaseFiles.filter { it.selected }.map { it.roleBadge.uppercase() }.toSet()
-                        for (rf in realPrefetched) {
-                            rf.selected = allWereSelected || (rf.roleBadge.uppercase() in selectedRoles)
+                            rf.selected = (rf.relativePath.lowercase() in oldSel)
                         }
                     }
+                    // Когда впервые приходят реальные файлы .torrent, сохраняем умный выбор
+                    // (applySmartFileSelection уже отключила МОДЫ / ОБНОВЛЕНИЕ (РУС) / СЭЙВЫ / ИНФО).
+                    val prevEnabledByTid = gameSlots.associate { it.titleId.uppercase() to it.isEnabled }
+                    val newSlots = RuTrackerCloudEngine.detectGameSlotsForFiles(item.title, realPrefetched)
+                    for (ns in newSlots) {
+                        val prev = prevEnabledByTid[ns.titleId.uppercase()]
+                        if (prev != null) {
+                            ns.isEnabled = prev
+                        } else if (ns.slotIndex in disabledSlotSet) {
+                            ns.isEnabled = false
+                        }
+                        if (!ns.isEnabled) {
+                            realPrefetched.filter { it.targetGameSlot == ns.slotIndex }.forEach { it.selected = false }
+                        }
+                    }
+                    gameSlots = newSlots
                     releaseFiles = realPrefetched.toMutableList()
+                    renderSlotCheckboxes()
                     renderFilesCheckboxes()
                     syncUnlockerAutoState()
                 }
@@ -4706,11 +5164,6 @@ class MainActivity : Activity() {
                 2 -> "NSP"
                 else -> "XCI"
             }
-            val controller = RuTrackerCloudEngine.TaskExecutionController()
-            val detectedTid = releaseFiles.firstOrNull { it.roleBadge == "БАЗА" }?.titleId
-                ?: releaseFiles.firstOrNull { it.titleId.isNotBlank() }?.titleId
-                ?: Regex("""\b(0100[0-9A-Fa-f]{12})\b""").find(item.title)?.groupValues?.get(1)
-                ?: ""
             val discUpdateUrls = discoveredDiscussionLinks.filter {
                 it.selected && (it.roleCategory.contains("ОБНОВЛ", ignoreCase = true) || it.roleCategory.contains("UPDATE", ignoreCase = true) || it.roleCategory.contains("ПАТЧ", ignoreCase = true))
             }.map { (listOf(it.url) + it.mirrorUrls).distinct().joinToString("|MIRROR|") }
@@ -4741,44 +5194,76 @@ class MainActivity : Activity() {
             val collectedDlcUrls = (discDlcUrls + manualDlcUrls).distinct().take(6)
             val collectedModUrls = (discModUrls + manualModUrls).distinct().take(8)
 
-            val dlgPreBuild = StormNczEngine.PreBuildCustomization(
-                enabled = dlgCustomRenameEnabled,
-                customInternalTitle = dlgInternalTitle.ifBlank { cleanDefaultTitle },
-                customPublisher = dlgPublisher,
-                customDisplayVersion = dlgDisplayVer,
-                customOutputFileName = dlgOutputFileName,
-                customIconPath = dlgCustomIconPath,
-                iconBadgeText = if (dlgBadgeIndex > 0) iconBadgeOptions.getOrElse(dlgBadgeIndex) { "" } else ""
+            val enabledSlots = gameSlots.filter { sl ->
+                sl.isEnabled && activeSelection.any { it.targetGameSlot == sl.slotIndex }
+            }
+            val slotsToDispatch = if (enabledSlots.isNotEmpty()) enabledSlots else listOf(
+                RuTrackerCloudEngine.RuTrackerGameSlot(
+                    1,
+                    item.title,
+                    activeSelection.firstOrNull { it.roleBadge == "ИГРА" || it.roleBadge == "БАЗА" }?.titleId.orEmpty(),
+                    true
+                )
             )
+            val isMultiGameBatch = slotsToDispatch.size > 1
 
-            val task = BgPipelineTask(
-                topicItem = item,
-                title = item.title,
-                titleId = detectedTid,
-                targetFormat = fmtExt,
-                controller = controller,
-                state = BgTaskState.RUNNING,
-                stageTitle = "Этап 1/5: Запуск...",
-                detailText = "Подключение к рою BitTorrent P2P...",
-                dialogFormatMode = dialogFormatMode,
-                selectedReleaseFiles = activeSelection,
-                collectedModUrls = collectedModUrls,
-                collectedUpdateUrls = collectedUpdateUrls,
-                collectedDlcUrls = collectedDlcUrls,
-                embedDlcUnlocker = embedDlcUnlockerChecked,
-                deleteSourceAfterVerify = deleteRuTrackerSourceAfterSuccess,
-                preBuildCustomization = dlgPreBuild
-            )
-            currentTask = task
-            bgPipelineTasks.add(task)
-            attachTaskListener(task)
-            persistBgTasksToDisk()
-            refreshTaskManagerUI(th)
+            for (slot in slotsToDispatch) {
+                val slotFiles = if (isMultiGameBatch || gameSlots.size > 1) {
+                    activeSelection.filter { it.targetGameSlot == slot.slotIndex }.ifEmpty { activeSelection }
+                } else {
+                    activeSelection
+                }
+                val detectedTid = slot.titleId.ifBlank {
+                    slotFiles.firstOrNull { it.roleBadge == "ИГРА" || it.roleBadge == "БАЗА" }?.titleId
+                        ?: slotFiles.firstOrNull { it.titleId.isNotBlank() }?.titleId
+                        ?: Regex("""\b((?:01|04)[0-9A-Fa-f]{14})\b""").find(item.title)?.groupValues?.get(1)
+                        ?: ""
+                }
+                val slotTitle = if (isMultiGameBatch || gameSlots.size > 1) {
+                    if (detectedTid.isNotBlank()) "${slot.gameTitle} [$detectedTid]" else slot.gameTitle
+                } else {
+                    item.title
+                }
+                val controller = RuTrackerCloudEngine.TaskExecutionController()
+                val dlgPreBuild = StormNczEngine.PreBuildCustomization(
+                    enabled = dlgCustomRenameEnabled,
+                    customInternalTitle = if (isMultiGameBatch) slot.gameTitle else dlgInternalTitle.ifBlank { cleanDefaultTitle },
+                    customPublisher = dlgPublisher,
+                    customDisplayVersion = if (isMultiGameBatch) "" else dlgDisplayVer,
+                    customOutputFileName = if (isMultiGameBatch) "" else dlgOutputFileName,
+                    customIconPath = dlgCustomIconPath,
+                    iconBadgeText = if (dlgBadgeIndex > 0) iconBadgeOptions.getOrElse(dlgBadgeIndex) { "" } else ""
+                )
 
-            liveStepLogTxt.visibility = View.VISIBLE
-            updateDialogButtons(BgTaskState.RUNNING)
+                val task = BgPipelineTask(
+                    topicItem = item,
+                    title = slotTitle,
+                    titleId = detectedTid,
+                    targetFormat = fmtExt,
+                    controller = controller,
+                    state = BgTaskState.RUNNING,
+                    stageTitle = "Этап 1/5: Запуск...",
+                    detailText = "Подключение к рою BitTorrent P2P...",
+                    dialogFormatMode = dialogFormatMode,
+                    selectedReleaseFiles = slotFiles,
+                    collectedModUrls = collectedModUrls,
+                    collectedUpdateUrls = collectedUpdateUrls,
+                    collectedDlcUrls = collectedDlcUrls,
+                    embedDlcUnlocker = embedDlcUnlockerChecked,
+                    deleteSourceAfterVerify = deleteRuTrackerSourceAfterSuccess,
+                    preBuildCustomization = dlgPreBuild
+                )
+                currentTask = task
+                bgPipelineTasks.add(task)
+                attachTaskListener(task)
+                persistBgTasksToDisk()
+                refreshTaskManagerUI(th)
 
-            launchOrResumePipelineWorker(task, th)
+                liveStepLogTxt.visibility = View.VISIBLE
+                updateDialogButtons(BgTaskState.RUNNING)
+
+                launchOrResumePipelineWorker(task, th)
+            }
         }
 
         val startBtn = makeButton("🚀 Скачать и собрать", th.accent) {
@@ -5985,7 +6470,7 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun addFolderRecursivelyToQueue(folder: File): Int {
+    private fun addFolderRecursivelyToQueue(folder: File, recursive: Boolean = includeSubfoldersWhenScanning): Int {
         if (!folder.exists()) return 0
         if (StormNczEngine.isSwitch2DumpDirectory(folder)) {
             if (queuedFiles.none { it.canonicalPath == folder.canonicalPath }) {
@@ -5997,11 +6482,27 @@ class MainActivity : Activity() {
         }
         val validExts = setOf("nsp", "nsz", "xci", "xcz", "nup", "nca", "ncz", "3ds", "cci", "cia", "cxi", "cfa", "3dsx", "zcci", "zcxi", "zcia", "z3dsx", "z3ds", "nds", "zip", "rar", "7z", "ips", "pchtxt")
         var added = 0
-        folder.walkTopDown().maxDepth(4).forEach { f ->
-            if (f.isFile && f.extension.lowercase() in validExts) {
-                if (queuedFiles.none { it.canonicalPath == f.canonicalPath }) {
-                    queuedFiles.add(f)
-                    added++
+        if (!recursive) {
+            folder.listFiles()?.forEach { f ->
+                if (f.isDirectory && StormNczEngine.isSwitch2DumpDirectory(f)) {
+                    if (queuedFiles.none { it.canonicalPath == f.canonicalPath }) {
+                        queuedFiles.add(f)
+                        added++
+                    }
+                } else if (f.isFile && f.extension.lowercase() in validExts) {
+                    if (queuedFiles.none { it.canonicalPath == f.canonicalPath }) {
+                        queuedFiles.add(f)
+                        added++
+                    }
+                }
+            }
+        } else {
+            folder.walkTopDown().maxDepth(4).forEach { f ->
+                if (f.isFile && f.extension.lowercase() in validExts) {
+                    if (queuedFiles.none { it.canonicalPath == f.canonicalPath }) {
+                        queuedFiles.add(f)
+                        added++
+                    }
                 }
             }
         }

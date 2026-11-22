@@ -304,7 +304,7 @@ namespace StormSwitchBox.Services
         public string CustomModTitle { get; set; } = string.Empty;
         public string TargetReleaseDir { get; set; } = string.Empty;
         public string OutputFolder { get; set; } = string.Empty;
-        public string OutputFormat { get; set; } = "NSP";
+        public string OutputFormat { get; set; } = "NSZ";
         public bool AutoBuild { get; set; } = true;
         public bool IncludeTechTags { get; set; }
         public bool InjectDlcUnlocker { get; set; }
@@ -337,10 +337,10 @@ namespace StormSwitchBox.Services
     {
         public static RuTrackerDownloadQueueService Instance { get; } = new();
 
-        public const int MaxConcurrentDownloads = 5;
-        public const double LowSpeedExemptThresholdBps = 200.0 * 1024.0; // < 200 КБ/с не занимают слот в 5 одновременных закачках
+        public const int MaxConcurrentDownloads = 16;
+        public const double LowSpeedExemptThresholdBps = 200.0 * 1024.0; // < 200 КБ/с не занимают слот в лимите одновременных закачек
         public const double StartupWarmupSeconds = 8.0;
-        public const int MaxTotalConcurrentDownloads = 30;
+        public const int MaxTotalConcurrentDownloads = 64;
         public ObservableCollection<RuTrackerActiveDownloadItem> Items { get; } = new();
         public ObservableCollection<RuTrackerSeedingItem> SeedingItems => RuTrackerSeedingService.Instance.Items;
         public RuTrackerSeedingService Seeding => RuTrackerSeedingService.Instance;
@@ -2099,7 +2099,7 @@ namespace StormSwitchBox.Services
                                         {
                                             Id = !string.IsNullOrEmpty(tp.TaskId) ? tp.TaskId : Guid.NewGuid().ToString("N").Substring(0, 8),
                                             GameName = !string.IsNullOrWhiteSpace(tp.TaskTitle) ? tp.TaskTitle : (tp.SlotGameTitle ?? string.Empty),
-                                            TargetFormat = tp.OutputFormat ?? "NSP",
+                                            TargetFormat = tp.OutputFormat ?? "NSZ",
                                             OutputFolder = RuTrackerModDownloaderDialog.ResolveRuTrackerFinalOutputFolder(tp.OutputFormat, string.Empty, tp.OutputFolder),
                                             DeleteSourceAfterVerify = tp.DeleteSourceAfterVerify,
                                             Progress = r.ProgressPercent,

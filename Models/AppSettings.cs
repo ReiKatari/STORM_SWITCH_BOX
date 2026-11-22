@@ -168,7 +168,7 @@ namespace StormSwitchBox.Models
         public string WatchFolderSwitch { get; set; } = "";
         public bool EnableWatchFolderSwitch { get; set; } = false;
         public int WatchFolderActionSwitch { get; set; } = 0; // 0 = Сжатие, 1 = Распаковка, 2 = Упаковка, 3 = Конвертация, 4 = Мульти-контент, 5 = Проверка
-        public int WatchFolderFormatSwitch { get; set; } = 0; // 0 = NSP, 1 = NSZ, 2 = XCI, 3 = XCZ
+        public int WatchFolderFormatSwitch { get; set; } = 1; // 0 = NSP, 1 = NSZ, 2 = XCI, 3 = XCZ
 
         // Папка наблюдения 3DS (Watch Folder 3DS)
         public string WatchFolder3ds { get; set; } = "";
@@ -190,8 +190,9 @@ namespace StormSwitchBox.Models
         public string AccentColorTheme { get; set; } = "Default";
         public string AppTheme { get; set; } = "STORM MIDNIGHT";
 
-        // Выходной формат (по умолчанию NSP)
-        public int SelectedFormatIndex { get; set; } = 0;
+        // Выходной формат (по умолчанию NSZ)
+        public int SelectedFormatIndex { get; set; } = 1;
+        public bool SwitchDefaultNszInitialized { get; set; } = false;
 
         // Пути сохранения (выходная папка для каждого режима)
         public string LastOutPath_Convert { get; set; } = "";

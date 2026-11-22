@@ -184,7 +184,7 @@ namespace StormSwitchBox.Views
                 if (WatchFolderActionComboSwitch?.SelectedItem is ComboBoxItem aItem && aItem.Content != null)
                     actionText = aItem.Content.ToString()!;
 
-                string formatText = "NSP";
+                string formatText = "NSZ";
                 if (WatchFolderFormatComboSwitch?.SelectedItem is ComboBoxItem fItem && fItem.Content != null)
                     formatText = fItem.Content.ToString()!;
 

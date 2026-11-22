@@ -29,7 +29,7 @@ namespace StormSwitchBox.Services
         {
             if (string.IsNullOrWhiteSpace(task.TargetFormat))
             {
-                App.RunOnUI(() => { task.TargetFormat = task.Is3dsTask ? "3DS" : "NSP"; });
+                App.RunOnUI(() => { task.TargetFormat = task.Is3dsTask ? "3DS" : "NSZ"; });
             }
 
             bool isTargetXci = string.Equals(task.TargetFormat, "XCI", StringComparison.OrdinalIgnoreCase) || 

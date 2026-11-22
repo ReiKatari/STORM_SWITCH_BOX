@@ -66,7 +66,7 @@ def build_turbo_settings(listen_port=44859, metadata_only=False):
         "enable_outgoing_tcp": True,
         "enable_incoming_tcp": True,
         "enable_dht": True,
-        "enable_lsd": False,
+        "enable_lsd": True,
         "enable_upnp": not metadata_only,
         "enable_natpmp": not metadata_only,
         "announce_to_all_trackers": True,
@@ -75,12 +75,17 @@ def build_turbo_settings(listen_port=44859, metadata_only=False):
         "choking_algorithm": 0,
         "seed_choking_algorithm": 1,
         "smooth_connects": False,
-        "connection_speed": 1000,
+        "connection_speed": 2000,
         "torrent_connect_boost": 255,
-        "connections_limit": max(3000, int(base.get("connections_limit", 8000))),
-        "max_peerlist_size": 6000,
-        "max_out_request_queue": 4000,
-        "max_allowed_in_request_queue": 4000,
+        "connections_limit": 10000,
+        "max_peerlist_size": 10000,
+        "active_downloads": -1,
+        "active_seeds": -1,
+        "active_limit": -1,
+        "active_checking": -1,
+        "unchoke_slots_limit": -1,
+        "max_out_request_queue": 8000,
+        "max_allowed_in_request_queue": 8000,
         "request_queue_time": 5,
         "strict_end_game_mode": False,
         "whole_pieces_threshold": 20,
@@ -97,14 +102,14 @@ def build_turbo_settings(listen_port=44859, metadata_only=False):
         "coalesce_reads": True,
         "coalesce_writes": True,
         "rate_limit_ip_overhead": False,
-        "max_queued_disk_bytes": 256 * 1024 * 1024,
-        "send_buffer_watermark": 33554432,
-        "send_buffer_low_watermark": 4194304,
-        "send_buffer_watermark_factor": 150,
+        "max_queued_disk_bytes": 512 * 1024 * 1024,
+        "send_buffer_watermark": 67108864,
+        "send_buffer_low_watermark": 8388608,
+        "send_buffer_watermark_factor": 200,
         "allow_multiple_connections_per_ip": True,
-        "min_reconnect_time": 2,
-        "max_failcount": 5,
-        "peer_connect_timeout": 8,
+        "min_reconnect_time": 1,
+        "max_failcount": 10,
+        "peer_connect_timeout": 6,
         "request_timeout": 25,
         "peer_timeout": 45,
         "in_enc_policy": 1,
@@ -222,23 +227,78 @@ def flush_torrent_cache(ses, handle, timeout_sec=5.0):
 def merge_trackers(existing_trackers):
     merged = []
     seen = set()
-    for tr in DEFAULT_PUBLIC_TRACKERS:
-        if tr not in seen:
-            seen.add(tr)
-            merged.append(tr)
+    has_tru = False
     for tr in (existing_trackers or []):
         url = str(tr.url if hasattr(tr, "url") else tr).strip()
         if not url:
             continue
         low = url.lower()
-        if "t-ru.org" in low or "retracker.local" in low:
+        if "retracker.local" in low:
             continue
+        if "t-ru.org" in low:
+            has_tru = True
         if url not in seen:
             seen.add(url)
             merged.append(url)
-            if len(merged) >= 24:
+            if len(merged) >= 36:
+                return merged
+
+    if not has_tru:
+        for tr in (
+            "http://bt.t-ru.org/ann?magnet",
+            "http://bt2.t-ru.org/ann?magnet",
+            "http://bt3.t-ru.org/ann?magnet",
+            "http://bt4.t-ru.org/ann?magnet",
+        ):
+            if tr not in seen:
+                seen.add(tr)
+                merged.append(tr)
+
+    for tr in DEFAULT_PUBLIC_TRACKERS:
+        if tr not in seen:
+            seen.add(tr)
+            merged.append(tr)
+            if len(merged) >= 36:
                 break
-    return merged[:24]
+    return merged[:36]
+
+
+def load_dht_state_only(ses, dht_path):
+    if not dht_path or not os.path.isfile(dht_path):
+        return
+    try:
+        with open(dht_path, "rb") as df:
+            raw = lt.bdecode(df.read())
+        if isinstance(raw, dict):
+            dht_only = {b"dht state": raw[b"dht state"]} if b"dht state" in raw else raw
+            if hasattr(ses, "load_state"):
+                try:
+                    ses.load_state(dht_only, lt.save_state_flags_t.save_dht_state)
+                except TypeError:
+                    ses.load_state(dht_only)
+    except Exception:
+        pass
+
+
+def save_dht_state_only(ses, dht_path):
+    if not dht_path:
+        return
+    try:
+        state = ses.save_state(lt.save_state_flags_t.save_dht_state)
+        if not isinstance(state, dict) or b"dht state" not in state:
+            return
+        blob = lt.bencode(state)
+        if not blob or len(blob) <= 16:
+            return
+        parent = os.path.dirname(dht_path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        tmp_path = f"{dht_path}.{os.getpid()}.tmp"
+        with open(tmp_path, "wb") as df:
+            df.write(blob)
+        os.replace(tmp_path, dht_path)
+    except Exception:
+        pass
 
 
 def apply_clean_trackers(handle, trackers):
@@ -371,10 +431,13 @@ def run_seed_daemon(ses, args):
     seed_cfg["enable_dht"] = True
     seed_cfg["enable_upnp"] = True
     seed_cfg["enable_natpmp"] = True
-    seed_cfg["active_downloads"] = 0
-    seed_cfg["active_seeds"] = 200
-    seed_cfg["active_limit"] = 250
+    seed_cfg["active_downloads"] = -1
+    seed_cfg["active_seeds"] = -1
+    seed_cfg["active_limit"] = -1
+    seed_cfg["unchoke_slots_limit"] = -1
+    seed_cfg["connections_limit"] = 10000
     seed_cfg["upload_rate_limit"] = 0
+    seed_cfg["download_rate_limit"] = 0
     seed_cfg["seed_choking_algorithm"] = 1
     try:
         seed_cfg["alert_mask"] = (
@@ -383,16 +446,9 @@ def run_seed_daemon(ses, args):
         )
     except Exception:
         pass
-    ses.apply_settings(seed_cfg)
 
-    if args.dht_state and os.path.isfile(args.dht_state):
-        try:
-            with open(args.dht_state, "rb") as df:
-                dht_blob = lt.bdecode(df.read())
-            if dht_blob and hasattr(ses, "load_state"):
-                ses.load_state(dht_blob)
-        except Exception:
-            pass
+    load_dht_state_only(ses, args.dht_state)
+    ses.apply_settings(seed_cfg)
 
     resume_dir = args.resume_dir
     if resume_dir:
@@ -929,12 +985,14 @@ def run_metadata_only(ses, args):
                 ]
                 sys.stdout.write(json.dumps({"status": "ok", "files": files_list}, ensure_ascii=False) + "\n")
                 sys.stdout.flush()
+                save_dht_state_only(ses, args.dht_state)
                 if tmp_meta_dir:
                     shutil.rmtree(tmp_meta_dir, ignore_errors=True)
                 os._exit(0)
 
         sys.stdout.write(json.dumps({"status": "timeout"}) + "\n")
         sys.stdout.flush()
+        save_dht_state_only(ses, args.dht_state)
         if tmp_meta_dir:
             shutil.rmtree(tmp_meta_dir, ignore_errors=True)
         os._exit(0)
@@ -976,10 +1034,13 @@ def main():
             sys.exit(1)
 
     ses = lt.session()
+    if args.dht_state and not args.seed_daemon:
+        load_dht_state_only(ses, args.dht_state)
     ses.apply_settings(build_turbo_settings(args.listen_port, metadata_only=args.metadata_only))
 
     if args.seed_daemon:
         rc = run_seed_daemon(ses, args)
+        save_dht_state_only(ses, args.dht_state)
         os._exit(rc)
 
     if args.metadata_only:
@@ -987,6 +1048,7 @@ def main():
             sys.stderr.write("Error: --magnet is required with --metadata-only.\n")
             sys.exit(1)
         rc = run_metadata_only(ses, args)
+        save_dht_state_only(ses, args.dht_state)
         sys.exit(rc)
 
     os.makedirs(args.save_dir, exist_ok=True)
@@ -1039,6 +1101,12 @@ def main():
     else:
         sys.stderr.write("Error: Torrent file does not exist and no valid --magnet was provided.\n")
         sys.exit(1)
+
+    for _fn, _val in (("set_max_connections", -1), ("set_max_uploads", -1), ("set_download_limit", -1), ("set_upload_limit", -1)):
+        try:
+            getattr(handle, _fn)(_val)
+        except Exception:
+            pass
 
     try:
         handle.force_reannounce()
@@ -1100,10 +1168,11 @@ def main():
                 except Exception:
                     pass
 
-        # Periodically retry existing peers if speed < 20 MB/s and seeds < 25
-        if (now_t - last_reinject_at) >= 10.0 and ordered_peers and current_rate < (20 * 1024 * 1024) and current_seeds < 25:
+        # Periodically retry existing peers aggressively when seeds are low or missing
+        reinject_cooldown = 3.0 if current_seeds == 0 else 8.0
+        if (now_t - last_reinject_at) >= reinject_cooldown and ordered_peers and (current_seeds == 0 or (current_rate < (50 * 1024 * 1024) and current_seeds < 50)):
             last_reinject_at = now_t
-            batch_size = min(120, len(ordered_peers))
+            batch_size = min(250 if current_seeds == 0 else 200, len(ordered_peers))
             total_len = len(ordered_peers)
             for _ in range(batch_size):
                 parsed = ordered_peers[reinject_cursor % total_len]
@@ -1164,7 +1233,8 @@ def main():
                 continue
 
             st = handle.status()
-            if (now_check - last_tracker_reannounce) >= 45.0 and st.download_rate < (15 * 1024 * 1024) and st.num_seeds < 15:
+            reannounce_interval = 12.0 if st.num_seeds == 0 else 35.0
+            if (now_check - last_tracker_reannounce) >= reannounce_interval and (st.num_seeds == 0 or (st.download_rate < (30 * 1024 * 1024) and st.num_seeds < 30)):
                 last_tracker_reannounce = now_check
                 try:
                     handle.force_reannounce()
@@ -1234,8 +1304,10 @@ def main():
         flush_torrent_cache(ses, handle)
     except Exception as ex:
         sys.stderr.write(f"Libtorrent error: {ex}\n")
+        save_dht_state_only(ses, args.dht_state)
         sys.exit(2)
 
+    save_dht_state_only(ses, args.dht_state)
     sys.stdout.flush()
     os._exit(0)
 

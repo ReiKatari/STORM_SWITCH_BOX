@@ -27,10 +27,10 @@ namespace StormSwitchBox.Models
         [ObservableProperty] private string _gameName = string.Empty;
         [ObservableProperty] private string _operation = string.Empty;
         [ObservableProperty] private string _sourceFormat = string.Empty;
-        private string _targetFormat = "NSP";
+        private string _targetFormat = "NSZ";
         public string TargetFormat
         {
-            get => string.IsNullOrWhiteSpace(_targetFormat) ? (Is3dsTask ? "3DS" : "NSP") : _targetFormat;
+            get => string.IsNullOrWhiteSpace(_targetFormat) ? (Is3dsTask ? "3DS" : "NSZ") : _targetFormat;
             set
             {
                 // CRITICAL: Prevent ComboBox virtualization recycling from resetting TargetFormat to null/empty!
@@ -138,7 +138,7 @@ namespace StormSwitchBox.Models
                 || _targetFormat == "ZCCI" || _targetFormat == "ZCIA" || _targetFormat == "ZCXI" || _targetFormat == "Z3DSX"
                 || _targetFormat == "Z3DS (Авто)" || _targetFormat == "3DS + ZCCI" || _targetFormat == "3DSX" || _targetFormat == "CCI")
             {
-                if (!value) TargetFormat = "NSP";
+                if (!value) TargetFormat = "NSZ";
             }
             else if (_targetFormat == "NSP" || _targetFormat == "NSZ" || _targetFormat == "XCI" || _targetFormat == "XCZ"
                 || _targetFormat == "NUP" || _targetFormat == "NSP + NSZ" || _targetFormat == "XCI + XCZ")
@@ -778,7 +778,7 @@ namespace StormSwitchBox.Models
         public string GameName { get; set; } = string.Empty;
         public string Operation { get; set; } = string.Empty;
         public string SourceFormat { get; set; } = string.Empty;
-        public string TargetFormat { get; set; } = "NSP";
+        public string TargetFormat { get; set; } = "NSZ";
         public string Status { get; set; } = "⏸ Сохранено на паузе";
         public double Progress { get; set; }
         public string SourceSize { get; set; } = string.Empty;

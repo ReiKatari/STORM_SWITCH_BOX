@@ -69,14 +69,170 @@ object RuTrackerCloudEngine {
         val sizeBytes: Long,
         val titleId: String,
         var selected: Boolean = true,
-        val isRealTorrentFile: Boolean = false
+        val isRealTorrentFile: Boolean = false,
+        var targetGameSlot: Int = 1,
+        val relativePath: String = fileName
     ) {
-        val isMod: Boolean get() = roleBadge.contains("MOD", ignoreCase = true) ||
-            roleBadge.contains("РУС", ignoreCase = true) ||
-            fileName.contains("MOD", ignoreCase = true) ||
-            fileName.contains("RUS", ignoreCase = true) ||
-            fileName.contains("Русификатор", ignoreCase = true)
+        val isMod: Boolean
+            get() = roleBadge in setOf("МОД", "МОДЫ", "РУСИФИКАТОР", "ОБНОВЛЕНИЕ (РУС)", "MOD", "RUS") ||
+                roleBadge.contains("МОД", ignoreCase = true) ||
+                roleBadge.contains("РУС", ignoreCase = true)
     }
+
+    val CANONICAL_ROLE_ORDER = listOf(
+        "ИГРА",
+        "ОБНОВЛЕНИЕ",
+        "ДОПОЛНЕНИЯ",
+        "UNLOCKER",
+        "МОДЫ",
+        "ОБНОВЛЕНИЕ (РУС)",
+        "СЭЙВЫ",
+        "ИНФО"
+    )
+
+    data class RuTrackerGameSlot(
+        val slotIndex: Int,
+        var gameTitle: String,
+        var titleId: String = "",
+        var isEnabled: Boolean = true
+    )
+
+    data class CompletedTorrentMeta(
+        val infoHash: String,
+        val torrentName: String,
+        val saveDir: String,
+        val torrentFilePath: String,
+        val selectedRelativePaths: List<String>,
+        val totalWantedBytes: Long
+    )
+
+    data class RuTrackerSeedingEntry(
+        val infoHash: String,
+        val topicId: String,
+        val title: String,
+        val saveDir: String,
+        val torrentFilePath: String,
+        val selectedRelativePaths: List<String>,
+        val totalSizeBytes: Long,
+        var uploadedBytes: Long = 0L,
+        var sessionUploadedBytes: Long = 0L,
+        var uploadRateBytesPerSec: Long = 0L,
+        var peers: Int = 0,
+        var seeds: Int = 0,
+        var isPaused: Boolean = false,
+        var statusText: String = "Раздаётся",
+        val addedAtMs: Long = System.currentTimeMillis()
+    ) {
+        val ratio: Double
+            get() = if (totalSizeBytes > 0L) uploadedBytes.toDouble() / totalSizeBytes.toDouble() else 0.0
+
+        fun toJson(): JSONObject = JSONObject().apply {
+            put("infoHash", infoHash)
+            put("topicId", topicId)
+            put("title", title)
+            put("saveDir", saveDir)
+            put("torrentFilePath", torrentFilePath)
+            put("totalSizeBytes", totalSizeBytes)
+            put("uploadedBytes", uploadedBytes)
+            put("isPaused", isPaused)
+            put("addedAtMs", addedAtMs)
+            val arr = JSONArray()
+            for (p in selectedRelativePaths) arr.put(p)
+            put("selectedRelativePaths", arr)
+        }
+
+        fun toJsonString(): String {
+            fun esc(s: String): String = buildString(s.length + 8) {
+                append('"')
+                for (ch in s) {
+                    when (ch) {
+                        '\\' -> append("\\\\")
+                        '"' -> append("\\\"")
+                        '\n' -> append("\\n")
+                        '\r' -> append("\\r")
+                        '\t' -> append("\\t")
+                        else -> if (ch.code < 0x20) append(String.format(java.util.Locale.US, "\\u%04x", ch.code)) else append(ch)
+                    }
+                }
+                append('"')
+            }
+            val pathsJson = selectedRelativePaths.joinToString(",") { esc(it) }
+            return buildString {
+                append("{\"infoHash\":").append(esc(infoHash))
+                append(",\"topicId\":").append(esc(topicId))
+                append(",\"title\":").append(esc(title))
+                append(",\"saveDir\":").append(esc(saveDir))
+                append(",\"torrentFilePath\":").append(esc(torrentFilePath))
+                append(",\"totalSizeBytes\":").append(totalSizeBytes)
+                append(",\"uploadedBytes\":").append(uploadedBytes)
+                append(",\"isPaused\":").append(isPaused)
+                append(",\"addedAtMs\":").append(addedAtMs)
+                append(",\"selectedRelativePaths\":[").append(pathsJson).append("]}")
+            }
+        }
+
+        companion object {
+            fun fromJson(obj: JSONObject): RuTrackerSeedingEntry? = fromFieldMap(
+                mapOf(
+                    "infoHash" to obj.optString("infoHash", ""),
+                    "topicId" to obj.optString("topicId", ""),
+                    "title" to obj.optString("title", ""),
+                    "saveDir" to obj.optString("saveDir", ""),
+                    "torrentFilePath" to obj.optString("torrentFilePath", ""),
+                    "totalSizeBytes" to obj.optLong("totalSizeBytes", 0L),
+                    "uploadedBytes" to obj.optLong("uploadedBytes", 0L),
+                    "isPaused" to obj.optBoolean("isPaused", false),
+                    "addedAtMs" to obj.optLong("addedAtMs", System.currentTimeMillis()),
+                    "selectedRelativePaths" to let {
+                        val arr = obj.optJSONArray("selectedRelativePaths")
+                        val paths = mutableListOf<String>()
+                        if (arr != null) {
+                            for (i in 0 until arr.length()) {
+                                val s = arr.optString(i, "")
+                                if (s.isNotBlank()) paths.add(s)
+                            }
+                        }
+                        paths
+                    }
+                )
+            )
+
+            @Suppress("UNCHECKED_CAST")
+            fun fromFieldMap(fields: Map<String, Any?>): RuTrackerSeedingEntry? {
+                val hash = (fields["infoHash"] as? String).orEmpty().trim().uppercase()
+                if (hash.length != 40) return null
+                val paths = ((fields["selectedRelativePaths"] as? List<*>) ?: emptyList<Any?>())
+                    .mapNotNull { it?.toString()?.takeIf { s -> s.isNotBlank() } }
+                val paused = (fields["isPaused"] as? Boolean) ?: false
+                return RuTrackerSeedingEntry(
+                    infoHash = hash,
+                    topicId = (fields["topicId"] as? String).orEmpty(),
+                    title = (fields["title"] as? String).orEmpty().ifBlank { hash },
+                    saveDir = (fields["saveDir"] as? String).orEmpty(),
+                    torrentFilePath = (fields["torrentFilePath"] as? String).orEmpty(),
+                    selectedRelativePaths = paths,
+                    totalSizeBytes = (fields["totalSizeBytes"] as? Number)?.toLong() ?: 0L,
+                    uploadedBytes = (fields["uploadedBytes"] as? Number)?.toLong() ?: 0L,
+                    isPaused = paused,
+                    statusText = if (paused) "Пауза" else "Возобновление...",
+                    addedAtMs = (fields["addedAtMs"] as? Number)?.toLong() ?: System.currentTimeMillis()
+                )
+            }
+        }
+    }
+
+    data class LibraryUpdateMatch(
+        val localFileName: String,
+        val gameName: String,
+        val localVersion: String,
+        val localDlcCount: Int,
+        val remoteTopicId: String,
+        val remoteTitle: String,
+        val remoteVersion: String,
+        val remoteDlcCount: Int,
+        val hasNewerVersion: Boolean,
+        val hasNewerDlc: Boolean
+    )
 
     data class ReleaseSiteDetails(
         val topicId: String,
@@ -3531,63 +3687,31 @@ object RuTrackerCloudEngine {
         return out
     }
 
-    private fun torrentFileRole(path: String): String? {
-        val norm = path.replace('\\', '/')
-        val n = norm.substringAfterLast('/').lowercase()
-        val dirSegs = norm.substringBeforeLast('/', "").split('/').filter { it.isNotBlank() }
-        val inDedicatedDlcSubfolder = dirSegs.any {
-            Regex("""^(?:\d+\s*)?(?:dlcs?|add[-\s]?ons?|дополнения?)$""", RegexOption.IGNORE_CASE).matches(it.trim())
-        }
-        val hasExplicitBracketDlcTag = Regex(
-            """[\[\(]\s*(?:standalone\s+)?(?:dlc|add[-_]?on)\b|\bstandalone\s+dlc\b""",
-            RegexOption.IGNORE_CASE
-        ).containsMatchIn(n)
-
-        val tid = Regex("""(?<![0-9a-f])((?:01|04)[0-9a-f]{14}|0004[0-9a-f]{12})(?![0-9a-f])""").find(n)?.groupValues?.get(1)
-        if (tid != null) {
-            if (hasExplicitBracketDlcTag) return "DLC"
-            if (tid.startsWith("0004")) {
-                return when {
-                    tid.startsWith("0004008c") -> "DLC"
-                    tid.startsWith("0004000e") -> "ПАТЧ"
-                    inDedicatedDlcSubfolder -> "DLC"
-                    else -> "БАЗА"
-                }
-            }
-            return when {
-                tid.endsWith("800") -> "ПАТЧ"
-                !tid.endsWith("000") -> "DLC"
-                inDedicatedDlcSubfolder -> "DLC"
-                else -> "БАЗА"
-            }
-        }
-
-        val isDlcByName = Regex("""(?:^|[\s_\-.(\[])(?:dlc|add[-_]?on)(?:$|[\s_\-.\)\]\d])""").containsMatchIn(n) &&
-            !Regex("""\+\s*(?:\d+\s*)?(?:dlc|add[-_]?on)""").containsMatchIn(n)
-        return when {
-            hasExplicitBracketDlcTag || inDedicatedDlcSubfolder || isDlcByName -> "DLC"
-            n.contains("update") || Regex("""(?:^|[\s_\-.(\[])(?:patch|upd)(?:$|[\s_\-.\)\]v\d])""").containsMatchIn(n) || Regex("""\[v[1-9]\d*]""").containsMatchIn(n) -> "ПАТЧ"
-            else -> null
-        }
-    }
+    private fun torrentFileRole(path: String): String = classifyTorrentFileRole(path)
 
     private fun isWantedTorrentFile(path: String, wantedRoles: Set<String>): Boolean {
-        val ext = path.substringAfterLast('.', "").lowercase()
-        val isArchive = ext in setOf("zip", "rar", "7z")
-        if (ext !in setOf("nsp", "nsz", "xci", "xcz") && !isArchive) return false
+        val norm = path.replace('\\', '/')
+        val ext = norm.substringAfterLast('.', "").lowercase()
+        val allowedExts = setOf(
+            "nsp", "nsz", "xci", "xcz", "nup", "zip", "rar", "7z",
+            "3ds", "cci", "cia", "cxi", "cfa", "3dsx", "zcci", "zcxi", "zcia", "z3dsx",
+            "sav", "txt", "nfo", "md", "pdf"
+        )
+        if (ext !in allowedExts) return false
         if (wantedRoles.isEmpty()) return true
-        val lower = path.lowercase()
-        val role = when {
-            isArchive && (lower.contains("rus") || lower.contains("русификатор") || lower.contains("atmosphere") || lower.contains("mod") || lower.contains("перевод")) -> "РУСИФИКАТОР"
-            isArchive -> "МОД"
-            else -> torrentFileRole(path) ?: return true
+        val canonicalRole = classifyTorrentFileRole(path)
+        val normWanted = wantedRoles.map { it.uppercase() }.toSet()
+        return when (canonicalRole) {
+            "ИГРА" -> "ИГРА" in normWanted || "БАЗА" in normWanted
+            "ОБНОВЛЕНИЕ" -> "ОБНОВЛЕНИЕ" in normWanted || "ПАТЧ" in normWanted
+            "ДОПОЛНЕНИЯ" -> "ДОПОЛНЕНИЯ" in normWanted || "DLC" in normWanted || "UNLOCKER" in normWanted
+            "UNLOCKER" -> "UNLOCKER" in normWanted || "ДОПОЛНЕНИЯ" in normWanted || "DLC" in normWanted
+            "МОДЫ" -> "МОДЫ" in normWanted || "МОД" in normWanted || "MOD" in normWanted
+            "ОБНОВЛЕНИЕ (РУС)" -> "ОБНОВЛЕНИЕ (РУС)" in normWanted || "РУСИФИКАТОР" in normWanted || "RUS" in normWanted
+            "СЭЙВЫ" -> "СЭЙВЫ" in normWanted
+            "ИНФО" -> "ИНФО" in normWanted
+            else -> canonicalRole in normWanted
         }
-        if (role == "БАЗА") return true
-        if (role == "DLC") return "DLC" in wantedRoles || "UNLOCKER" in wantedRoles
-        if (role == "РУСИФИКАТОР" || role == "МОД") {
-            return "РУСИФИКАТОР" in wantedRoles || "МОД" in wantedRoles || "MOD" in wantedRoles || "RUS" in wantedRoles
-        }
-        return role in wantedRoles
     }
 
     private fun checkTorrentMatchesGame(torrentName: String, files: List<Pair<String, Long>>, gameName: String, baseTid: String): String? {
@@ -3596,9 +3720,8 @@ object RuTrackerCloudEngine {
         val toks = significantNameTokens(gameName)
         val blob = (listOf(torrentName) + files.map { it.first }).joinToString(" ").lowercase()
         if (toks.isNotEmpty() && toks.all { blob.contains(it) } && toks.none { it in SEQUEL_TOKENS }) return null
-        return "раздача «$torrentName» не относится к игре «$gameName» — пропущена"
+        return "раздача «$torrentName» не относится к игре «$gameName» - пропущена"
     }
-
 
     fun getReleaseFilesList(topic: TopicItem): List<ReleaseContentFile> {
         val totalBytes = StormNczEngine.parseSizeToBytes(topic.sizeText).coerceAtLeast(32L * 1024L * 1024L)
@@ -3616,29 +3739,34 @@ object RuTrackerCloudEngine {
         }
         val realFiles = realTorrentFilesCache[knownHash]
         if (realFiles != null) {
+            val allowedExts = setOf(
+                "nsp", "nsz", "xci", "xcz", "nup", "zip", "rar", "7z",
+                "3ds", "cci", "cia", "cxi", "cfa", "3dsx", "zcci", "zcxi", "zcia", "z3dsx",
+                "sav", "txt", "nfo", "md", "pdf"
+            )
             val list = realFiles.filter {
-                val ext = it.first.substringAfterLast('.', "").lowercase()
-                ext in setOf("nsp", "nsz", "xci", "xcz", "zip", "rar", "7z")
+                it.first.substringAfterLast('.', "").lowercase() in allowedExts
             }.map { (path, size) ->
-                val ext = path.substringAfterLast('.', "").lowercase()
-                val isArchive = ext in setOf("zip", "rar", "7z")
-                val lower = path.lowercase()
-                val role = when {
-                    isArchive && (lower.contains("rus") || lower.contains("русификатор") || lower.contains("перевод") || lower.contains("atmosphere") || lower.contains("mod")) -> "РУСИФИКАТОР"
-                    isArchive -> "МОД"
-                    else -> torrentFileRole(path) ?: "БАЗА"
-                }
-                val tidInName = Regex("""(?<![0-9A-Fa-f])(01[0-9A-Fa-f]{14})(?![0-9A-Fa-f])""").find(path)?.groupValues?.get(1)?.uppercase()
+                val normPath = path.replace('\\', '/')
+                val role = classifyTorrentFileRole(normPath)
+                val tidInName = Regex("""(?<![0-9A-Fa-f])((?:01|04)[0-9A-Fa-f]{14}|0004[0-9A-Fa-f]{12})(?![0-9A-Fa-f])""")
+                    .find(normPath)?.groupValues?.get(1)?.uppercase()
                 ReleaseContentFile(
-                    fileName = path.substringAfterLast('/'),
+                    fileName = normPath.substringAfterLast('/'),
                     roleBadge = role,
                     sizeBytes = size,
-                    titleId = tidInName ?: if (role == "ПАТЧ") updTid else baseTid,
+                    titleId = tidInName ?: if (role == "ОБНОВЛЕНИЕ") updTid else baseTid,
                     selected = true,
-                    isRealTorrentFile = true
+                    isRealTorrentFile = true,
+                    targetGameSlot = 1,
+                    relativePath = normPath
                 )
             }
-            if (list.isNotEmpty()) return list
+            if (list.isNotEmpty()) {
+                detectGameSlotsForFiles(topic.title, list)
+                applySmartFileSelection(list)
+                return list
+            }
         }
 
         val cleanGameName = StormNczEngine.extractCleanGameTitle(topic.title)
@@ -3647,7 +3775,7 @@ object RuTrackerCloudEngine {
             .ifBlank { "Switch_Game_${topic.topicId}" }
 
         val verMatch = Regex("""\b(v\d+(?:\.\d+)+)\b""", RegexOption.IGNORE_CASE).find(topic.title)
-        val verTag = verMatch?.groupValues?.get(1) ?: "v1.0.10"
+        val verTag = verMatch?.groupValues?.get(1) ?: "v1.0.0"
         val hasDlc = Regex("""\b(DLC|All DLC|Season Pass|Expansion Pass)\b""", RegexOption.IGNORE_CASE).containsMatchIn(topic.title)
         val hasExplicitUnlocker = Regex("""\b(Unlocker|Анлокер|All DLC)\b""", RegexOption.IGNORE_CASE).containsMatchIn(topic.title)
 
@@ -3662,18 +3790,20 @@ object RuTrackerCloudEngine {
             val baseBytes = (totalBytes * 76L) / 100L
             val patchBytes = (totalBytes * 16L) / 100L
             val dlcBytes = (totalBytes - baseBytes - patchBytes - unlockerBytes).coerceAtLeast(2L * 1024L * 1024L)
-            files.add(ReleaseContentFile("$cleanGameName $baseTag[v0].nsp".replace("  ", " "), "БАЗА", baseBytes, baseTid, true))
-            files.add(ReleaseContentFile("$cleanGameName $updTag[$verTag].nsp".replace("  ", " "), "ПАТЧ", patchBytes, updTid, true))
-            files.add(ReleaseContentFile("$cleanGameName $dlcPackTag[DLC Pack].nsp".replace("  ", " "), "DLC", dlcBytes, dlcPackTid, true))
+            files.add(ReleaseContentFile("$cleanGameName $baseTag[v0].nsp".replace("  ", " "), "ИГРА", baseBytes, baseTid, true))
+            files.add(ReleaseContentFile("$cleanGameName $updTag[$verTag].nsp".replace("  ", " "), "ОБНОВЛЕНИЕ", patchBytes, updTid, true))
+            files.add(ReleaseContentFile("$cleanGameName $dlcPackTag[DLC Pack].nsp".replace("  ", " "), "ДОПОЛНЕНИЯ", dlcBytes, dlcPackTid, true))
             if (hasExplicitUnlocker) {
                 files.add(ReleaseContentFile("$cleanGameName $dlcTag[DLC Unlocker].nsp".replace("  ", " "), "UNLOCKER", unlockerBytes, dlcTid, true))
             }
         } else {
             val baseBytes = (totalBytes * 88L) / 100L
             val patchBytes = (totalBytes - baseBytes).coerceAtLeast(1024L * 1024L)
-            files.add(ReleaseContentFile("$cleanGameName $baseTag[v0].nsp".replace("  ", " "), "БАЗА", baseBytes, baseTid, true))
-            files.add(ReleaseContentFile("$cleanGameName $updTag[$verTag].nsp".replace("  ", " "), "ПАТЧ", patchBytes, updTid, true))
+            files.add(ReleaseContentFile("$cleanGameName $baseTag[v0].nsp".replace("  ", " "), "ИГРА", baseBytes, baseTid, true))
+            files.add(ReleaseContentFile("$cleanGameName $updTag[$verTag].nsp".replace("  ", " "), "ОБНОВЛЕНИЕ", patchBytes, updTid, true))
         }
+        detectGameSlotsForFiles(topic.title, files)
+        applySmartFileSelection(files)
         return files
     }
 
@@ -3744,7 +3874,10 @@ object RuTrackerCloudEngine {
         val files: List<File>,
         val failureReason: String?,
         val torrentName: String = "",
-        val infoHash: String = ""
+        val infoHash: String = "",
+        val selectedRelativePaths: List<String> = emptyList(),
+        val torrentFilePath: String = "",
+        val saveDir: String = ""
     )
 
     // BTIH -> реальный список файлов раздачи (из метаданных BitTorrent)
@@ -3752,6 +3885,13 @@ object RuTrackerCloudEngine {
 
     // BTIH -> размер роя сидов/пиров, обнаруженных Turbo BEP-5 UDP DHT Spider
     val turboDhtSwarmCount = java.util.concurrent.ConcurrentHashMap<String, Int>()
+
+    // Активные скачиваемые InfoHash (предотвращает конфликт одновременных задач одной раздачи на API 21+)
+    private val activeDownloadHashes = java.util.Collections.synchronizedSet(HashSet<String>())
+    private val recentDownloadMetaByFilePath = java.util.concurrent.ConcurrentHashMap<String, CompletedTorrentMeta>()
+    private val lastCompletedTopicSeedingMeta = java.util.concurrent.ConcurrentHashMap<String, CompletedTorrentMeta>()
+    val seedingEntries = java.util.concurrent.CopyOnWriteArrayList<RuTrackerSeedingEntry>()
+    private val seedingPersistLock = Any()
 
     /**
      * Загружает и кэширует .torrent файл по 40-символьному InfoHash (диск -> itorrents.org -> torrage.info).
@@ -3897,15 +4037,16 @@ object RuTrackerCloudEngine {
 
             // 4. Высокоскоростной конвейер блоков, Swarm Boost и Android дисковый кэш
             try {
-                sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.connections_limit.swigValue(), 500)
-                sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.max_peerlist_size.swigValue(), 4000)
-                sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.unchoke_slots_limit.swigValue(), 100)
-                sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.active_downloads.swigValue(), 20)
-                sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.active_limit.swigValue(), 40)
+                sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.connections_limit.swigValue(), 2000)
+                sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.max_peerlist_size.swigValue(), 8000)
+                sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.unchoke_slots_limit.swigValue(), -1)
+                sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.active_downloads.swigValue(), -1)
+                sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.active_seeds.swigValue(), -1)
+                sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.active_limit.swigValue(), -1)
                 sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.download_rate_limit.swigValue(), 0)
                 sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.upload_rate_limit.swigValue(), 0)
                 sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.request_queue_time.swigValue(), 10)
-                sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.max_out_request_queue.swigValue(), 2500)
+                sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.max_out_request_queue.swigValue(), 5000)
                 sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.whole_pieces_threshold.swigValue(), 5)
                 sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.max_queued_disk_bytes.swigValue(), 64 * 1024 * 1024)
                 sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.send_buffer_watermark.swigValue(), 32 * 1024 * 1024)
@@ -3914,9 +4055,12 @@ object RuTrackerCloudEngine {
                 sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.recv_socket_buffer_size.swigValue(), 4 * 1024 * 1024)
                 sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.aio_threads.swigValue(), 4)
                 sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.torrent_connect_boost.swigValue(), 255)
-                sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.connection_speed.swigValue(), 250)
+                sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.connection_speed.swigValue(), 800)
+                sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.peer_connect_timeout.swigValue(), 6)
                 sp.setBoolean(org.libtorrent4j.swig.settings_pack.bool_types.allow_multiple_connections_per_ip.swigValue(), true)
-                sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.min_reconnect_time.swigValue(), 2)
+                sp.setBoolean(org.libtorrent4j.swig.settings_pack.bool_types.announce_to_all_trackers.swigValue(), true)
+                sp.setBoolean(org.libtorrent4j.swig.settings_pack.bool_types.announce_to_all_tiers.swigValue(), true)
+                sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.min_reconnect_time.swigValue(), 1)
                 sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.max_failcount.swigValue(), 10)
             } catch (_: Throwable) {}
 
@@ -4345,6 +4489,7 @@ object RuTrackerCloudEngine {
     ): TorrentDownloadResult {
         saveDir.mkdirs()
         var th: org.libtorrent4j.TorrentHandle? = null
+        var activeHashKey: String? = null
         val sm = getOrStartWarmTorrentSession()
         try {
             val btih = Regex("""urn:btih:([0-9a-fA-F]{40})""", RegexOption.IGNORE_CASE).find(magnetOrTorrent)?.groupValues?.get(1)
@@ -4356,8 +4501,12 @@ object RuTrackerCloudEngine {
                 cachedBytes = fetchCachedTorrentBytes(btih, timeoutMs = 4500)
             }
 
+            val cacheDir = File(cacheRootDir ?: appContext?.cacheDir ?: saveDir, "torrents").apply { mkdirs() }
+            var torrentRawBytes: ByteArray? = cachedBytes
             val ti: org.libtorrent4j.TorrentInfo = if (File(magnetOrTorrent).isFile) {
-                org.libtorrent4j.TorrentInfo(File(magnetOrTorrent))
+                val tf = File(magnetOrTorrent)
+                torrentRawBytes = try { tf.readBytes() } catch (_: Throwable) { null }
+                org.libtorrent4j.TorrentInfo(tf)
             } else if (cachedBytes != null) {
                 onStatus("Метаданные получены мгновенно из кэша .torrent!")
                 org.libtorrent4j.TorrentInfo.bdecode(cachedBytes)
@@ -4381,16 +4530,10 @@ object RuTrackerCloudEngine {
                 if (data == null || data.isEmpty()) {
                     return TorrentDownloadResult(
                         emptyList(),
-                        "Метаданные раздачи не получены за ${metadataAttempts * metadataTimeoutSec} с (DHT-узлов: ${sm.dhtNodes()}) — у раздачи нет активных сидов или сеть блокирует BitTorrent"
+                        "Метаданные раздачи не получены за ${metadataAttempts * metadataTimeoutSec} с (DHT-узлов: ${sm.dhtNodes()}) - у раздачи нет активных сидов или сеть блокирует BitTorrent"
                     )
                 }
-                if (btih != null) {
-                    try {
-                        val cacheDir = File(appContext?.cacheDir ?: saveDir, "torrents")
-                        cacheDir.mkdirs()
-                        File(cacheDir, "$btih.torrent").writeBytes(data)
-                    } catch (_: Throwable) {}
-                }
+                torrentRawBytes = data
                 org.libtorrent4j.TorrentInfo.bdecode(data)
             } else {
                 return TorrentDownloadResult(emptyList(), "Некорректная magnet-ссылка или .torrent файл")
@@ -4399,6 +4542,10 @@ object RuTrackerCloudEngine {
             val fs = ti.files()
             val fileList = (0 until fs.numFiles()).map { fs.filePath(it) to fs.fileSize(it) }
             val hashHex = ti.infoHash().toHex().uppercase()
+            val cachedTorrentFile = File(cacheDir, "$hashHex.torrent")
+            if (torrentRawBytes != null && torrentRawBytes.isNotEmpty() && (!cachedTorrentFile.exists() || cachedTorrentFile.length() == 0L)) {
+                try { cachedTorrentFile.writeBytes(torrentRawBytes) } catch (_: Throwable) {}
+            }
             realTorrentFilesCache[hashHex] = fileList
             acceptMetadata(ti.name(), fileList)?.let { return TorrentDownloadResult(emptyList(), it, ti.name(), hashHex) }
 
@@ -4413,12 +4560,25 @@ object RuTrackerCloudEngine {
             val wantedBytes = wantedIdx.sumOf { fileList[it].second }
             onStatus("Раздача «${ti.name()}»: выбрано ${wantedIdx.size} из ${fileList.size} файлов (${StormNczEngine.formatSize(wantedBytes)})")
 
+            while (!activeDownloadHashes.add(hashHex)) {
+                if (isCancelled() || taskController?.isCancelled == true) {
+                    return TorrentDownloadResult(emptyList(), "Операция отменена пользователем", ti.name(), hashHex)
+                }
+                onStatus("Ожидание завершения параллельной загрузки этой же раздачи…")
+                Thread.sleep(250)
+            }
+            activeHashKey = hashHex
+            try { sm.find(ti.infoHash())?.let { sm.remove(it) } } catch (_: Throwable) {}
+
             sm.download(ti, saveDir, null, priorities, null, org.libtorrent4j.swig.torrent_flags_t())
             val handle = sm.find(ti.infoHash()) ?: return TorrentDownloadResult(emptyList(), "libtorrent не смог добавить раздачу", ti.name(), hashHex)
             th = handle
             taskController?.activeTorrentHandle = handle
             handle.prioritizeFiles(priorities)
-            try { handle.swig().set_max_connections(200) } catch (_: Throwable) {}
+            try { handle.swig().set_max_connections(-1) } catch (_: Throwable) {}
+            try { handle.swig().set_max_uploads(-1) } catch (_: Throwable) {}
+            try { handle.swig().set_download_limit(-1) } catch (_: Throwable) {}
+            try { handle.swig().set_upload_limit(-1) } catch (_: Throwable) {}
 
             val defaultTrackers = PUBLIC_TRACKERS
             val magnetTrackers = Regex("""[&?]tr=([^&]+)""").findAll(magnetOrTorrent).mapNotNull {
@@ -4541,7 +4701,20 @@ object RuTrackerCloudEngine {
             }
             val files = wantedIdx.map { File(saveDir, fs.filePath(it)) }.filter { it.isFile && it.length() > 0L }
             if (files.isEmpty()) return TorrentDownloadResult(emptyList(), "Файлы раздачи не найдены после скачивания", ti.name(), hashHex)
-            return TorrentDownloadResult(files, null, ti.name(), hashHex)
+            val selRelPaths = wantedIdx.map { fs.filePath(it) }
+            val meta = CompletedTorrentMeta(
+                infoHash = hashHex,
+                torrentName = ti.name(),
+                saveDir = saveDir.absolutePath,
+                torrentFilePath = if (cachedTorrentFile.exists()) cachedTorrentFile.absolutePath else "",
+                selectedRelativePaths = selRelPaths,
+                totalWantedBytes = files.sumOf { it.length() }
+            )
+            for (df in files) {
+                val cPath = try { df.canonicalPath } catch (_: Exception) { df.absolutePath }
+                recentDownloadMetaByFilePath[cPath] = meta
+            }
+            return TorrentDownloadResult(files, null, ti.name(), hashHex, selRelPaths, meta.torrentFilePath, saveDir.absolutePath)
         } catch (ie: InterruptedException) {
             throw ie
         } catch (e: Throwable) {
@@ -4549,6 +4722,7 @@ object RuTrackerCloudEngine {
         } finally {
             try { taskController?.activeTorrentHandle = null } catch (_: Throwable) {}
             try { th?.let { sm.remove(it) } } catch (_: Throwable) {}
+            try { activeHashKey?.let { activeDownloadHashes.remove(it) } } catch (_: Throwable) {}
         }
     }
     /**
@@ -4591,7 +4765,8 @@ object RuTrackerCloudEngine {
             getReleaseFilesList(topic)
         }
 
-        val rawBaseTid = allReleaseFiles.firstOrNull { it.roleBadge == "БАЗА" }?.titleId
+        val rawBaseTid = allReleaseFiles.firstOrNull { it.roleBadge == "ИГРА" || it.roleBadge == "БАЗА" }?.titleId
+            ?: Regex("""\b((?:01|04)[0-9A-Fa-f]{14})\b""").find(topic.title)?.groupValues?.get(1)
             ?: allReleaseFiles.firstOrNull()?.titleId
             ?: "0100000000010000"
         var baseTid = if (rawBaseTid.length == 16 && !rawBaseTid.endsWith("000", ignoreCase = true)) {
@@ -4729,8 +4904,17 @@ object RuTrackerCloudEngine {
             throw IllegalArgumentException("Ни один файл раздачи не отмечен галочкой в блоке «1. Состав раздачи»")
         }
         val hasRealSelection = allReleaseFiles.any { it.isRealTorrentFile }
+        val hasExplicitUnselected = selectedReleaseFiles.any { !it.selected }
         val wantedRoles = checkedItems.map { it.roleBadge.uppercase() }.toSet()
-        val selectedRealNames = if (hasRealSelection) checkedItems.filter { it.isRealTorrentFile }.map { File(it.fileName).name.lowercase() }.toSet() else emptySet()
+        val realCheckedItems = if (hasRealSelection) checkedItems.filter { it.isRealTorrentFile } else emptyList()
+        val selectedRelWithDir = realCheckedItems
+            .map { it.relativePath.replace('\\', '/').lowercase() }
+            .filter { it.contains('/') }
+            .toSet()
+        val selectedFlatNames = realCheckedItems
+            .filter { !it.relativePath.replace('\\', '/').contains('/') }
+            .map { File(it.fileName).name.lowercase() }
+            .toSet()
 
         for (cand in torrentCandidates.take(2)) {
             if (isCancelled()) throw InterruptedException("Операция отменена пользователем")
@@ -4741,14 +4925,21 @@ object RuTrackerCloudEngine {
                 isCancelled = isCancelled,
                 acceptMetadata = { name, files -> if (cand.trustedTopic) null else checkTorrentMatchesGame(name, files, cleanGameName, baseTid) },
                 wantFile = { path, _ ->
-                    val ext = path.substringAfterLast('.', "").lowercase()
-                    val isSupportedExt = ext in setOf("nsp", "nsz", "xci", "xcz", "zip", "rar", "7z")
+                    val normPath = path.replace('\\', '/').lowercase()
+                    val ext = normPath.substringAfterLast('.', "")
+                    val isSupportedExt = ext in setOf(
+                        "nsp", "nsz", "xci", "xcz", "nup", "zip", "rar", "7z",
+                        "3ds", "cci", "cia", "cxi", "cfa", "3dsx", "zcci", "zcxi", "zcia", "z3dsx",
+                        "sav", "txt", "nfo", "md", "pdf"
+                    )
                     if (!isSupportedExt) return@downloadTorrentWithDiagnostics false
                     if (hasRealSelection) {
-                        val fn = File(path).name.lowercase()
-                        fn in selectedRealNames || selectedRealNames.any { path.replace('\\', '/').lowercase().endsWith(it) }
+                        val fn = normPath.substringAfterLast('/')
+                        (normPath in selectedRelWithDir) ||
+                            selectedRelWithDir.any { normPath.endsWith("/$it") } ||
+                            (fn in selectedFlatNames)
                     } else {
-                        val allChecked = allReleaseFiles.all { it.selected }
+                        val allChecked = !hasExplicitUnselected && allReleaseFiles.all { it.selected }
                         allChecked || isWantedTorrentFile(path, wantedRoles)
                     }
                 },
@@ -5112,16 +5303,46 @@ object RuTrackerCloudEngine {
         try { unpackRootDir.deleteRecursively() } catch (_: Exception) {}
         try { File(modsRootDir, "staged_cloud_mods/$baseTid").deleteRecursively() } catch (_: Exception) {}
 
+        val romsRootCanon = try { romsDir.canonicalPath } catch (_: Exception) { romsDir.absolutePath }
         if (deleteSourceAfterVerify && isOutContainerValid) {
             var deletedCount = 0
+            val candidateParentDirs = LinkedHashSet<File>()
             for (tmpFile in downloadedFiles) {
-                if (tmpFile.isFile && tmpFile.parentFile?.absolutePath == romsDir.absolutePath && tmpFile.absolutePath != outFile.absolutePath) {
+                val tmpCanon = try { tmpFile.canonicalPath } catch (_: Exception) { tmpFile.absolutePath }
+                val outCanon = try { outFile.canonicalPath } catch (_: Exception) { outFile.absolutePath }
+                if (tmpFile.isFile && (tmpCanon.startsWith(romsRootCanon + File.separator) || tmpFile.parentFile?.absolutePath == romsDir.absolutePath) && tmpCanon != outCanon) {
                     try {
+                        tmpFile.parentFile?.let { candidateParentDirs.add(it) }
                         if (tmpFile.delete()) deletedCount++
                     } catch (_: Exception) {}
                 }
             }
-            stepLogs.add("✓ Выходной контейнер проверен — удалено исходных файлов раздачи: $deletedCount")
+            for (dir in candidateParentDirs.sortedByDescending { it.absolutePath.length }) {
+                var cur: File? = dir
+                while (cur != null) {
+                    val curCanon = try { cur.canonicalPath } catch (_: Exception) { cur.absolutePath }
+                    if (curCanon == romsRootCanon || !curCanon.startsWith(romsRootCanon + File.separator)) break
+                    val remaining = cur.listFiles()
+                    if (remaining != null && remaining.isEmpty()) {
+                        cur.delete()
+                        cur = cur.parentFile
+                    } else break
+                }
+            }
+            stepLogs.add("✓ Выходной контейнер проверен - удалено исходных файлов раздачи: $deletedCount")
+        } else if (!deleteSourceAfterVerify && isOutContainerValid) {
+            var foundMeta: CompletedTorrentMeta? = null
+            for (df in downloadedFiles) {
+                val c = try { df.canonicalPath } catch (_: Exception) { df.absolutePath }
+                val m = recentDownloadMetaByFilePath[c]
+                if (m != null) {
+                    foundMeta = m
+                    break
+                }
+            }
+            if (foundMeta != null) {
+                lastCompletedTopicSeedingMeta[topic.topicId] = foundMeta
+            }
         }
 
         val finalLen = outFile.length()
@@ -5179,6 +5400,704 @@ object RuTrackerCloudEngine {
         }
         StormNczEngine.verifyContainerIntegrity(targetFile)
         onProgress(100, targetFile.length(), 64.0)
+    }
+
+    // =========================================================================
+    // КАНОНИЧЕСКАЯ КЛАССИФИКАЦИЯ ФАЙЛОВ, УМНЫЙ ВЫБОР, СЛОТЫ ИГР И РАЗДАЧИ P2P
+    // =========================================================================
+
+    fun classifyTorrentFileRole(path: String): String {
+        val norm = path.replace('\\', '/')
+        val n = norm.substringAfterLast('/').lowercase()
+        val ext = n.substringAfterLast('.', "")
+        val dirSegs = norm.substringBeforeLast('/', "").split('/').filter { it.isNotBlank() }
+
+        val infoExts = setOf("txt", "nfo", "md", "pdf", "jpg", "jpeg", "png", "bmp", "webp", "url", "htm", "html", "doc", "docx")
+        if (ext in infoExts || Regex("""^(?:readme|read[\s_\-]*me|changelog|описание|инструкция)\b""").containsMatchIn(n)) {
+            return "ИНФО"
+        }
+
+        val isArchive = ext in setOf("zip", "rar", "7z", "ips", "pchtxt")
+        val isSaveFolder = dirSegs.any { Regex("""^(?:\d+\s*)?(?:saves?|сэйв\w*|сейв\w*|checkpoint|jksv)$""", RegexOption.IGNORE_CASE).matches(it.trim()) }
+        val isSaveFile = ext in setOf("sav", "bak") ||
+            (isArchive && Regex("""(?:100%\s*save|save\s*data|savegame|сэйв|сейв|\bsaves?\b)""", RegexOption.IGNORE_CASE).containsMatchIn(n))
+        if (isSaveFolder || isSaveFile) {
+            return "СЭЙВЫ"
+        }
+
+        val isContainer = ext in setOf("nsp", "nsz", "xci", "xcz", "nup", "3ds", "cci", "cia", "cxi", "cfa", "3dsx", "zcci", "zcxi", "zcia", "z3dsx")
+
+        // Папка или файл с переводом / русификатором (исключая тег языка [RUS] на корневой папке всей раздачи)
+        val nonRootDirs = if (dirSegs.size > 1) dirSegs.drop(1) else dirSegs.filter { !it.trim().startsWith("[") }
+        val inTranslationSubdir = nonRootDirs.any { seg ->
+            val s = seg.lowercase()
+            !s.startsWith("[nintendo") && (
+                s.contains("русификатор") || s.contains("перевод") ||
+                s.contains("translation") || s.contains("локализац") ||
+                Regex("""(?:^|[\s_\-.])rus(?:[\s_\-.]*(?:mod|patch|upd|translation|перевод)|$)""").containsMatchIn(s)
+            )
+        }
+        val fileIsTranslation = n.contains("русификатор") ||
+            n.contains("перевод") ||
+            n.contains("machine translation") ||
+            n.contains("rus_patch") ||
+            n.contains("rus patch") ||
+            n.contains("russian translation")
+
+        if (isContainer && (inTranslationSubdir || fileIsTranslation)) {
+            return "ОБНОВЛЕНИЕ (РУС)"
+        }
+
+        val inUnlocker = n.contains("unlocker") || n.contains("анлокер") ||
+            dirSegs.any { it.contains("unlocker", ignoreCase = true) || it.contains("анлокер", ignoreCase = true) }
+        if (inUnlocker && !n.contains("pack", ignoreCase = true)) {
+            return "UNLOCKER"
+        }
+
+        if (isArchive || ext in setOf("ips", "pchtxt")) {
+            return "МОДЫ"
+        }
+
+        val modDir = dirSegs.any { seg ->
+            val s = seg.lowercase()
+            s == "atmosphere" || s == "romfs" || s == "exefs" || s == "exefs_patches" ||
+                s in setOf("mods", "mod", "cheats", "60fps", "overclock", "моды", "патч-мод")
+        }
+        if (modDir && !isContainer) {
+            return "МОДЫ"
+        }
+
+        // Проверяем DLC ПЕРЕД проверкой обновлений ([v65536] на DLC не должен уводить файл в ОБНОВЛЕНИЕ!)
+        val inDedicatedDlcSubfolder = dirSegs.any {
+            Regex("""^(?:\d+\s*)?(?:dlcs?|add[-\s]?ons?|дополнения?)$""", RegexOption.IGNORE_CASE).matches(it.trim())
+        }
+        val hasExplicitDlcTag = Regex(
+            """[\[\(]\s*(?:standalone\s+)?(?:dlc|add[-_]?on)\b|\bstandalone\s+dlc\b|\bdlc\s*pack\b|\bexpansion\s+pass\b|\bseason\s*pass\b|\bvoice\s*pack\b|\bchallenge\s+mode\s+pack\b""",
+            RegexOption.IGNORE_CASE
+        ).containsMatchIn(n)
+        val tid = Regex("""(?<![0-9a-f])((?:01|04)[0-9a-f]{14}|0004[0-9a-f]{12})(?![0-9a-f])""").find(n)?.groupValues?.get(1)
+        if (tid != null) {
+            if (hasExplicitDlcTag) return "ДОПОЛНЕНИЯ"
+            if (tid.startsWith("0004")) {
+                return when {
+                    tid.startsWith("0004008c") -> "ДОПОЛНЕНИЯ"
+                    tid.startsWith("0004000e") -> "ОБНОВЛЕНИЕ"
+                    inDedicatedDlcSubfolder -> "ДОПОЛНЕНИЯ"
+                    else -> "ИГРА"
+                }
+            }
+            return when {
+                tid.endsWith("800") -> "ОБНОВЛЕНИЕ"
+                !tid.endsWith("000") -> "ДОПОЛНЕНИЯ"
+                inDedicatedDlcSubfolder -> "ДОПОЛНЕНИЯ"
+                else -> "ИГРА"
+            }
+        }
+
+        val isDlcByName = Regex("""(?:^|[\s_\-.(\[])(?:dlc|add[-_]?on)(?:$|[\s_\-.\)\]\d])""").containsMatchIn(n) &&
+            !Regex("""\+\s*(?:\d+\s*)?(?:dlc|add[-_]?on)""").containsMatchIn(n)
+        if (hasExplicitDlcTag || inDedicatedDlcSubfolder || isDlcByName) {
+            return "ДОПОЛНЕНИЯ"
+        }
+        if (inUnlocker) return "UNLOCKER"
+
+        if (n.contains("update") || n.contains("обновление") ||
+            Regex("""(?:^|[\s_\-.(\[])(?:patch|upd)(?:$|[\s_\-.\)\]v\d])""").containsMatchIn(n) ||
+            Regex("""\[v[1-9]\d*]""").containsMatchIn(n)
+        ) {
+            return "ОБНОВЛЕНИЕ"
+        }
+        return "ИГРА"
+    }
+
+    fun extractCleanDlcName(rawFileName: String): String {
+        val base = rawFileName.replace('\\', '/').substringAfterLast('/')
+        val bracketMatch = Regex("""\[\s*(?:DLC|Add[-\s]?On)\s+([^\]]+)]""", RegexOption.IGNORE_CASE).find(base)
+        if (bracketMatch != null) {
+            return bracketMatch.groupValues[1].trim()
+        }
+        val parenMatch = Regex("""\(\s*(?:DLC|Add[-\s]?On)\s+([^\)]+)\)""", RegexOption.IGNORE_CASE).find(base)
+        if (parenMatch != null) {
+            return parenMatch.groupValues[1].trim()
+        }
+        var cleaned = base.substringBeforeLast('.')
+            .replace(Regex("""\[(?:01|04|0004)[0-9A-Fa-f]{12,14}]"""), " ")
+            .replace(Regex("""\[v\d+(?:\.\d+)*]""", RegexOption.IGNORE_CASE), " ")
+            .replace(Regex("""\(\s*\d+(?:[.,]\d+)?\s*(?:GB|MB|KB|ГБ|МБ|КБ)\s*\)""", RegexOption.IGNORE_CASE), " ")
+            .replace(Regex("""\[[^\]]*]"""), " ")
+            .replace(Regex("""\s+"""), " ")
+            .trim()
+        val afterDash = cleaned.substringAfter(" - ", "")
+        if (afterDash.isNotBlank()) cleaned = afterDash.trim()
+        return cleaned.ifBlank { base.substringBeforeLast('.').trim() }
+    }
+
+    private fun extractNumericFileVersion(fileName: String): Long {
+        val bracketV = Regex("""\[v(\d+)]""", RegexOption.IGNORE_CASE).find(fileName)?.groupValues?.get(1)?.toLongOrNull()
+        if (bracketV != null) return bracketV
+        val dotted = Regex("""\bv?(\d+)\.(\d+)(?:\.(\d+))?\b""", RegexOption.IGNORE_CASE).find(fileName)
+        if (dotted != null) {
+            val a = dotted.groupValues[1].toLongOrNull() ?: 0L
+            val b = dotted.groupValues[2].toLongOrNull() ?: 0L
+            val c = dotted.groupValues[3].toLongOrNull() ?: 0L
+            return a * 100000000L + b * 10000L + c
+        }
+        return 0L
+    }
+
+    private fun normalizeSwitchAppBaseKey(tidHex: String): String {
+        val clean = tidHex.trim().uppercase()
+        if (clean.length != 16) return ""
+        if (clean.startsWith("0004")) return "3DS_" + clean.takeLast(8)
+        if (clean.startsWith("01") || clean.startsWith("04")) {
+            return try {
+                val v = java.lang.Long.parseUnsignedLong(clean, 16)
+                val appBase = (v ushr 13) shl 13
+                String.format(java.util.Locale.US, "%016X", appBase)
+            } catch (_: Throwable) {
+                clean.take(13) + "000"
+            }
+        }
+        return clean.take(13) + "000"
+    }
+
+    fun applySmartFileSelection(files: List<ReleaseContentFile>) {
+        if (files.isEmpty()) return
+        val disabledRoles = setOf("МОДЫ", "МОД", "ОБНОВЛЕНИЕ (РУС)", "РУСИФИКАТОР", "СЭЙВЫ", "ИНФО")
+        val updatesByGroup = LinkedHashMap<String, MutableList<ReleaseContentFile>>()
+        val dlcsByKey = LinkedHashMap<String, MutableList<ReleaseContentFile>>()
+
+        for (rf in files) {
+            val role = rf.roleBadge.uppercase()
+            when {
+                role in disabledRoles -> rf.selected = false
+                role == "ОБНОВЛЕНИЕ" || role == "ПАТЧ" -> {
+                    val key = if (rf.titleId.length == 16) normalizeSwitchAppBaseKey(rf.titleId) else "SLOT_${rf.targetGameSlot}"
+                    updatesByGroup.getOrPut(key) { mutableListOf() }.add(rf)
+                }
+                role == "ДОПОЛНЕНИЯ" || role == "DLC" -> {
+                    val key = if (rf.titleId.length == 16 && !rf.titleId.endsWith("000")) {
+                        rf.titleId.uppercase()
+                    } else {
+                        "NAME_${rf.targetGameSlot}_${extractCleanDlcName(rf.fileName).lowercase()}"
+                    }
+                    dlcsByKey.getOrPut(key) { mutableListOf() }.add(rf)
+                }
+                else -> rf.selected = true
+            }
+        }
+
+        for ((_, group) in updatesByGroup) {
+            val best = group.maxByOrNull { extractNumericFileVersion(it.fileName) }
+            for (rf in group) {
+                rf.selected = (rf === best)
+            }
+        }
+
+        for ((_, group) in dlcsByKey) {
+            if (group.size <= 1) {
+                group.forEach { it.selected = true }
+            } else {
+                val best = group.maxByOrNull { extractNumericFileVersion(it.fileName) }
+                for (rf in group) {
+                    rf.selected = (rf === best)
+                }
+            }
+        }
+    }
+
+    fun detectGameSlotsForFiles(topicTitle: String, files: List<ReleaseContentFile>): MutableList<RuTrackerGameSlot> {
+        if (files.isEmpty()) {
+            return mutableListOf(RuTrackerGameSlot(1, StormNczEngine.extractCleanGameTitle(topicTitle).ifBlank { topicTitle }))
+        }
+        val keyOrder = LinkedHashMap<String, Int>()
+        val keyTitle = LinkedHashMap<String, String>()
+        val keyBaseTid = LinkedHashMap<String, String>()
+
+        fun cleanTitleFromFile(fileName: String): String {
+            return fileName.replace('\\', '/').substringAfterLast('/').substringBeforeLast('.')
+                .replace(Regex("""\[(?:01|04|0004)[0-9A-Fa-f]{12,14}]"""), " ")
+                .replace(Regex("""\[v\d+(?:\.\d+)*]""", RegexOption.IGNORE_CASE), " ")
+                .replace(Regex("""\(\s*\d+(?:[.,]\d+)?\s*(?:GB|MB|KB|ГБ|МБ|КБ)\s*\)""", RegexOption.IGNORE_CASE), " ")
+                .replace(Regex("""\[[^\]]*]"""), " ")
+                .replace(Regex("""\s+"""), " ")
+                .trim()
+        }
+
+        for (rf in files) {
+            val role = rf.roleBadge.uppercase()
+            if (role in setOf("ИГРА", "БАЗА", "ОБНОВЛЕНИЕ", "ПАТЧ", "ДОПОЛНЕНИЯ", "DLC")) {
+                val tidInName = Regex("""(?<![0-9A-Fa-f])((?:01|04)[0-9A-Fa-f]{14}|0004[0-9A-Fa-f]{12})(?![0-9A-Fa-f])""")
+                    .find(rf.relativePath)?.groupValues?.get(1)?.uppercase()
+                    ?: rf.titleId.takeIf { it.length == 16 }?.uppercase()
+                if (tidInName != null) {
+                    val baseKey = normalizeSwitchAppBaseKey(tidInName)
+                    if (baseKey.isNotEmpty()) {
+                        if (baseKey !in keyOrder) {
+                            keyOrder[baseKey] = keyOrder.size + 1
+                            keyBaseTid[baseKey] = if (tidInName.startsWith("01") || tidInName.startsWith("04")) baseKey else tidInName
+                        }
+                        if (role == "ИГРА" || role == "БАЗА" || baseKey !in keyTitle) {
+                            val t = cleanTitleFromFile(rf.fileName)
+                            if (t.isNotBlank()) keyTitle[baseKey] = t
+                        }
+                    }
+                }
+            }
+        }
+
+        if (keyOrder.size <= 1) {
+            // Проверка на несколько базовых игр без явных разных TitleID в имени
+            val baseFiles = files.filter { it.roleBadge == "ИГРА" || it.roleBadge == "БАЗА" }
+            val distinctStems = baseFiles.map { cleanTitleFromFile(it.fileName) }.filter { it.isNotBlank() }.distinctBy { it.lowercase() }
+            if (keyOrder.isEmpty() && distinctStems.size > 1) {
+                keyOrder.clear()
+                keyTitle.clear()
+                for (stem in distinctStems) {
+                    val k = "STEM_${stem.lowercase()}"
+                    keyOrder[k] = keyOrder.size + 1
+                    keyTitle[k] = stem
+                }
+                for (rf in files) {
+                    val stem = cleanTitleFromFile(rf.fileName).lowercase()
+                    rf.targetGameSlot = keyOrder["STEM_$stem"]
+                        ?: keyOrder.entries.firstOrNull { (k, _) -> rf.relativePath.lowercase().contains(k.removePrefix("STEM_")) }?.value
+                        ?: 1
+                }
+            } else {
+                val onlyTid = keyBaseTid.values.firstOrNull() ?: files.firstOrNull { it.titleId.length == 16 }?.titleId ?: ""
+                val fallbackTitle = keyTitle.values.firstOrNull()?.takeIf { it.isNotBlank() }
+                    ?: StormNczEngine.extractCleanGameTitle(topicTitle).ifBlank { topicTitle }
+                for (rf in files) rf.targetGameSlot = 1
+                return mutableListOf(RuTrackerGameSlot(1, fallbackTitle, onlyTid, true))
+            }
+        } else {
+            for (rf in files) {
+                val tidInName = Regex("""(?<![0-9A-Fa-f])((?:01|04)[0-9A-Fa-f]{14}|0004[0-9A-Fa-f]{12})(?![0-9A-Fa-f])""")
+                    .find(rf.relativePath)?.groupValues?.get(1)?.uppercase()
+                    ?: rf.titleId.takeIf { it.length == 16 }?.uppercase()
+                val slotByTid = tidInName?.let { keyOrder[normalizeSwitchAppBaseKey(it)] }
+                if (slotByTid != null) {
+                    rf.targetGameSlot = slotByTid
+                } else {
+                    val lower = rf.relativePath.lowercase()
+                    val byName = keyTitle.entries.firstOrNull { (_, title) ->
+                        val normTitle = title.lowercase()
+                        normTitle.length >= 3 && lower.contains(normTitle)
+                    }?.key?.let { keyOrder[it] }
+                    rf.targetGameSlot = byName ?: 1
+                }
+            }
+        }
+
+        val slots = mutableListOf<RuTrackerGameSlot>()
+        for ((k, idx) in keyOrder) {
+            val slotTitle = keyTitle[k]?.ifBlank { null } ?: StormNczEngine.extractCleanGameTitle(topicTitle)
+            val slotTid = keyBaseTid[k] ?: ""
+            slots.add(RuTrackerGameSlot(idx, slotTitle, slotTid, true))
+        }
+        return slots
+    }
+
+    fun consumeLastCompletedSeedingMeta(topicId: String): CompletedTorrentMeta? =
+        lastCompletedTopicSeedingMeta.remove(topicId)
+
+    fun getSeedingStateFile(baseDir: File? = null): File {
+        val dir = baseDir ?: cacheRootDir ?: appContext?.filesDir ?: File(System.getProperty("java.io.tmpdir") ?: "/tmp")
+        if (!dir.exists()) {
+            try { dir.mkdirs() } catch (_: Throwable) {}
+        }
+        return File(dir, "rutracker_seeding_state.json")
+    }
+
+    fun saveSeedingStateToFile(file: File = getSeedingStateFile()) {
+        synchronized(seedingPersistLock) {
+            try {
+                file.parentFile?.mkdirs()
+                val jsonText = if (seedingEntries.isEmpty()) {
+                    "[]"
+                } else {
+                    seedingEntries.joinToString(separator = ",\n  ", prefix = "[\n  ", postfix = "\n]") { it.toJsonString() }
+                }
+                file.writeText(jsonText, StandardCharsets.UTF_8)
+            } catch (_: Throwable) {}
+        }
+    }
+
+    fun loadSeedingEntriesFromFile(file: File = getSeedingStateFile()): List<RuTrackerSeedingEntry> {
+        if (!file.exists() || !file.isFile) return emptyList()
+        return try {
+            val txt = file.readText(StandardCharsets.UTF_8).trim()
+            if (txt.isEmpty()) return emptyList()
+            var pos = 0
+            fun skipWs() { while (pos < txt.length && txt[pos].isWhitespace()) pos++ }
+            fun parseString(): String {
+                pos++ // opening quote
+                val sb = StringBuilder()
+                while (pos < txt.length) {
+                    val c = txt[pos++]
+                    if (c == '"') return sb.toString()
+                    if (c == '\\' && pos < txt.length) {
+                        val esc = txt[pos++]
+                        when (esc) {
+                            '"', '\\', '/' -> sb.append(esc)
+                            'n' -> sb.append('\n')
+                            'r' -> sb.append('\r')
+                            't' -> sb.append('\t')
+                            'b' -> sb.append('\b')
+                            'f' -> sb.append('\u000C')
+                            'u' -> if (pos + 4 <= txt.length) {
+                                sb.append(txt.substring(pos, pos + 4).toInt(16).toChar())
+                                pos += 4
+                            }
+                            else -> sb.append(esc)
+                        }
+                    } else sb.append(c)
+                }
+                return sb.toString()
+            }
+            fun parseValue(): Any? {
+                skipWs()
+                if (pos >= txt.length) return null
+                return when (txt[pos]) {
+                    '"' -> parseString()
+                    '{' -> {
+                        pos++
+                        val map = LinkedHashMap<String, Any?>()
+                        while (pos < txt.length) {
+                            skipWs()
+                            if (pos < txt.length && txt[pos] == '}') { pos++; break }
+                            val key = parseString()
+                            skipWs()
+                            if (pos < txt.length && txt[pos] == ':') pos++
+                            map[key] = parseValue()
+                            skipWs()
+                            if (pos < txt.length && txt[pos] == ',') pos++
+                        }
+                        map
+                    }
+                    '[' -> {
+                        pos++
+                        val arr = mutableListOf<Any?>()
+                        while (pos < txt.length) {
+                            skipWs()
+                            if (pos < txt.length && txt[pos] == ']') { pos++; break }
+                            arr.add(parseValue())
+                            skipWs()
+                            if (pos < txt.length && txt[pos] == ',') pos++
+                        }
+                        arr
+                    }
+                    't' -> { pos += 4; true }
+                    'f' -> { pos += 5; false }
+                    'n' -> { pos += 4; null }
+                    else -> {
+                        val start = pos
+                        while (pos < txt.length && txt[pos] !in charArrayOf(',', ']', '}', ' ', '\n', '\r', '\t')) pos++
+                        val raw = txt.substring(start, pos)
+                        raw.toLongOrNull() ?: raw.toDoubleOrNull() ?: raw
+                    }
+                }
+            }
+            val parsed = parseValue() as? List<*> ?: return emptyList()
+            val list = mutableListOf<RuTrackerSeedingEntry>()
+            for (item in parsed) {
+                @Suppress("UNCHECKED_CAST")
+                val map = item as? Map<String, Any?> ?: continue
+                RuTrackerSeedingEntry.fromFieldMap(map)?.let { list.add(it) }
+            }
+            list
+        } catch (_: Throwable) {
+            emptyList()
+        }
+    }
+
+    private val lastPolledSessionUploadByHash = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    private fun attachSeedingHandle(entry: RuTrackerSeedingEntry): Boolean {
+        val tFile = File(entry.torrentFilePath)
+        val sDir = File(entry.saveDir)
+        if (!tFile.isFile || !sDir.exists()) {
+            entry.statusText = if (!tFile.isFile) "Нет .torrent файла" else "Папка не найдена"
+            return false
+        }
+        return try {
+            val sm = getOrStartWarmTorrentSession()
+            val ti = org.libtorrent4j.TorrentInfo(tFile)
+            val fs = ti.files()
+            val selSet = entry.selectedRelativePaths.map { it.replace('\\', '/').lowercase() }.toSet()
+            val priorities = Array(fs.numFiles()) { idx ->
+                val p = fs.filePath(idx).replace('\\', '/').lowercase()
+                if (selSet.isEmpty() || p in selSet) org.libtorrent4j.Priority.DEFAULT else org.libtorrent4j.Priority.IGNORE
+            }
+            val existing = sm.find(ti.infoHash())
+            if (existing == null) {
+                sm.download(ti, sDir, null, priorities, null, org.libtorrent4j.TorrentFlags.UPLOAD_MODE)
+            }
+            val handle = sm.find(ti.infoHash()) ?: return false
+            handle.prioritizeFiles(priorities)
+            handle.setFlags(org.libtorrent4j.TorrentFlags.UPLOAD_MODE)
+            for (trUrl in PUBLIC_TRACKERS) {
+                try { handle.addTracker(org.libtorrent4j.AnnounceEntry(trUrl)) } catch (_: Throwable) {}
+            }
+            if (entry.isPaused) {
+                try { handle.unsetFlags(org.libtorrent4j.TorrentFlags.AUTO_MANAGED) } catch (_: Throwable) {}
+                handle.pause()
+                entry.statusText = "Пауза"
+            } else {
+                handle.resume()
+                handle.forceReannounce()
+                handle.forceDHTAnnounce()
+                entry.statusText = "Раздаётся"
+            }
+            true
+        } catch (t: Throwable) {
+            entry.statusText = "Ошибка: ${t.message ?: t.javaClass.simpleName}"
+            false
+        }
+    }
+
+    fun addOrUpdateSeeding(topicId: String, title: String, meta: CompletedTorrentMeta) {
+        val existing = seedingEntries.firstOrNull { it.infoHash.equals(meta.infoHash, ignoreCase = true) }
+        val entry = if (existing != null) {
+            val merged = (existing.selectedRelativePaths + meta.selectedRelativePaths).distinct()
+            val updated = existing.copy(
+                title = if (seedingEntries.any { it.infoHash == existing.infoHash } && existing.title != title) "$title" else existing.title,
+                torrentFilePath = meta.torrentFilePath.ifBlank { existing.torrentFilePath },
+                saveDir = meta.saveDir.ifBlank { existing.saveDir },
+                selectedRelativePaths = merged,
+                totalSizeBytes = maxOf(existing.totalSizeBytes, meta.totalWantedBytes),
+                isPaused = false,
+                statusText = "Раздаётся"
+            )
+            updated.uploadedBytes = existing.uploadedBytes
+            seedingEntries.remove(existing)
+            seedingEntries.add(updated)
+            updated
+        } else {
+            val created = RuTrackerSeedingEntry(
+                infoHash = meta.infoHash.uppercase(),
+                topicId = topicId,
+                title = title,
+                saveDir = meta.saveDir,
+                torrentFilePath = meta.torrentFilePath,
+                selectedRelativePaths = meta.selectedRelativePaths,
+                totalSizeBytes = meta.totalWantedBytes.coerceAtLeast(1L),
+                isPaused = false,
+                statusText = "Раздаётся"
+            )
+            seedingEntries.add(created)
+            created
+        }
+        saveSeedingStateToFile()
+        kotlin.concurrent.thread(name = "seeding-attach", isDaemon = true) {
+            attachSeedingHandle(entry)
+        }
+    }
+
+    fun loadAndResumePersistedSeeding() {
+        kotlin.concurrent.thread(name = "seeding-boot", isDaemon = true) {
+            val loaded = loadSeedingEntriesFromFile()
+            if (loaded.isEmpty()) return@thread
+            for (e in loaded) {
+                if (seedingEntries.none { it.infoHash.equals(e.infoHash, ignoreCase = true) }) {
+                    seedingEntries.add(e)
+                }
+            }
+            for (e in seedingEntries) {
+                if (!e.isPaused) {
+                    attachSeedingHandle(e)
+                } else {
+                    e.statusText = "Пауза"
+                }
+            }
+        }
+    }
+
+    fun pollSeedingStats() {
+        val sm = warmTorrentSession ?: return
+        if (!sm.isRunning) return
+        for (entry in seedingEntries) {
+            try {
+                val sha = org.libtorrent4j.Sha1Hash.parseHex(entry.infoHash)
+                val h = sm.find(sha)
+                if (h == null || !h.isValid) {
+                    entry.uploadRateBytesPerSec = 0L
+                    entry.peers = 0
+                    entry.seeds = 0
+                    entry.statusText = if (entry.isPaused) "Пауза" else "Ожидание..."
+                    continue
+                }
+                val st = h.status()
+                val curSess = maxOf(st.totalPayloadUpload(), st.allTimeUpload()).coerceAtLeast(0L)
+                val prevSess = lastPolledSessionUploadByHash[entry.infoHash] ?: 0L
+                val delta = if (curSess >= prevSess) curSess - prevSess else curSess
+                if (delta > 0L) entry.uploadedBytes += delta
+                lastPolledSessionUploadByHash[entry.infoHash] = curSess
+                entry.sessionUploadedBytes = curSess
+                entry.uploadRateBytesPerSec = st.uploadPayloadRate().toLong().coerceAtLeast(0L)
+                entry.peers = st.numPeers().coerceAtLeast(0)
+                entry.seeds = st.numSeeds().coerceAtLeast(0)
+                val stateStr = st.state().name
+                entry.statusText = when {
+                    entry.isPaused -> "Пауза"
+                    stateStr.contains("CHECKING", ignoreCase = true) -> "Проверка файлов"
+                    entry.peers > 0 || entry.uploadRateBytesPerSec > 0L -> "Раздаётся"
+                    else -> "Ожидание пиров"
+                }
+            } catch (_: Throwable) {}
+        }
+    }
+
+    fun toggleSeedingPause(infoHash: String) {
+        val entry = seedingEntries.firstOrNull { it.infoHash.equals(infoHash, ignoreCase = true) } ?: return
+        entry.isPaused = !entry.isPaused
+        entry.statusText = if (entry.isPaused) "Пауза" else "Раздаётся"
+        saveSeedingStateToFile()
+        kotlin.concurrent.thread(name = "seeding-toggle", isDaemon = true) {
+            try {
+                val sm = warmTorrentSession ?: getOrStartWarmTorrentSession()
+                val h = sm.find(org.libtorrent4j.Sha1Hash.parseHex(entry.infoHash))
+                if (h != null && h.isValid) {
+                    if (entry.isPaused) {
+                        try { h.unsetFlags(org.libtorrent4j.TorrentFlags.AUTO_MANAGED) } catch (_: Throwable) {}
+                        h.pause()
+                    } else {
+                        h.setFlags(org.libtorrent4j.TorrentFlags.UPLOAD_MODE)
+                        h.resume()
+                        h.forceReannounce()
+                    }
+                } else if (!entry.isPaused) {
+                    attachSeedingHandle(entry)
+                }
+            } catch (_: Throwable) {}
+        }
+    }
+
+    fun pauseAllSeeding() {
+        for (e in seedingEntries) {
+            if (!e.isPaused) toggleSeedingPause(e.infoHash)
+        }
+    }
+
+    fun resumeAllSeeding() {
+        for (e in seedingEntries) {
+            if (e.isPaused) toggleSeedingPause(e.infoHash)
+        }
+    }
+
+    fun reannounceSeeding(infoHash: String) {
+        val entry = seedingEntries.firstOrNull { it.infoHash.equals(infoHash, ignoreCase = true) } ?: return
+        kotlin.concurrent.thread(name = "seeding-reannounce", isDaemon = true) {
+            try {
+                val sm = warmTorrentSession ?: getOrStartWarmTorrentSession()
+                val h = sm.find(org.libtorrent4j.Sha1Hash.parseHex(entry.infoHash))
+                if (h != null && h.isValid) {
+                    h.forceReannounce()
+                    h.forceDHTAnnounce()
+                } else if (!entry.isPaused) {
+                    attachSeedingHandle(entry)
+                }
+            } catch (_: Throwable) {}
+        }
+    }
+
+    fun removeSeeding(infoHash: String) {
+        val entry = seedingEntries.firstOrNull { it.infoHash.equals(infoHash, ignoreCase = true) } ?: return
+        seedingEntries.remove(entry)
+        lastPolledSessionUploadByHash.remove(entry.infoHash)
+        saveSeedingStateToFile()
+        kotlin.concurrent.thread(name = "seeding-remove", isDaemon = true) {
+            try {
+                warmTorrentSession?.let { sm ->
+                    val h = sm.find(org.libtorrent4j.Sha1Hash.parseHex(entry.infoHash))
+                    if (h != null && h.isValid) sm.remove(h)
+                }
+            } catch (_: Throwable) {}
+        }
+    }
+
+    fun flushSeedingStateSync() {
+        if (seedingEntries.isNotEmpty()) {
+            pollSeedingStats()
+            saveSeedingStateToFile()
+        }
+    }
+
+    private fun extractSemVerAndDlcCount(text: String): Pair<String, Int> {
+        val semverMatch = Regex("""(?:\(|\[v|\bv)(\d+\.\d+(?:\.\d+){0,2})""", RegexOption.IGNORE_CASE).find(text)
+            ?: Regex("""\b(\d+\.\d+\.\d+)\b""").find(text)
+        val ver = semverMatch?.groupValues?.get(1) ?: ""
+        val dlcByD = Regex("""\+(\d+)\s*D\b""", RegexOption.IGNORE_CASE).find(text)?.groupValues?.get(1)?.toIntOrNull()
+        val dlcByWord = Regex("""(?:\+\s*)?(\d+)\s*DLC\b""", RegexOption.IGNORE_CASE).find(text)?.groupValues?.get(1)?.toIntOrNull()
+        val dlcCount = dlcByD ?: dlcByWord ?: 0
+        return ver to dlcCount
+    }
+
+    fun checkLibraryUpdatesAgainstCatalog(
+        files: List<File>,
+        topicsOverride: List<TopicItem>? = null
+    ): List<LibraryUpdateMatch> {
+        val validExts = setOf("nsp", "nsz", "xci", "xcz", "nup", "3ds", "cci", "cia", "zcci", "zcxi", "zcia", "z3dsx")
+        val matches = mutableListOf<LibraryUpdateMatch>()
+        val seenKeys = HashSet<String>()
+
+        for (f in files) {
+            if (!f.exists() || !f.isFile || f.extension.lowercase() !in validExts) continue
+            val nameNoExt = f.nameWithoutExtension
+            val localTid = Regex("""(?<![0-9A-Fa-f])((?:01|04)[0-9A-Fa-f]{14})(?![0-9A-Fa-f])""")
+                .find(nameNoExt)?.groupValues?.get(1)?.uppercase().orEmpty()
+            val localBaseTid = if (localTid.isNotEmpty()) normalizeSwitchAppBaseKey(localTid) else ""
+            val cleanName = StormNczEngine.extractCleanGameTitle(nameNoExt).ifBlank { nameNoExt }
+            val dedupKey = if (localBaseTid.isNotEmpty()) localBaseTid else cleanName.lowercase()
+            if (!seenKeys.add(dedupKey)) continue
+
+            val (localVer, localDlc) = extractSemVerAndDlcCount(nameNoExt)
+            val isLocalStandalone = nameNoExt.contains("standalone", ignoreCase = true)
+
+            val candidates = (topicsOverride ?: searchTopicsInstant(cleanName)).filter { topic ->
+                val isRemoteStandalone = topic.title.contains("standalone", ignoreCase = true)
+                if (isRemoteStandalone && !isLocalStandalone) return@filter false
+                if (localBaseTid.isNotEmpty() && topic.title.contains(localBaseTid.take(12), ignoreCase = true)) return@filter true
+                scoreFuzzyGameMatch(cleanName, topic.title) >= 60
+            }
+            if (candidates.isEmpty()) continue
+
+            var bestTopic: TopicItem? = null
+            var bestRemoteVer = ""
+            var bestRemoteDlc = 0
+            for (cand in candidates) {
+                val (rv, rd) = extractSemVerAndDlcCount(cand.title)
+                if (bestTopic == null ||
+                    (rv.isNotBlank() && (bestRemoteVer.isBlank() || compareSemVer(rv, bestRemoteVer) > 0)) ||
+                    (rv == bestRemoteVer && rd > bestRemoteDlc)
+                ) {
+                    bestTopic = cand
+                    bestRemoteVer = rv
+                    bestRemoteDlc = rd
+                }
+            }
+            val picked = bestTopic ?: continue
+            val newerVer = localVer.isNotBlank() && bestRemoteVer.isNotBlank() && compareSemVer(bestRemoteVer, localVer) > 0
+            val newerDlc = bestRemoteDlc > localDlc
+            if (newerVer || newerDlc) {
+                matches.add(
+                    LibraryUpdateMatch(
+                        localFileName = f.name,
+                        gameName = cleanName,
+                        localVersion = localVer.ifBlank { "-" },
+                        localDlcCount = localDlc,
+                        remoteTopicId = picked.topicId,
+                        remoteTitle = picked.title,
+                        remoteVersion = bestRemoteVer.ifBlank { "-" },
+                        remoteDlcCount = bestRemoteDlc,
+                        hasNewerVersion = newerVer,
+                        hasNewerDlc = newerDlc
+                    )
+                )
+            }
+        }
+        return matches
     }
 
     class DbiHttpServer(

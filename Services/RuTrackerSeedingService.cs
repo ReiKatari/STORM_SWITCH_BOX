@@ -1224,7 +1224,7 @@ namespace StormSwitchBox.Services
                 },
                 AllowPortForwarding = true,
                 AllowLocalPeerDiscovery = true,
-                MaximumConnections = 800,
+                MaximumConnections = 2000,
                 MaximumUploadRate = 0,
                 MaximumDownloadRate = 0,
                 AutoSaveLoadDhtCache = true,
@@ -1271,7 +1271,7 @@ namespace StormSwitchBox.Services
                         AllowDht = true,
                         AllowPeerExchange = true,
                         UploadSlots = 64,
-                        MaximumConnections = 200,
+                        MaximumConnections = 1000,
                         CreateContainingDirectory = createSub
                     }.ToSettings();
 

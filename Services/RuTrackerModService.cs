@@ -131,10 +131,10 @@ namespace StormSwitchBox.Services
         public static readonly string[] DefaultTargetFormats = new[] { "NSP", "NSZ", "XCI", "XCZ", "NSP + NSZ", "XCI + XCZ" };
         public string[] AvailableTargetFormats => DefaultTargetFormats;
 
-        private string _targetFormat = "NSP";
+        private string _targetFormat = "NSZ";
         public string TargetFormat
         {
-            get => string.IsNullOrWhiteSpace(_targetFormat) ? "NSP" : _targetFormat;
+            get => string.IsNullOrWhiteSpace(_targetFormat) ? "NSZ" : _targetFormat;
             set
             {
                 if (!string.IsNullOrWhiteSpace(value))
@@ -5299,6 +5299,10 @@ namespace StormSwitchBox.Services
 
             try
             {
+                string ltDhtCacheDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "STORM SWITCH BOX", "dht_cache");
+                Directory.CreateDirectory(ltDhtCacheDir);
+                string ltDhtStateFile = Path.Combine(ltDhtCacheDir, "lt_dht_nodes.bin");
+
                 string magnetStr = magnet.ToV1String().Replace("\"", "");
                 string args = string.Join(" ", new[]
                 {
@@ -5308,6 +5312,7 @@ namespace StormSwitchBox.Services
                     $"--save-dir \"{tempDir}\"",
                     $"--save-torrent \"{resolvedTorrentPath}\"",
                     $"--peers-file \"{peersFile}\"",
+                    $"--dht-state \"{ltDhtStateFile}\"",
                     $"--listen-port {listenPort}",
                     $"--timeout {timeout.TotalSeconds.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}",
                     $"--parent-pid {Environment.ProcessId}"
@@ -5506,7 +5511,7 @@ namespace StormSwitchBox.Services
                 {
                     var ts = new TorrentSettingsBuilder
                     {
-                        MaximumConnections = 120,
+                        MaximumConnections = 2000,
                         AllowDht = true,
                         AllowPeerExchange = true
                     }.ToSettings();
@@ -5735,8 +5740,8 @@ namespace StormSwitchBox.Services
 
             {
 
-                MaximumConnections = 400,
-                UploadSlots = 64,
+                MaximumConnections = 2000,
+                UploadSlots = 256,
                 AllowDht = true,
                 AllowPeerExchange = true
             }.ToSettings();
@@ -5821,26 +5826,8 @@ namespace StormSwitchBox.Services
                 catch { }
             }
 
-            // 1. Сначала пробуем высокоскоростной локальный торрент-клиент (qBittorrent WebUI / uTP BEP-29 + Holepunch BEP-55 + HTTP/1.1 Pipelining):
-            // даёт полную скорость канала (6-50+ МБ/с) и обходит анти-личерскую фильтрацию сидов qBittorrent Enhanced.
-            var qbitResult = await TryDownloadViaLocalQBitAsync(
-                saveDirectory,
-                fileSelections,
-                progress,
-                ct,
-                rawTorrent,
-                currentHash,
-                resolvedTorrentName,
-                effectiveTopicId,
-                effectiveTopicSeeds,
-                pauseEvent).ConfigureAwait(false);
-            if (qbitResult != null && qbitResult.Count > 0)
-            {
-                return qbitResult;
-            }
-
-            // 2. TIER 2: Встроенный C++ libtorrent-rasterbar (storm_lt_turbo.py + tools\nsz\python.exe)
-            // Задействуется автоматически, если внешний qBittorrent не установлен или недоступен.
+            // 1. TIER 1 (PRIMARY): Встроенный C++ libtorrent-rasterbar (storm_lt_turbo.py + tools\nsz\python.exe)
+            // Обеспечивает полную скорость канала без ограничений и не зависит от внешнего qBittorrent.
             var ltResult = await TryDownloadViaEmbeddedLibtorrentAsync(
                 saveDirectory,
                 fileSelections,
@@ -5856,6 +5843,23 @@ namespace StormSwitchBox.Services
             if (ltResult != null && ltResult.Count > 0)
             {
                 return ltResult;
+            }
+
+            // 2. TIER 2 (FALLBACK): Локальный торрент-клиент qBittorrent WebUI (если встроенный движок недоступен).
+            var qbitResult = await TryDownloadViaLocalQBitAsync(
+                saveDirectory,
+                fileSelections,
+                progress,
+                ct,
+                rawTorrent,
+                currentHash,
+                resolvedTorrentName,
+                effectiveTopicId,
+                effectiveTopicSeeds,
+                pauseEvent).ConfigureAwait(false);
+            if (qbitResult != null && qbitResult.Count > 0)
+            {
+                return qbitResult;
             }
 
             ClientEngine engine;
@@ -6542,7 +6546,7 @@ namespace StormSwitchBox.Services
                 string encodedHash = sbHash.ToString();
                 string peerId = "-qB5000-" + Guid.NewGuid().ToString("N").Substring(0, 12);
                 int listenPort = portToAnnounce > 0 ? portToAnnounce : 44859;
-                string stdParams = $"info_hash={encodedHash}&peer_id={peerId}&port={listenPort}&uploaded=0&downloaded=0&left=1073741824&compact=1&numwant=200&event=started";
+                string stdParams = $"info_hash={encodedHash}&peer_id={peerId}&port={listenPort}&uploaded=0&downloaded=0&left=1073741824&compact=1&numwant=500&event=started";
 
                 var dhtDict = GetDhtPeersForHash(infoHashHex);
                 var httpDict = GetHttpPeersForHash(infoHashHex);
@@ -6745,6 +6749,20 @@ namespace StormSwitchBox.Services
             if (!qbitOnline)
                 return null;
 
+            try
+            {
+                string trInfoJson = await qClient.GetStringAsync($"{baseUrl}/api/v2/transfer/info", ct).ConfigureAwait(false);
+                using var trDoc = System.Text.Json.JsonDocument.Parse(trInfoJson);
+                string connStatus = trDoc.RootElement.TryGetProperty("connection_status", out var csEl) ? (csEl.GetString() ?? "") : "";
+                int dhtNodes = trDoc.RootElement.TryGetProperty("dht_nodes", out var dnEl) ? dnEl.GetInt32() : 0;
+                if (connStatus.Equals("disconnected", StringComparison.OrdinalIgnoreCase) && dhtNodes == 0)
+                {
+                    App.Logger?.Log($"[RuTracker Turbo Engine] qBittorrent отключен от сети (disconnected, dht=0) - переключение на запасной движок для {hashLower}", LogLevel.Warning);
+                    return null;
+                }
+            }
+            catch { }
+
             int qbitListenPort = 44859;
             try
             {
@@ -6835,6 +6853,14 @@ namespace StormSwitchBox.Services
                             new KeyValuePair<string, string>("value", "true")
                         });
                         await qClient.PostAsync($"{baseUrl}/api/v2/torrents/setForceStart", forceForm, ct).ConfigureAwait(false);
+
+                        var unlimitForm = new FormUrlEncodedContent(new[]
+                        {
+                            new KeyValuePair<string, string>("hashes", hashLower),
+                            new KeyValuePair<string, string>("limit", "0")
+                        });
+                        try { await qClient.PostAsync($"{baseUrl}/api/v2/torrents/setDownloadLimit", unlimitForm, ct).ConfigureAwait(false); } catch { }
+                        try { await qClient.PostAsync($"{baseUrl}/api/v2/torrents/setUploadLimit", unlimitForm, ct).ConfigureAwait(false); } catch { }
                     }
                     catch { }
 
@@ -6972,6 +6998,7 @@ namespace StormSwitchBox.Services
 
                 bool wasPausedInQbit = false;
                 long lastPeerRefreshTicks = System.Diagnostics.Stopwatch.GetTimestamp();
+                long zeroActivityStartTicks = System.Diagnostics.Stopwatch.GetTimestamp();
                 string actualSavePath = saveDirectory;
 
                 while (!ct.IsCancellationRequested)
@@ -7025,6 +7052,29 @@ namespace StormSwitchBox.Services
                     }
 
                     double speedMb = dlSpeedBytes / (1024.0 * 1024.0);
+                    if (dlSpeedBytes > 0 || numSeeds > 0 || numLeechs > 0 || completedBytes > 0)
+                    {
+                        zeroActivityStartTicks = System.Diagnostics.Stopwatch.GetTimestamp();
+                    }
+                    else
+                    {
+                        double zeroElapsedSec = (System.Diagnostics.Stopwatch.GetTimestamp() - zeroActivityStartTicks) / (double)System.Diagnostics.Stopwatch.Frequency;
+                        if (zeroElapsedSec >= 20.0)
+                        {
+                            App.Logger?.Log($"[RuTracker Turbo Engine] qBittorrent не подключил сидов/пиров за 20 с для {hashLower} - переключение на запасной движок", LogLevel.Warning);
+                            if (!existedBefore)
+                            {
+                                var delForm = new FormUrlEncodedContent(new[]
+                                {
+                                    new KeyValuePair<string, string>("hashes", hashLower),
+                                    new KeyValuePair<string, string>("deleteFiles", "false")
+                                });
+                                try { await qClient.PostAsync($"{baseUrl}/api/v2/torrents/delete", delForm, CancellationToken.None).ConfigureAwait(false); } catch { }
+                            }
+                            return null;
+                        }
+                    }
+
                     double elapsedHarvest = (System.Diagnostics.Stopwatch.GetTimestamp() - lastPeerRefreshTicks) / (double)System.Diagnostics.Stopwatch.Frequency;
                     if (elapsedHarvest >= 12.0 && (speedMb < 15.0 || numSeeds < 20))
                     {
@@ -7258,12 +7308,17 @@ namespace StormSwitchBox.Services
 
             try
             {
+                string ltDhtCacheDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "STORM SWITCH BOX", "dht_cache");
+                Directory.CreateDirectory(ltDhtCacheDir);
+                string ltDhtStateFile = Path.Combine(ltDhtCacheDir, "lt_dht_nodes.bin");
+
                 var argsList = new List<string>
                 {
                     $"\"{scriptPath}\"",
                     $"--save-dir \"{saveDirectory}\"",
                     $"--peers-file \"{peersFile}\"",
                     $"--control-file \"{controlFile}\"",
+                    $"--dht-state \"{ltDhtStateFile}\"",
                     $"--listen-port {ltListenPort}",
                     $"--parent-pid {Environment.ProcessId}"
                 };
@@ -7375,7 +7430,7 @@ namespace StormSwitchBox.Services
 
                 _ = Task.Run(async () =>
                 {
-                    int[] delaySteps = new[] { 0, 1800, 4500, 10000 };
+                    int[] delaySteps = new[] { 0, 1000, 2800, 6000 };
                     int step = 0;
                     while (!feederToken.IsCancellationRequested)
                     {
@@ -7395,7 +7450,7 @@ namespace StormSwitchBox.Services
                                 rawTorrent,
                                 fastBatch => FlushNewPeersToDisk(fastBatch));
 
-                            if (knownCount < 80)
+                            if (knownCount < 250)
                             {
                                 var t2 = Task.Run(async () =>
                                 {
@@ -7683,10 +7738,10 @@ namespace StormSwitchBox.Services
                 AllowPortForwarding = false,
                 AllowLocalPeerDiscovery = false,
                 UsePartialFiles = false,
-                MaximumConnections = 150,
+                MaximumConnections = 4000,
                 MaximumDownloadRate = 0,
                 MaximumUploadRate = 0,
-                MaximumHalfOpenConnections = 30,
+                MaximumHalfOpenConnections = 500,
                 MaximumOpenFiles = 128,
                 MaximumDiskReadRate = 0,
                 MaximumDiskWriteRate = 0,
@@ -7746,10 +7801,10 @@ namespace StormSwitchBox.Services
                     AllowPortForwarding = true,
                     AllowLocalPeerDiscovery = true,
                     UsePartialFiles = false,
-                    MaximumConnections = 1600,
+                    MaximumConnections = 4000,
                     MaximumDownloadRate = 0,
                     MaximumUploadRate = 0,
-                    MaximumHalfOpenConnections = 250,
+                    MaximumHalfOpenConnections = 500,
                     MaximumOpenFiles = 1024,
                     MaximumDiskReadRate = 0,
                     MaximumDiskWriteRate = 0,
@@ -10043,7 +10098,7 @@ namespace StormSwitchBox.Services
                 string peerId = "-qB5000-" + Guid.NewGuid().ToString("N").Substring(0, 12);
                 int listenPort = 44860;
                 long leftBytes = manager.Torrent?.Size ?? 1073741824L;
-                string stdParams = $"info_hash={encodedHash}&peer_id={peerId}&port={listenPort}&uploaded=0&downloaded=0&left={leftBytes}&compact=1&numwant=200&event=started";
+                string stdParams = $"info_hash={encodedHash}&peer_id={peerId}&port={listenPort}&uploaded=0&downloaded=0&left={leftBytes}&compact=1&numwant=500&event=started";
 
                 var newPeers = new List<PeerInfo>();
 

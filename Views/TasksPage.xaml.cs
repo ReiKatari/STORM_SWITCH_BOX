@@ -638,7 +638,7 @@ namespace StormSwitchBox.Views
         {
             if (sender is ComboBox cb && cb.SelectedItem is ComboBoxItem item)
             {
-                string format = item.Content?.ToString() ?? "NSP";
+                string format = item.Content?.ToString() ?? "NSZ";
                 ViewModel.SelectedFormat = format;
                 ViewModel.SelectedFormatIndex = cb.SelectedIndex;
                 App.Settings.Current.SelectedFormatIndex = cb.SelectedIndex;

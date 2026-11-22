@@ -38,6 +38,8 @@ namespace StormSwitchBox.Views.Dialogs
         private bool _suppressInstantSearchWatcher;
         private bool _suppressTopicSelectionInspect;
         private bool _suppressGroupRebuild;
+        private bool _suppressSlotFileSync;
+        private readonly Dictionary<int, HashSet<string>> _savedSlotSelectionsBeforeDisable = new();
         private bool _suppressSlotMergeSelection;
         private string _activeLoadedTopicId = string.Empty;
         private bool _activeTopicHasRealFiles;
@@ -127,7 +129,7 @@ namespace StormSwitchBox.Views.Dialogs
 
             string initialFormat = !string.IsNullOrWhiteSpace(_targetTask?.TargetFormat)
                 ? _targetTask.TargetFormat
-                : (!string.IsNullOrWhiteSpace(_viewModel?.SelectedFormat) ? _viewModel.SelectedFormat : "NSP");
+                : (!string.IsNullOrWhiteSpace(_viewModel?.SelectedFormat) ? _viewModel.SelectedFormat : "NSZ");
             for (int i = 0; i < GlobalSlotFormatCombo.Items.Count; i++)
             {
                 if (GlobalSlotFormatCombo.Items[i] is ComboBoxItem cbi &&
@@ -1359,7 +1361,7 @@ namespace StormSwitchBox.Views.Dialogs
                 return _targetTask.TargetFormat;
             if (!string.IsNullOrWhiteSpace(_viewModel?.SelectedFormat))
                 return _viewModel.SelectedFormat;
-            return "NSP";
+            return "NSZ";
         }
 
         private void GlobalSlotFormatCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -1408,6 +1410,7 @@ namespace StormSwitchBox.Views.Dialogs
 
         private void InitializeDefaultGameSlot(string title)
         {
+            _savedSlotSelectionsBeforeDisable.Clear();
             _gameSlots.Clear();
             var slot = new RuTrackerGameSlotItem
             {
@@ -1416,7 +1419,7 @@ namespace StormSwitchBox.Views.Dialogs
                 GameTitle = title,
                 TargetFormat = GetDefaultTargetFormat()
             };
-            slot.PropertyChanged += (_, _) => UpdateGameSlotsSummary();
+            slot.PropertyChanged += OnGameSlotPropertyChanged;
             _gameSlots.Add(slot);
             RefreshGameSlotTargetOptions();
             UpdateGameSlotsSummary();
@@ -1431,6 +1434,7 @@ namespace StormSwitchBox.Views.Dialogs
             }
 
             string defaultFmt = GetDefaultTargetFormat();
+            _savedSlotSelectionsBeforeDisable.Clear();
             _gameSlots.Clear();
             for (int i = 0; i < detected.Count; i++)
             {
@@ -1441,7 +1445,7 @@ namespace StormSwitchBox.Views.Dialogs
                     GameTitle = detected[i],
                     TargetFormat = defaultFmt
                 };
-                slot.PropertyChanged += (_, _) => UpdateGameSlotsSummary();
+                slot.PropertyChanged += OnGameSlotPropertyChanged;
                 _gameSlots.Add(slot);
             }
             ApplyAdaptiveSlotExpansion();
@@ -1512,7 +1516,7 @@ namespace StormSwitchBox.Views.Dialogs
                     GameTitle = discoveredFromFiles[i],
                     TargetFormat = slotFmt
                 };
-                slot.PropertyChanged += (_, _) => UpdateGameSlotsSummary();
+                slot.PropertyChanged += OnGameSlotPropertyChanged;
                 _gameSlots.Add(slot);
             }
 
@@ -1726,7 +1730,7 @@ namespace StormSwitchBox.Views.Dialogs
                 GameTitle = slotTitle,
                 TargetFormat = GetDefaultTargetFormat()
             };
-            slot.PropertyChanged += (_, _) => UpdateGameSlotsSummary();
+            slot.PropertyChanged += OnGameSlotPropertyChanged;
             InsertSlotSorted(slot);
             RefreshGameSlotTargetOptions();
             EnrichGameSlotsFromFilesAndTitleDb();
@@ -1917,7 +1921,7 @@ namespace StormSwitchBox.Views.Dialogs
                             GameTitle = InferGameTitleForSlot(slotNum),
                             TargetFormat = defaultFmt
                         };
-                        newSlot.PropertyChanged += (_, _) => UpdateGameSlotsSummary();
+                        newSlot.PropertyChanged += OnGameSlotPropertyChanged;
                         InsertSlotSorted(newSlot);
                         newlyCreatedSlots.Add(newSlot);
                     }
@@ -1986,6 +1990,81 @@ namespace StormSwitchBox.Views.Dialogs
                 string addedDesc = string.Join(", ", newlyCreatedSlots.Select(s => $"Игра #{s.SlotNumber} ({s.GameTitle})"));
                 LiveTelemetryText.Text = $"➕ Автоматически добавлена задача в список игр: {addedDesc}. Всего игр/задач: {_gameSlots.Count}.";
             }
+        }
+
+        private void OnGameSlotPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+        {
+            if (sender is RuTrackerGameSlotItem slot &&
+                e.PropertyName == nameof(RuTrackerGameSlotItem.IsEnabled) &&
+                !_suppressSlotFileSync)
+            {
+                bool BelongsToSlot(int targetSlot) =>
+                    targetSlot == slot.SlotNumber || (_gameSlots.Count <= 1 && targetSlot <= 1);
+
+                if (!slot.IsEnabled)
+                {
+                    var selectedSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var f in _torrentFiles)
+                    {
+                        if (f.IsSelected && BelongsToSlot(f.TargetGameSlot) && !string.IsNullOrEmpty(f.RelativePath))
+                            selectedSet.Add(f.RelativePath);
+                    }
+                    if (selectedSet.Count > 0)
+                        _savedSlotSelectionsBeforeDisable[slot.SlotNumber] = selectedSet;
+
+                    _suppressGroupRebuild = true;
+                    try
+                    {
+                        foreach (var f in _torrentFiles)
+                        {
+                            if (BelongsToSlot(f.TargetGameSlot) && f.IsSelected)
+                                f.IsSelected = false;
+                        }
+                        foreach (var l in _discussionLinks)
+                        {
+                            if (BelongsToSlot(l.TargetGameSlot) && l.IsSelected)
+                                l.IsSelected = false;
+                        }
+                    }
+                    finally
+                    {
+                        _suppressGroupRebuild = false;
+                    }
+                }
+                else
+                {
+                    var slotFiles = _torrentFiles.Where(f => BelongsToSlot(f.TargetGameSlot)).ToList();
+                    if (slotFiles.Count > 0 && slotFiles.All(f => !f.IsSelected))
+                    {
+                        _suppressGroupRebuild = true;
+                        try
+                        {
+                            if (_savedSlotSelectionsBeforeDisable.TryGetValue(slot.SlotNumber, out var prevPaths) && prevPaths.Count > 0)
+                            {
+                                foreach (var f in slotFiles)
+                                    f.IsSelected = !string.IsNullOrEmpty(f.RelativePath) && prevPaths.Contains(f.RelativePath);
+                            }
+                            else
+                            {
+                                RuTrackerModService.PopulateDisplayPathsAndSmartSelection(
+                                    new System.Collections.ObjectModel.Collection<TorrentFileSelectionItem>(slotFiles));
+                            }
+                        }
+                        finally
+                        {
+                            _suppressGroupRebuild = false;
+                        }
+                    }
+                }
+
+                UpdateDiscussionSummaryText();
+                UpdateDlcUnlockerAutoState();
+                EnrichGameSlotsFromFilesAndTitleDb();
+                UpdateGameSlotsSummary();
+                return;
+            }
+
+            UpdateGameSlotsSummary();
         }
 
         private void UpdateGameSlotsSummary()
@@ -2960,6 +3039,22 @@ namespace StormSwitchBox.Views.Dialogs
 
         private void OnItemSelectionChangedForUnlocker(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
         {
+            if (_suppressGroupRebuild) return;
+
+            if (sender is TorrentFileSelectionItem tf &&
+                e.PropertyName == nameof(TorrentFileSelectionItem.IsSelected) &&
+                tf.IsSelected)
+            {
+                var matchingSlot = _gameSlots.FirstOrDefault(s => s.SlotNumber == tf.TargetGameSlot)
+                    ?? (_gameSlots.Count == 1 ? _gameSlots[0] : null);
+                if (matchingSlot != null && !matchingSlot.IsEnabled)
+                {
+                    _suppressSlotFileSync = true;
+                    try { matchingSlot.IsEnabled = true; }
+                    finally { _suppressSlotFileSync = false; }
+                }
+            }
+
             if (e.PropertyName == nameof(TorrentFileSelectionItem.IsSelected) ||
                 e.PropertyName == nameof(CloudModLinkItem.IsSelected) ||
                 e.PropertyName == nameof(TorrentFileSelectionItem.TargetGameSlot) ||

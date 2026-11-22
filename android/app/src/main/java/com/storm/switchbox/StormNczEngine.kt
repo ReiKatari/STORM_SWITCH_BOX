@@ -4853,7 +4853,7 @@ object StormNczEngine {
 
     private fun extractZ3dsContainerMetadata(plainFile: File, underlyingMagic: ByteArray, frameSize: Int): LinkedHashMap<String, ByteArray> {
         val meta = LinkedHashMap<String, ByteArray>()
-        meta["compressor"] = "STORM SWITCH BOX 8.0.10".toByteArray(StandardCharsets.UTF_8)
+        meta["compressor"] = "STORM SWITCH BOX 8.0.11".toByteArray(StandardCharsets.UTF_8)
         val df = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US).apply {
             timeZone = java.util.TimeZone.getTimeZone("UTC")
         }
@@ -7230,10 +7230,11 @@ object StormNczEngine {
     /**
      * Аудитор библиотеки ROM: выявляет несжатые .nsp, необрезанные .xci/.3ds/.cci и дубликаты по TitleID.
      */
-    fun auditLibraryFolder(folders: List<File>): LibraryAuditReport {
+    fun auditLibraryFolder(folders: List<File>, recursive: Boolean = false): LibraryAuditReport {
         val validExts = setOf("nsp", "nsz", "xci", "xcz", "3ds", "cci", "cia", "cxi", "cfa", "3dsx", "zcci", "zcxi", "zcia", "z3dsx")
         val seenPaths = HashSet<String>()
         val allRomFiles = mutableListOf<File>()
+        val scanDepth = if (recursive) 3 else 1
 
         for (item in folders) {
             if (!item.exists()) continue
@@ -7242,7 +7243,7 @@ object StormNczEngine {
                     allRomFiles.add(item)
                 }
             } else if (item.isDirectory) {
-                item.walkTopDown().maxDepth(3).forEach { f ->
+                item.walkTopDown().maxDepth(scanDepth).forEach { f ->
                     if (f.isFile && f.extension.lowercase() in validExts && seenPaths.add(f.absolutePath)) {
                         allRomFiles.add(f)
                     }

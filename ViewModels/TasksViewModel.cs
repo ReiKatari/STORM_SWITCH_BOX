@@ -38,8 +38,8 @@ public partial class TasksViewModel : ObservableObject
 		".NPDM", ".NSO", ".NACP", ".NCA", ".NCZ" 
 	};
 
-	private string _selectedFormat = "NSP";
-	private int _selectedFormatIndex;
+	private string _selectedFormat = "NSZ";
+	private int _selectedFormatIndex = 1;
 
 	private int _selectedFormatIndex3ds = 0;
 	public int SelectedFormatIndex3ds

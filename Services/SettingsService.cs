@@ -46,7 +46,7 @@ namespace StormSwitchBox.Services
 
         private static AppSettings CreateDefaultSettings()
         {
-            var s = new AppSettings();
+            var s = new AppSettings { SwitchDefaultNszInitialized = true };
             if (string.IsNullOrWhiteSpace(s.Language) ||
                 s.Language.Equals("system", StringComparison.OrdinalIgnoreCase) ||
                 s.Language.Equals("auto", StringComparison.OrdinalIgnoreCase))
@@ -160,6 +160,17 @@ namespace StormSwitchBox.Services
                         {
                             settings.Switch2CompressionLevel = 18;
                             settings.Switch2CompressionLevelInitialized = true;
+                            isDirty = true;
+                        }
+
+                        // Миграция формата по умолчанию для Switch 1 и Switch 2 на NSZ
+                        if (!settings.SwitchDefaultNszInitialized)
+                        {
+                            settings.SelectedFormatIndex = 1; // NSZ
+                            settings.Switch2DefaultFormat = "NSZ";
+                            settings.Switch2SelectedFormatIndex = 0; // NSZ
+                            settings.WatchFolderFormatSwitch = 1; // NSZ
+                            settings.SwitchDefaultNszInitialized = true;
                             isDirty = true;
                         }
                         

@@ -346,4 +346,140 @@ class StormBinaryAndLocTest {
         assertEquals("Files in queue: 7", StormLocalization.tr("Файлов в очереди: 7", "en"))
         assertEquals("Ready for processing (Games in queue: 2, files: 5)", StormLocalization.tr("Готов к обработке (Игр в очереди: 2, файлов: 5)", "en"))
     }
+
+    @Test
+    fun verifyRuTrackerRoleClassificationSmartSelectionAndCleanDlcCopy() {
+        val paths = listOf(
+            "Xenoblade Chronicles X Definitive Edition [0100453019AA8000][v0].nsp",
+            "Xenoblade Chronicles X Definitive Edition [0100453019AA8800][v65536].nsp",
+            "Xenoblade Chronicles X Definitive Edition [0100453019AA8800][v131072].nsp",
+            "Xenoblade Chronicles X Definitive Edition [DLC Early Purchase Bonus Exploration Support Pack] [0100453019AA9001][v0].nsp",
+            "7 DLC/Xenoblade Chronicles 2 [DLC New Challenge Mode Pack] [0100E95004033005][v65536].nsz",
+            "7 DLC/Xenoblade Chronicles 2 [DLC Torna The Golden Country (Brand New Story)] [0100E95004033007][v0].nsz",
+            "Russian Machine Translation (11.04.2025)/Xenoblade Chronicles X Definitive Edition [0100453019AA8800][v65536].nsp",
+            "Russian Machine Translation (11.04.2025)/atmosphere.zip",
+            "Russian Machine Translation (11.04.2025)/ReadMe_Rus.txt",
+            "Saves/100_percent.sav"
+        )
+        assertEquals("ИГРА", RuTrackerCloudEngine.classifyTorrentFileRole(paths[0]))
+        assertEquals("ОБНОВЛЕНИЕ", RuTrackerCloudEngine.classifyTorrentFileRole(paths[2]))
+        assertEquals("ДОПОЛНЕНИЯ", RuTrackerCloudEngine.classifyTorrentFileRole(paths[3]))
+        assertEquals("ДОПОЛНЕНИЯ", RuTrackerCloudEngine.classifyTorrentFileRole(paths[4]))
+        assertEquals("ДОПОЛНЕНИЯ", RuTrackerCloudEngine.classifyTorrentFileRole(paths[5]))
+        assertEquals("ОБНОВЛЕНИЕ (РУС)", RuTrackerCloudEngine.classifyTorrentFileRole(paths[6]))
+        assertEquals("МОДЫ", RuTrackerCloudEngine.classifyTorrentFileRole(paths[7]))
+        assertEquals("ИНФО", RuTrackerCloudEngine.classifyTorrentFileRole(paths[8]))
+        assertEquals("СЭЙВЫ", RuTrackerCloudEngine.classifyTorrentFileRole(paths[9]))
+
+        assertEquals(
+            "Early Purchase Bonus Exploration Support Pack",
+            RuTrackerCloudEngine.extractCleanDlcName(paths[3])
+        )
+        assertEquals(
+            "Torna The Golden Country (Brand New Story)",
+            RuTrackerCloudEngine.extractCleanDlcName(paths[5])
+        )
+
+        val xcxFiles = listOf(paths[0], paths[1], paths[2], paths[3], paths[6], paths[7], paths[8], paths[9]).map { p ->
+            val tid = Regex("""(01[0-9A-Fa-f]{14})""").find(p)?.groupValues?.get(1).orEmpty()
+            RuTrackerCloudEngine.ReleaseContentFile(
+                fileName = p.substringAfterLast('/'),
+                roleBadge = RuTrackerCloudEngine.classifyTorrentFileRole(p),
+                sizeBytes = 1024L * 1024L,
+                titleId = tid,
+                selected = true,
+                isRealTorrentFile = true,
+                relativePath = p
+            )
+        }
+        val slots = RuTrackerCloudEngine.detectGameSlotsForFiles("Xenoblade Chronicles X", xcxFiles)
+        assertEquals("Base, updates, and DLC 0100453019AA9001 must merge into 1 slot", 1, slots.size)
+
+        RuTrackerCloudEngine.applySmartFileSelection(xcxFiles)
+        assertTrue(xcxFiles[0].selected) // ИГРА
+        assertTrue(!xcxFiles[1].selected) // older v65536 update
+        assertTrue(xcxFiles[2].selected) // latest v131072 update
+        assertTrue(xcxFiles[3].selected) // ДОПОЛНЕНИЯ
+        assertTrue(!xcxFiles[4].selected) // ОБНОВЛЕНИЕ (РУС)
+        assertTrue(!xcxFiles[5].selected) // МОДЫ
+        assertTrue(!xcxFiles[6].selected) // ИНФО
+        assertTrue(!xcxFiles[7].selected) // СЭЙВЫ
+        assertTrue(!xcxFiles[3].isMod) // "Mode" / "Bonus" in filename must not force isMod
+    }
+
+    @Test
+    fun verifyMultiGameSlotDetectionAndUncheckSync() {
+        val files = listOf(
+            RuTrackerCloudEngine.ReleaseContentFile("Aggelos [010004D00A9C0000][v0].nsp", "ИГРА", 100_000L, "010004D00A9C0000", true, true, relativePath = "Aggelos/Aggelos [010004D00A9C0000][v0].nsp"),
+            RuTrackerCloudEngine.ReleaseContentFile("Aggelos [010004D00A9C0800][v131072].nsp", "ОБНОВЛЕНИЕ", 112_000L, "010004D00A9C0800", true, true, relativePath = "Aggelos/Aggelos [010004D00A9C0800][v131072].nsp"),
+            RuTrackerCloudEngine.ReleaseContentFile("Aggelos 2 [010040F01EC60000][v0].nsp", "ИГРА", 120_000L, "010040F01EC60000", true, true, relativePath = "Aggelos 2/Aggelos 2 [010040F01EC60000][v0].nsp"),
+            RuTrackerCloudEngine.ReleaseContentFile("Aggelos 2 [010040F01EC60800][v393216].nsp", "ОБНОВЛЕНИЕ", 105_000L, "010040F01EC60800", true, true, relativePath = "Aggelos 2/Aggelos 2 [010040F01EC60800][v393216].nsp")
+        )
+        val slots = RuTrackerCloudEngine.detectGameSlotsForFiles("[Nintendo Switch] Aggelos 1-2", files)
+        assertEquals(2, slots.size)
+        assertEquals(1, files[0].targetGameSlot)
+        assertEquals(1, files[1].targetGameSlot)
+        assertEquals(2, files[2].targetGameSlot)
+        assertEquals(2, files[3].targetGameSlot)
+
+        // Simulate unchecking Game #1 -> all slot 1 files turn off, slot 2 stays on
+        slots[0].isEnabled = false
+        files.filter { it.targetGameSlot == 1 }.forEach { it.selected = false }
+        assertTrue(!files[0].selected && !files[1].selected)
+        assertTrue(files[2].selected && files[3].selected)
+    }
+
+    @Test
+    fun verifySeedingPersistenceAndLibraryUpdateChecker() {
+        val tempRoot = Files.createTempDirectory("storm_seed_test").toFile()
+        try {
+            val stateFile = File(tempRoot, "seeding.json")
+            RuTrackerCloudEngine.seedingEntries.clear()
+            RuTrackerCloudEngine.seedingEntries.add(
+                RuTrackerCloudEngine.RuTrackerSeedingEntry(
+                    infoHash = "0123456789ABCDEF0123456789ABCDEF01234567",
+                    topicId = "6525297",
+                    title = "Animal Well",
+                    saveDir = tempRoot.absolutePath,
+                    torrentFilePath = File(tempRoot, "t.torrent").absolutePath,
+                    selectedRelativePaths = listOf("Animal Well/base.nsp"),
+                    totalSizeBytes = 1000L,
+                    uploadedBytes = 2500L,
+                    isPaused = true
+                )
+            )
+            RuTrackerCloudEngine.saveSeedingStateToFile(stateFile)
+            val loaded = RuTrackerCloudEngine.loadSeedingEntriesFromFile(stateFile)
+            assertEquals(1, loaded.size)
+            assertEquals(2.5, loaded[0].ratio, 0.001)
+            assertTrue(loaded[0].isPaused)
+            assertEquals(listOf("Animal Well/base.nsp"), loaded[0].selectedRelativePaths)
+            RuTrackerCloudEngine.seedingEntries.clear()
+
+            val localFile = File(tempRoot, "Castlevania Belmont's Curse (2026) [WW] [RUS] (1.1.0 - 131072 - 01005F4027E94000) (1G+1U+1D).nsz").apply {
+                writeBytes(ByteArray(16))
+            }
+            val fakeCatalog = listOf(
+                RuTrackerCloudEngine.TopicItem(
+                    "900001",
+                    "[Nintendo Switch] Castlevania: Belmont's Curse [v1.1.0 + 1 DLC] Standalone [NSZ]",
+                    "Nintendo Switch", "2 GB", 50, 1, "", "", ""
+                ),
+                RuTrackerCloudEngine.TopicItem(
+                    "900002",
+                    "[Nintendo Switch] Castlevania: Belmont's Curse [v1.2.0 + 2 DLC] [NSZ]",
+                    "Nintendo Switch", "2.1 GB", 80, 2, "", "", ""
+                )
+            )
+            val updates = RuTrackerCloudEngine.checkLibraryUpdatesAgainstCatalog(listOf(localFile), fakeCatalog)
+            assertEquals(1, updates.size)
+            assertEquals("900002", updates[0].remoteTopicId)
+            assertTrue(updates[0].hasNewerVersion)
+            assertTrue(updates[0].hasNewerDlc)
+            assertEquals("1.2.0", updates[0].remoteVersion)
+            assertEquals(2, updates[0].remoteDlcCount)
+        } finally {
+            tempRoot.deleteRecursively()
+        }
+    }
 }
