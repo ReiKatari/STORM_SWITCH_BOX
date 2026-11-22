@@ -2,9 +2,11 @@ package com.storm.switchbox
 
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.RandomAccessFile
 import java.nio.ByteBuffer
@@ -12,6 +14,7 @@ import java.nio.ByteOrder
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.security.MessageDigest
+import java.util.zip.GZIPInputStream
 
 class StormBinaryAndLocTest {
 
@@ -480,6 +483,145 @@ class StormBinaryAndLocTest {
             assertEquals(2, updates[0].remoteDlcCount)
         } finally {
             tempRoot.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun verifyRuTrackerIndexLoadsPlainAndGzipAndSearchesMandragora() {
+        val gzFile = listOf(
+            File("src/main/assets/rutracker_switch_index.json.gz"),
+            File("app/src/main/assets/rutracker_switch_index.json.gz"),
+            File("android/app/src/main/assets/rutracker_switch_index.json.gz")
+        ).firstOrNull { it.isFile }
+        assertNotNull("rutracker_switch_index.json.gz asset file must exist", gzFile)
+
+        val gzBytes = gzFile!!.readBytes()
+        val plainBytes = GZIPInputStream(ByteArrayInputStream(gzBytes)).use { it.readBytes() }
+        assertTrue("Decompressed plain JSON must be > 1 MB", plainBytes.size > 1_000_000)
+
+        val prevCtx = RuTrackerCloudEngine.appContext
+        val prevCacheRoot = RuTrackerCloudEngine.cacheRootDir
+        try {
+            // 1. Parse both GZIP and plain UTF-8 JSON (matching AAPT2 asset packaging in APK)
+            val parsedGz = RuTrackerSwitchIndex.parse(ByteArrayInputStream(gzBytes), "test-gz")
+            val parsedPlain = RuTrackerSwitchIndex.parse(ByteArrayInputStream(plainBytes), "test-plain")
+            assertTrue("Expected >= 7000 topics in gzip index", parsedGz.topics.size >= 7000)
+            assertEquals(parsedGz.topics.size, parsedPlain.topics.size)
+            assertNotNull("Mandragora topic 6739954 must exist in plain JSON index", parsedPlain.byId["6739954"])
+
+            // 2. Simulate Android APK where AAPT2 stripped .gz and provides plain JSON via assets.open()
+            RuTrackerSwitchIndex.clearLoadedStateForTesting()
+            RuTrackerCloudEngine.clearRealIndexCacheForTesting()
+            RuTrackerCloudEngine.appContext = null
+            RuTrackerCloudEngine.cacheRootDir = null
+            RuTrackerSwitchIndex.cacheDir = null
+            RuTrackerSwitchIndex.assetOpener = { ByteArrayInputStream(plainBytes) }
+
+            val mandragoraInstant = RuTrackerCloudEngine.searchTopicsInstant("mandragora")
+            assertEquals(null, RuTrackerSwitchIndex.lastLoadError)
+            assertTrue("searchTopicsInstant('mandragora') must return results from plain index", mandragoraInstant.isNotEmpty())
+            val firstMatch = mandragoraInstant.firstOrNull { it.topicId == "6739954" }
+            assertNotNull("Expected Mandragora topic 6739954 in instant results", firstMatch)
+            assertTrue(firstMatch!!.title.contains("Mandragora", ignoreCase = true))
+            assertEquals(31, firstMatch.seeds)
+            assertEquals("2F33F6E746620024731F8093D9343A5BD7A796B5", firstMatch.infoHash)
+            assertTrue(firstMatch.magnetUri.startsWith("magnet:?xt=urn:btih:2F33F6E746620024731F8093D9343A5BD7A796B5"))
+
+            // 3. Ensure previously false-blocked Switch titles pass isStrictSwitchRelease and search
+            assertTrue(RuTrackerCloudEngine.isStrictSwitchRelease("[Nintendo Switch] TES 5 The Elder Scrolls V: Skyrim Anniversary Edition - Special Edition + Dawnguard", "Nintendo Switch"))
+            assertTrue(RuTrackerCloudEngine.isStrictSwitchRelease("[Nintendo Switch] Overcooked Special Edition / Overcooked! 2", "Nintendo Switch"))
+            assertTrue(RuTrackerCloudEngine.isStrictSwitchRelease("[Nintendo Switch] Deltarune Chap. 1-5 [NSZ]", "Nintendo Switch"))
+            assertTrue(RuTrackerCloudEngine.isStrictSwitchRelease("[Nintendo Switch] Persona 3 Portable (P3P)", "Nintendo Switch"))
+            assertTrue(RuTrackerCloudEngine.isStrictSwitchRelease("[Nintendo Switch] Rune Factory 4 Special", "Nintendo Switch"))
+            assertTrue(RuTrackerCloudEngine.isStrictSwitchRelease("[Nintendo Switch] Mandragora: Whispers of the Witch Tree + 9 DLC", "Nintendo Switch"))
+            assertFalse(RuTrackerCloudEngine.isStrictSwitchRelease("Cyberpunk 2077 [FitGirl Repack] [PC]", ""))
+            assertFalse(RuTrackerCloudEngine.isStrictSwitchRelease("God of War Ragnarok [PS4] [PKG]", ""))
+            assertFalse(RuTrackerCloudEngine.isStrictSwitchRelease("Game Setup.exe [Windows]", ""))
+
+            assertTrue("searchTopicsInstant('skyrim') must return Switch results", RuTrackerCloudEngine.searchTopicsInstant("skyrim").isNotEmpty())
+            assertTrue("searchTopicsInstant('deltarune') must return Switch results", RuTrackerCloudEngine.searchTopicsInstant("deltarune").isNotEmpty())
+        } finally {
+            RuTrackerSwitchIndex.assetOpener = null
+            RuTrackerSwitchIndex.cacheDir = null
+            RuTrackerSwitchIndex.clearLoadedStateForTesting()
+            RuTrackerCloudEngine.clearRealIndexCacheForTesting()
+            RuTrackerCloudEngine.appContext = prevCtx
+            RuTrackerCloudEngine.cacheRootDir = prevCacheRoot
+        }
+    }
+
+    @Test
+    fun verifyAndroidSearchKeystrokeLatencyIsInstant() {
+        val gzFile = listOf(
+            File("src/main/assets/rutracker_switch_index.json.gz"),
+            File("app/src/main/assets/rutracker_switch_index.json.gz"),
+            File("android/app/src/main/assets/rutracker_switch_index.json.gz")
+        ).firstOrNull { it.isFile }
+        val tdbFile = listOf(
+            File("src/main/assets/titledb_full.tsv.gz"),
+            File("app/src/main/assets/titledb_full.tsv.gz"),
+            File("android/app/src/main/assets/titledb_full.tsv.gz")
+        ).firstOrNull { it.isFile }
+        assertNotNull("rutracker_switch_index.json.gz must exist", gzFile)
+        assertNotNull("titledb_full.tsv.gz must exist", tdbFile)
+
+        val plainBytes = GZIPInputStream(ByteArrayInputStream(gzFile!!.readBytes())).use { it.readBytes() }
+        val tdbList = StormNczEngine.parseTitleDbTsvStream(tdbFile!!.inputStream())
+        assertTrue("Expected > 5000 Switch TitleDB entries, got ${tdbList.size}", tdbList.size > 5000)
+
+        val prevCtx = RuTrackerCloudEngine.appContext
+        val prevCacheRoot = RuTrackerCloudEngine.cacheRootDir
+        try {
+            RuTrackerSwitchIndex.clearLoadedStateForTesting()
+            RuTrackerCloudEngine.clearRealIndexCacheForTesting()
+            RuTrackerCloudEngine.appContext = null
+            RuTrackerCloudEngine.cacheRootDir = null
+            RuTrackerSwitchIndex.cacheDir = null
+            RuTrackerSwitchIndex.assetOpener = { ByteArrayInputStream(plainBytes) }
+            StormNczEngine.setFullTitleDbForTesting(tdbList)
+
+            // Warm up search caches once (done at app startup in production)
+            val warmRt = RuTrackerCloudEngine.searchTopicsInstant("zelda")
+            assertTrue(warmRt.isNotEmpty())
+            val warmTdb = RuTrackerCloudEngine.filterTitleDbCatalogFuzzy(tdbList, "Switch", "zelda")
+            assertTrue(warmTdb.isNotEmpty())
+
+            val word = "mandragora"
+            var maxSingleMs = 0L
+            val tStartNs = System.nanoTime()
+            var finalResults: List<RuTrackerCloudEngine.TopicItem> = emptyList()
+            for (len in 1..word.length) {
+                val prefix = word.substring(0, len)
+                val t0 = System.nanoTime()
+                finalResults = RuTrackerCloudEngine.searchTopicsInstant(prefix)
+                val tdbMatches = RuTrackerCloudEngine.filterTitleDbCatalogFuzzy(tdbList, "Switch", prefix)
+                val elapsedMs = (System.nanoTime() - t0) / 1_000_000L
+                if (elapsedMs > maxSingleMs) maxSingleMs = elapsedMs
+                assertTrue("Keystroke '$prefix' took ${elapsedMs}ms (> 150ms limit)", elapsedMs < 150L)
+                assertTrue("Expected matches for prefix '$prefix'", finalResults.isNotEmpty() || tdbMatches.isNotEmpty())
+            }
+            val totalKeystrokesMs = (System.nanoTime() - tStartNs) / 1_000_000L
+            val mandragora = finalResults.firstOrNull { it.topicId == "6739954" }
+            assertNotNull("Expected Mandragora topic 6739954 in final results", mandragora)
+            assertEquals(31, mandragora!!.seeds)
+            assertTrue("Total 10 keystrokes took ${totalKeystrokesMs}ms (> 500ms limit)", totalKeystrokesMs < 500L)
+
+            val all60 = RuTrackerCloudEngine.searchTopicsInstant("").take(60)
+            val tTid0 = System.nanoTime()
+            for (item in all60) {
+                RuTrackerCloudEngine.resolveAuthenticBaseTitleId(item.title, item.infoHash, item.topicId)
+            }
+            val tidElapsedMs = (System.nanoTime() - tTid0) / 1_000_000L
+            assertTrue("60x resolveAuthenticBaseTitleId took ${tidElapsedMs}ms (> 50ms limit)", tidElapsedMs < 50L)
+            println("[BENCHMARK] 10 keystrokes max=${maxSingleMs}ms total=${totalKeystrokesMs}ms | 60x TitleID=${tidElapsedMs}ms")
+        } finally {
+            StormNczEngine.setFullTitleDbForTesting(null)
+            RuTrackerSwitchIndex.assetOpener = null
+            RuTrackerSwitchIndex.cacheDir = null
+            RuTrackerSwitchIndex.clearLoadedStateForTesting()
+            RuTrackerCloudEngine.clearRealIndexCacheForTesting()
+            RuTrackerCloudEngine.appContext = prevCtx
+            RuTrackerCloudEngine.cacheRootDir = prevCacheRoot
         }
     }
 }

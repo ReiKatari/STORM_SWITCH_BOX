@@ -1,7 +1,5 @@
 package com.storm.switchbox
 
-import org.json.JSONArray
-import org.json.JSONObject
 import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.InputStream
@@ -25,6 +23,7 @@ import java.util.zip.GZIPInputStream
 object RuTrackerSwitchIndex {
 
     const val ASSET_NAME = "rutracker_switch_index.json.gz"
+    const val ASSET_NAME_PLAIN = "rutracker_switch_index.json"
     const val REMOTE_URL = "https://github.com/ReiKatari/STORM_SWITCH_BOX/releases/latest/download/rutracker_switch_index.json.gz"
     private const val CACHED_FILE_NAME = "rutracker_switch_index.json.gz"
     private const val REMOTE_STAMP_NAME = "rutracker_switch_index.remote.stamp"
@@ -124,71 +123,351 @@ object RuTrackerSwitchIndex {
     fun count(): Int = data?.topics?.size ?: 0
     fun generatedUnix(): Long = data?.generated ?: 0L
 
+    fun clearLoadedStateForTesting() {
+        synchronized(loadLock) {
+            data = null
+            lastLoadError = null
+            lastLoadMs = 0L
+            extraTopics.clear()
+        }
+    }
+
     // =========================================================================
     // ЗАГРУЗКА
     // =========================================================================
 
     private data class Header(val version: Int, val generated: Long)
+    private val HEADER_VERSION_REGEX = Regex(""""v"\s*:\s*(\d+)""")
+    private val HEADER_GENERATED_REGEX = Regex(""""generated"\s*:\s*(\d+)""")
+
+    private fun maybeGunzip(input: InputStream, bufSize: Int = 8192): InputStream {
+        val pb = java.io.PushbackInputStream(input.buffered(bufSize), 2)
+        val b0 = pb.read()
+        val b1 = pb.read()
+        if (b1 >= 0) pb.unread(b1)
+        if (b0 >= 0) pb.unread(b0)
+        return if (b0 == 0x1F && b1 == 0x8B) GZIPInputStream(pb, bufSize) else pb
+    }
 
     private fun readHeader(open: () -> InputStream): Header? = try {
         open().use { raw ->
-            GZIPInputStream(raw, 8192).use { gz ->
+            maybeGunzip(raw, 8192).use { src ->
                 val buf = ByteArray(512)
                 var n = 0
                 while (n < buf.size) {
-                    val r = gz.read(buf, n, buf.size - n)
+                    val r = src.read(buf, n, buf.size - n)
                     if (r <= 0) break
                     n += r
                 }
                 val head = String(buf, 0, n, Charsets.UTF_8)
-                val v = Regex(""""v"\s*:\s*(\d+)""").find(head)?.groupValues?.get(1)?.toIntOrNull() ?: return@use null
-                val g = Regex(""""generated"\s*:\s*(\d+)""").find(head)?.groupValues?.get(1)?.toLongOrNull() ?: 0L
+                val v = HEADER_VERSION_REGEX.find(head)?.groupValues?.get(1)?.toIntOrNull() ?: return@use null
+                val g = HEADER_GENERATED_REGEX.find(head)?.groupValues?.get(1)?.toLongOrNull() ?: 0L
                 Header(v, g)
             }
         }
     } catch (_: Throwable) { null }
 
-    /** Разбирает gzip-JSON индекса (схема v1). */
-    fun parse(input: InputStream, source: String): IndexData {
-        val text = GZIPInputStream(input, 65536).use { it.readBytes() }.toString(Charsets.UTF_8)
-        val root = JSONObject(text)
-        val version = root.optInt("v", 0)
-        val generated = root.optLong("generated", 0L)
-        val arr = root.optJSONArray("topics") ?: JSONArray()
-        val topics = ArrayList<IndexTopic>(arr.length())
-        val byId = HashMap<String, IndexTopic>(arr.length() * 2)
-        val byHash = HashMap<String, IndexTopic>(arr.length() * 2)
-        for (i in 0 until arr.length()) {
-            val o = arr.optJSONObject(i) ?: continue
-            val tid = o.opt("t")?.toString()?.trim().orEmpty()
-            if (tid.isEmpty() || !tid.all { it.isDigit() }) continue
-            val hash = o.optString("h", "").trim().uppercase()
-            val fa = o.optJSONArray("f")
-            val files = if (fa == null) emptyList() else ArrayList<IndexFile>(fa.length()).also { list ->
-                for (j in 0 until fa.length()) {
-                    val fe = fa.optJSONArray(j) ?: continue
-                    val path = fe.optString(0, "").replace('\\', '/')
-                    if (path.isEmpty()) continue
-                    list.add(IndexFile(path, fe.optLong(1, 0L), fe.optString(2, "").uppercase(), fe.optString(3, ""), fe.optString(4, "")))
+    private class IndexJsonReader(private val s: String) {
+        private var pos = 0
+        private val n = s.length
+
+        private fun skipWs() {
+            while (pos < n) {
+                val c = s[pos]
+                if (c == ' ' || c == '\n' || c == '\r' || c == '\t') pos++ else break
+            }
+        }
+
+        fun peek(): Char {
+            skipWs()
+            return if (pos < n) s[pos] else '\u0000'
+        }
+
+        fun advance() {
+            if (pos < n) pos++
+        }
+
+        fun expect(c: Char) {
+            skipWs()
+            if (pos >= n || s[pos] != c) {
+                throw IllegalArgumentException("Malformed JSON: expected '$c' at offset $pos")
+            }
+            pos++
+        }
+
+        fun readString(): String {
+            expect('"')
+            val start = pos
+            while (pos < n) {
+                val c = s[pos]
+                if (c == '"') {
+                    val plain = s.substring(start, pos)
+                    pos++
+                    return plain
+                }
+                if (c == '\\') break
+                pos++
+            }
+            val sb = StringBuilder(pos - start + 16)
+            if (pos > start) sb.append(s, start, pos)
+            while (pos < n) {
+                val c = s[pos++]
+                if (c == '"') return sb.toString()
+                if (c == '\\') {
+                    if (pos >= n) break
+                    when (val esc = s[pos++]) {
+                        '"', '\\', '/' -> sb.append(esc)
+                        'b' -> sb.append('\b')
+                        'f' -> sb.append('\u000C')
+                        'n' -> sb.append('\n')
+                        'r' -> sb.append('\r')
+                        't' -> sb.append('\t')
+                        'u' -> {
+                            val code = if (pos + 4 <= n) s.substring(pos, pos + 4).toIntOrNull(16) else null
+                            if (code != null) {
+                                sb.append(Char(code))
+                                pos += 4
+                            } else {
+                                sb.append('u')
+                            }
+                        }
+                        else -> sb.append(esc)
+                    }
+                } else {
+                    sb.append(c)
                 }
             }
-            val t = IndexTopic(
+            throw IllegalArgumentException("Unterminated JSON string")
+        }
+
+        private fun skipLiteral(lit: String) {
+            skipWs()
+            if (!s.regionMatches(pos, lit, 0, lit.length)) {
+                throw IllegalArgumentException("Expected '$lit' at offset $pos")
+            }
+            pos += lit.length
+        }
+
+        private fun readNumberToken(): String {
+            skipWs()
+            val start = pos
+            while (pos < n) {
+                val c = s[pos]
+                if ((c in '0'..'9') || c == '-' || c == '+' || c == '.' || c == 'e' || c == 'E') {
+                    pos++
+                } else {
+                    break
+                }
+            }
+            if (pos == start) throw IllegalArgumentException("Expected number at offset $pos")
+            return s.substring(start, pos)
+        }
+
+        fun readLongOrZero(): Long = when (peek()) {
+            'n' -> { skipLiteral("null"); 0L }
+            '"' -> readString().trim().toLongOrNull() ?: 0L
+            '-', in '0'..'9' -> {
+                val tok = readNumberToken()
+                tok.toLongOrNull() ?: tok.toDoubleOrNull()?.toLong() ?: 0L
+            }
+            else -> { skipValue(); 0L }
+        }
+
+        fun readIntOrZero(): Int = readLongOrZero().toInt()
+
+        fun readScalarAsString(): String = when (peek()) {
+            '"' -> readString()
+            'n' -> { skipLiteral("null"); "" }
+            't' -> { skipLiteral("true"); "true" }
+            'f' -> { skipLiteral("false"); "false" }
+            '-', in '0'..'9' -> readNumberToken()
+            else -> { skipValue(); "" }
+        }
+
+        fun skipValue() {
+            when (val c = peek()) {
+                '"' -> readString()
+                '{' -> {
+                    pos++
+                    if (peek() == '}') { pos++; return }
+                    while (pos < n) {
+                        readString()
+                        expect(':')
+                        skipValue()
+                        val sep = peek()
+                        if (sep == ',') { pos++; continue }
+                        if (sep == '}') { pos++; return }
+                        throw IllegalArgumentException("Malformed object at offset $pos")
+                    }
+                }
+                '[' -> {
+                    pos++
+                    if (peek() == ']') { pos++; return }
+                    while (pos < n) {
+                        skipValue()
+                        val sep = peek()
+                        if (sep == ',') { pos++; continue }
+                        if (sep == ']') { pos++; return }
+                        throw IllegalArgumentException("Malformed array at offset $pos")
+                    }
+                }
+                't' -> skipLiteral("true")
+                'f' -> skipLiteral("false")
+                'n' -> skipLiteral("null")
+                '-', in '0'..'9' -> readNumberToken()
+                else -> throw IllegalArgumentException("Unexpected char '$c' at offset $pos")
+            }
+        }
+
+        fun readIndexFiles(): List<IndexFile> {
+            if (peek() != '[') { skipValue(); return emptyList() }
+            pos++
+            if (peek() == ']') { pos++; return emptyList() }
+            val out = ArrayList<IndexFile>()
+            while (pos < n) {
+                if (peek() == '[') {
+                    pos++
+                    if (peek() == ']') {
+                        pos++
+                    } else {
+                        var idx = 0
+                        var fPath = ""
+                        var fSize = 0L
+                        var fTid = ""
+                        var fRole = ""
+                        var fVer = ""
+                        while (pos < n) {
+                            when (idx) {
+                                0 -> fPath = readScalarAsString().replace('\\', '/')
+                                1 -> fSize = readLongOrZero()
+                                2 -> fTid = readScalarAsString().uppercase()
+                                3 -> fRole = readScalarAsString()
+                                4 -> fVer = readScalarAsString()
+                                else -> skipValue()
+                            }
+                            idx++
+                            val innerSep = peek()
+                            if (innerSep == ',') { pos++; continue }
+                            if (innerSep == ']') { pos++; break }
+                            throw IllegalArgumentException("Malformed file tuple at offset $pos")
+                        }
+                        if (fPath.isNotEmpty()) out.add(IndexFile(fPath, fSize, fTid, fRole, fVer))
+                    }
+                } else {
+                    skipValue()
+                }
+                val sep = peek()
+                if (sep == ',') { pos++; continue }
+                if (sep == ']') { pos++; break }
+                throw IllegalArgumentException("Malformed files array at offset $pos")
+            }
+            return out
+        }
+
+        fun readTopicObject(): IndexTopic? {
+            if (peek() != '{') { skipValue(); return null }
+            pos++
+            if (peek() == '}') { pos++; return null }
+            var tid = ""
+            var hash = ""
+            var seeds = 0
+            var sizeBytes = 0L
+            var regTime = 0L
+            var torrentName = ""
+            var topicTitle = ""
+            var gameName = ""
+            var titleId = ""
+            var files: List<IndexFile> = emptyList()
+            while (pos < n) {
+                val key = readString()
+                expect(':')
+                when (key) {
+                    "t" -> tid = readScalarAsString().trim()
+                    "h" -> hash = readScalarAsString().trim().uppercase()
+                    "sd" -> seeds = readIntOrZero()
+                    "sz" -> sizeBytes = readLongOrZero()
+                    "rt" -> regTime = readLongOrZero()
+                    "n" -> torrentName = readScalarAsString()
+                    "tt" -> topicTitle = readScalarAsString()
+                    "g" -> gameName = readScalarAsString()
+                    "tid" -> titleId = readScalarAsString().uppercase()
+                    "f" -> files = readIndexFiles()
+                    else -> skipValue()
+                }
+                val sep = peek()
+                if (sep == ',') { pos++; continue }
+                if (sep == '}') { pos++; break }
+                throw IllegalArgumentException("Malformed topic object at offset $pos")
+            }
+            if (tid.isEmpty() || !tid.all { it.isDigit() }) return null
+            val topic = IndexTopic(
                 topicId = tid,
                 infoHash = if (isHash(hash)) hash else "",
-                seeds = o.optInt("sd", 0),
-                sizeBytes = o.optLong("sz", 0L),
-                regTime = o.optLong("rt", 0L),
-                torrentName = o.optString("n", ""),
-                topicTitle = o.optString("tt", ""),
-                gameName = o.optString("g", ""),
-                titleId = o.optString("tid", "").uppercase(),
+                seeds = seeds,
+                sizeBytes = sizeBytes,
+                regTime = regTime,
+                torrentName = torrentName,
+                topicTitle = topicTitle,
+                gameName = gameName,
+                titleId = titleId,
                 files = files,
                 fromIndex = true
             )
-            t.rebuildKeys()
-            topics.add(t)
-            byId[tid] = t
-            if (t.infoHash.isNotEmpty()) byHash[t.infoHash] = t
+            topic.rebuildKeys()
+            return topic
+        }
+    }
+
+    /** Разбирает gzip или обычный JSON индекса (схема v1/v2). */
+    fun parse(input: InputStream, source: String): IndexData {
+        val text = maybeGunzip(input, 65536).use { it.readBytes() }.toString(Charsets.UTF_8)
+        val reader = IndexJsonReader(text)
+        var version = 0
+        var generated = 0L
+        val topics = ArrayList<IndexTopic>(7500)
+        val byId = HashMap<String, IndexTopic>(16384)
+        val byHash = HashMap<String, IndexTopic>(16384)
+        if (reader.peek() != '{') return IndexData(version, generated, topics, byId, byHash, source)
+        reader.advance()
+        if (reader.peek() == '}') {
+            reader.advance()
+            return IndexData(version, generated, topics, byId, byHash, source)
+        }
+        while (true) {
+            val key = reader.readString()
+            reader.expect(':')
+            when (key) {
+                "v" -> version = reader.readIntOrZero()
+                "generated" -> generated = reader.readLongOrZero()
+                "topics" -> {
+                    if (reader.peek() == '[') {
+                        reader.advance()
+                        if (reader.peek() != ']') {
+                            while (true) {
+                                val t = reader.readTopicObject()
+                                if (t != null) {
+                                    topics.add(t)
+                                    byId[t.topicId] = t
+                                    if (t.infoHash.isNotEmpty()) byHash[t.infoHash] = t
+                                }
+                                val sep = reader.peek()
+                                if (sep == ',') { reader.advance(); continue }
+                                if (sep == ']') { reader.advance(); break }
+                                throw IllegalArgumentException("Malformed topics array")
+                            }
+                        } else {
+                            reader.advance()
+                        }
+                    } else {
+                        reader.skipValue()
+                    }
+                }
+                else -> reader.skipValue()
+            }
+            val rootSep = reader.peek()
+            if (rootSep == ',') { reader.advance(); continue }
+            if (rootSep == '}') { reader.advance(); break }
+            throw IllegalArgumentException("Malformed root object")
         }
         return IndexData(version, generated, topics, byId, byHash, source)
     }
@@ -229,8 +508,9 @@ object RuTrackerSwitchIndex {
                 (cachedHeader.version == assetHeader.version && cachedHeader.generated > assetHeader.generated))
             val errors = ArrayList<String>()
             var loaded: IndexData? = null
-            if (useCached && cached != null) {
-                loaded = try { cached.inputStream().buffered().use { parse(it, "GitHub (кэш)") } } catch (e: Throwable) {
+            val preferredCache = if (useCached) cached else null
+            if (preferredCache != null) {
+                loaded = try { preferredCache.inputStream().buffered().use { parse(it, "GitHub (кэш)") } } catch (e: Throwable) {
                     errors.add("кэш GitHub: ${e.javaClass.simpleName}"); null
                 }
             }

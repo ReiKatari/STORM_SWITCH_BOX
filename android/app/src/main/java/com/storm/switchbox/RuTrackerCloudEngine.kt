@@ -904,7 +904,62 @@ object RuTrackerCloudEngine {
 
     @Volatile
     private var realIndexTopics: List<Map<String, Any>>? = null
+    @Volatile
+    private var realIndexSearchCache: List<Pair<Map<String, Any>, NormalizedSearchKeys>>? = null
+    @Volatile
+    private var titleDbSearchCacheRef: List<StormNczEngine.TitleDbGameEntry>? = null
+    @Volatile
+    private var titleDbSearchCache: List<Pair<StormNczEngine.TitleDbGameEntry, NormalizedSearchKeys>>? = null
     private val realIndexLock = Any()
+    private val titleDbCacheLock = Any()
+    private val resolvedTitleIdCache = java.util.concurrent.ConcurrentHashMap<String, String>(512)
+    private val HEX_TID16_REGEX = Regex("""([0-9A-Fa-f]{16})""")
+
+    fun hasRealIndexInMemory(): Boolean {
+        val existing = realIndexTopics
+        return existing != null && existing.isNotEmpty()
+    }
+
+    fun clearRealIndexCacheForTesting() {
+        synchronized(realIndexLock) {
+            realIndexTopics = null
+            realIndexSearchCache = null
+        }
+        synchronized(titleDbCacheLock) {
+            titleDbSearchCacheRef = null
+            titleDbSearchCache = null
+        }
+        resolvedTitleIdCache.clear()
+    }
+
+    fun initAndroidContext(context: Context, filesDir: File) {
+        val appCtx = context.applicationContext
+        appContext = appCtx
+        cacheRootDir = filesDir
+        RuTrackerSwitchIndex.cacheDir = filesDir
+        RuTrackerSwitchIndex.assetOpener = {
+            try {
+                // AAPT2 strips .gz from assets when packaging APKs, placing plain JSON at assets/rutracker_switch_index.json
+                appCtx.assets.open(RuTrackerSwitchIndex.ASSET_NAME_PLAIN)
+            } catch (_: Exception) {
+                appCtx.assets.open(RuTrackerSwitchIndex.ASSET_NAME)
+            }
+        }
+        RuTrackerSwitchIndex.warmupAsync()
+        // Pre-warm pre-normalized search caches in background off the UI thread so first keystroke is 0 ms
+        if (!hasRealIndexInMemory() || titleDbSearchCache == null) {
+            val warmThread = Thread({
+                try {
+                    getOrLoadRealIndex(appCtx)
+                    val tdb = StormNczEngine.loadFullTitleDbFromAssets()
+                    getOrBuildTitleDbSearchCache(tdb)
+                } catch (_: Throwable) {}
+            }, "storm-search-warmup")
+            warmThread.isDaemon = true
+            warmThread.priority = Thread.MIN_PRIORITY + 1
+            warmThread.start()
+        }
+    }
 
     fun getOrLoadRealIndex(context: Context? = appContext): List<Map<String, Any>> {
         val existing = realIndexTopics
@@ -913,11 +968,21 @@ object RuTrackerCloudEngine {
         if (RuTrackerSwitchIndex.assetOpener == null) {
             if (ctx != null) {
                 val appCtx = ctx.applicationContext
-                RuTrackerSwitchIndex.assetOpener = { appCtx.assets.open(RuTrackerSwitchIndex.ASSET_NAME) }
+                RuTrackerSwitchIndex.assetOpener = {
+                    try {
+                        appCtx.assets.open(RuTrackerSwitchIndex.ASSET_NAME_PLAIN)
+                    } catch (_: Exception) {
+                        appCtx.assets.open(RuTrackerSwitchIndex.ASSET_NAME)
+                    }
+                }
             } else {
                 val fallbackFile = listOf(
                     File("android/app/src/main/assets/${RuTrackerSwitchIndex.ASSET_NAME}"),
-                    File("app/src/main/assets/${RuTrackerSwitchIndex.ASSET_NAME}")
+                    File("android/app/src/main/assets/${RuTrackerSwitchIndex.ASSET_NAME_PLAIN}"),
+                    File("app/src/main/assets/${RuTrackerSwitchIndex.ASSET_NAME}"),
+                    File("app/src/main/assets/${RuTrackerSwitchIndex.ASSET_NAME_PLAIN}"),
+                    File("src/main/assets/${RuTrackerSwitchIndex.ASSET_NAME}"),
+                    File("src/main/assets/${RuTrackerSwitchIndex.ASSET_NAME_PLAIN}")
                 ).firstOrNull { it.isFile }
                 if (fallbackFile != null) {
                     RuTrackerSwitchIndex.assetOpener = { fallbackFile.inputStream() }
@@ -1122,20 +1187,32 @@ object RuTrackerCloudEngine {
         return cachedForum1605Hashes ?: emptyMap()
     }
 
+    private val HARD_NON_SWITCH_REPACK_REGEX = Regex(
+        """(?:\.exe\b|\b(?:fitgirl|dodi|xatab|chovka|decepticon|elamigos|steamrip|crackstatus|bdrip|web-dl|1080p|2160p|flac|mp3)\b)""",
+        RegexOption.IGNORE_CASE
+    )
+    private val NON_SWITCH_PLATFORM_REGEX = Regex(
+        """\b(?:codex|rune|tenoke|skidrow|flt|gog|portable|windows|pc\s+game|ps3|ps4|ps5|playstation|xbox|3ds|cia|wiiu|cemu|rpcs3|apk|android|macos|linux)\b""",
+        RegexOption.IGNORE_CASE
+    )
+    private val EXPLICIT_SWITCH_TAG_REGEX = Regex(
+        """(?:\[(?:[^\]\r\n]*\b)?(?:nintendo\s+switch|nsw2?|ns)\b|\b(?:nsp|nsz|xci|xcz|nsw2?)\b)""",
+        RegexOption.IGNORE_CASE
+    )
+    private val NON_ALNUM_ASCII_REGEX = Regex("""[^a-z0-9]+""")
+    private val NON_ALNUM_RU_REGEX = Regex("""[^a-zа-я0-9]+""")
+    private val NON_ALNUM_RU_YO_REGEX = Regex("""[^a-zа-яё0-9]+""")
+
     fun isStrictSwitchRelease(title: String, category: String = "", uploader: String = ""): Boolean {
         val comb = "$title $category".lowercase()
-        val forbidden = listOf(
-            "fitgirl", "dodi", "xatab", "chovka", "decepticon", "elamigos",
-            "codex", "rune", "tenoke", "skidrow", "flt", "gog", "steamrip", "crackstatus",
-            "portable", ".exe", "windows", "pc game", "ps3", "ps4", "ps5",
-            "playstation", "xbox", "3ds", "cia", "wiiu", "cemu", "rpcs3",
-            "apk", "android", "macos", "linux", "bdrip", "web-dl", "1080p", "2160p", "flac", "mp3"
-        )
-        if (forbidden.any { comb.contains(it) }) return false
+        if (HARD_NON_SWITCH_REPACK_REGEX.containsMatchIn(comb)) return false
         if (uploader.equals("dauphong", ignoreCase = true)) return true
+        // Real RuTracker #1605 releases explicitly declare [Nintendo Switch] or NSP/NSZ/XCI/XCZ container tags
+        if (EXPLICIT_SWITCH_TAG_REGEX.containsMatchIn(title)) return true
+        if (NON_SWITCH_PLATFORM_REGEX.containsMatchIn(comb)) return false
         return comb.contains("switch") ||
-            Regex("""\b(nsp|nsz|xci|xcz|nsw)\b""", RegexOption.IGNORE_CASE).containsMatchIn(comb) ||
-            comb.contains("[ns]")
+            comb.contains("[ns]") ||
+            EXPLICIT_SWITCH_TAG_REGEX.containsMatchIn(comb)
     }
 
     fun buildMagnet(hash: String, title: String): String {
@@ -1272,7 +1349,7 @@ object RuTrackerCloudEngine {
             .replace('y', 'i')
             .replace('e', 'i')
             .replace('o', 'a')
-            .replace(Regex("""[^a-z0-9]+"""), "")
+            .replace(NON_ALNUM_ASCII_REGEX, "")
         val sb = StringBuilder()
         var prev = '\u0000'
         for (ch in s) {
@@ -1317,7 +1394,7 @@ object RuTrackerCloudEngine {
     }
 
     fun generateSmartQueryVariants(rawQuery: String): List<String> {
-        val clean = rawQuery.trim().lowercase().replace('ё', 'е').replace(Regex("""[^a-zа-я0-9]+"""), " ").trim()
+        val clean = rawQuery.trim().lowercase().replace('ё', 'е').replace(NON_ALNUM_RU_REGEX, " ").trim()
         if (clean.isEmpty()) return emptyList()
         val paddedClean = " $clean "
         val variants = LinkedHashSet<String>()
@@ -1346,7 +1423,7 @@ object RuTrackerCloudEngine {
 
         if (hasLat) {
             val swappedRu = swapKeyboardLayout(rawQuery.trim().lowercase(), ruToEn = false)
-                .replace('ё', 'е').replace(Regex("""[^a-zа-я0-9]+"""), " ").trim()
+                .replace('ё', 'е').replace(NON_ALNUM_RU_REGEX, " ").trim()
             if (swappedRu.isNotEmpty() && swappedRu != clean) {
                 val paddedSwapped = " $swappedRu "
                 for ((ruKey, enVal) in RU_GAME_ALIASES) {
@@ -1361,6 +1438,174 @@ object RuTrackerCloudEngine {
     }
 
     private val ENGLISH_STOP_WORDS = setOf("the", "and", "for", "with", "from", "into", "edition", "switch", "nintendo", "deluxe")
+
+    private class PreparedQueryVariant(
+        val text: String,
+        val textSpace: String,
+        val padded: String,
+        val significantWords: Array<String>,
+        val penalty: Int,
+        val allowTypo: Boolean
+    )
+
+    private class PreparedFuzzyQuery(
+        val qLower: String,
+        val isWildcard: Boolean,
+        val isShortSingleChar: Boolean,
+        val variants: List<PreparedQueryVariant>
+    )
+
+    private class NormalizedSearchKeys(
+        val normGame: String,
+        val paddedGame: String,
+        val words: Array<String>,
+        val titleIdLower: String,
+        val compactKey: String
+    )
+
+    private val curatedSearchKeys: List<Pair<TopicItem, NormalizedSearchKeys>> by lazy {
+        CURATED_SWITCH_DB.map { it to buildNormalizedSearchKeys(it.title) }
+    }
+
+    @Volatile
+    private var realIndexSearchCacheRef: List<Map<String, Any>>? = null
+
+    private fun buildNormalizedSearchKeys(gameTitle: String, titleId: String = ""): NormalizedSearchKeys {
+        val cleanGame = StormNczEngine.extractCleanGameTitle(gameTitle).lowercase().replace('ё', 'е').trim()
+        val normGame = cleanGame.replace(NON_ALNUM_RU_REGEX, " ").trim()
+        val rawSplit = normGame.split(' ').filter { it.isNotEmpty() }
+        val sigWords = rawSplit.filter { it !in ENGLISH_STOP_WORDS }.ifEmpty { rawSplit }
+        val compact = cleanGame.replace(NON_ALNUM_RU_YO_REGEX, "").trim()
+        return NormalizedSearchKeys(
+            normGame = normGame,
+            paddedGame = " $normGame ",
+            words = sigWords.toTypedArray(),
+            titleIdLower = titleId.lowercase(),
+            compactKey = compact
+        )
+    }
+
+    private fun getOrBuildRealIndexSearchCache(realIndex: List<Map<String, Any>>): List<Pair<Map<String, Any>, NormalizedSearchKeys>> {
+        val existing = realIndexSearchCache
+        if (existing != null && realIndexSearchCacheRef === realIndex) return existing
+        synchronized(realIndexLock) {
+            val again = realIndexSearchCache
+            if (again != null && realIndexSearchCacheRef === realIndex) return again
+            val built = ArrayList<Pair<Map<String, Any>, NormalizedSearchKeys>>(realIndex.size)
+            for (t in realIndex) {
+                val n = ((t["tt"] as? String)?.ifBlank { null } ?: (t["n"] as? String)).orEmpty()
+                if (n.isBlank()) continue
+                val tidHex = (t["tid"] as? String).orEmpty()
+                built.add(t to buildNormalizedSearchKeys(n, tidHex))
+            }
+            realIndexSearchCache = built
+            realIndexSearchCacheRef = realIndex
+            return built
+        }
+    }
+
+    private fun getOrBuildTitleDbSearchCache(
+        catalog: List<StormNczEngine.TitleDbGameEntry>
+    ): List<Pair<StormNczEngine.TitleDbGameEntry, NormalizedSearchKeys>> {
+        val existing = titleDbSearchCache
+        if (existing != null && titleDbSearchCacheRef === catalog) return existing
+        synchronized(titleDbCacheLock) {
+            val again = titleDbSearchCache
+            if (again != null && titleDbSearchCacheRef === catalog) return again
+            val built = ArrayList<Pair<StormNczEngine.TitleDbGameEntry, NormalizedSearchKeys>>(catalog.size)
+            for (entry in catalog) {
+                built.add(entry to buildNormalizedSearchKeys(entry.name, entry.titleId))
+            }
+            titleDbSearchCache = built
+            titleDbSearchCacheRef = catalog
+            return built
+        }
+    }
+
+    private fun prepareFuzzyQuery(rawQuery: String): PreparedFuzzyQuery {
+        val q = rawQuery.trim().lowercase().replace('ё', 'е')
+        if (q.isEmpty() || q.equals("nintendo switch", true) || q.equals("все хиты switch", true)) {
+            return PreparedFuzzyQuery(q, isWildcard = true, isShortSingleChar = false, variants = emptyList())
+        }
+        val rawVariants = generateSmartQueryVariants(q)
+        val singleChar = rawVariants.size == 1 && rawVariants[0].length == 1
+        val prepared = ArrayList<PreparedQueryVariant>(rawVariants.size)
+        for ((idx, v) in rawVariants.withIndex()) {
+            val allQWords = v.split(' ').filter { it.isNotEmpty() }
+            if (allQWords.isEmpty()) continue
+            val significant = allQWords.filter { it.length >= 2 && it !in ENGLISH_STOP_WORDS }.ifEmpty { allQWords }
+            prepared.add(
+                PreparedQueryVariant(
+                    text = v,
+                    textSpace = "$v ",
+                    padded = " $v ",
+                    significantWords = significant.toTypedArray(),
+                    penalty = idx * 20,
+                    allowTypo = idx <= 1
+                )
+            )
+        }
+        return PreparedFuzzyQuery(q, isWildcard = false, isShortSingleChar = singleChar, variants = prepared)
+    }
+
+    private fun scorePreparedQuery(pq: PreparedFuzzyQuery, keys: NormalizedSearchKeys): Int {
+        if (pq.isWildcard) return 500
+        if (keys.titleIdLower.isNotEmpty() && pq.qLower.length >= 4 && keys.titleIdLower.contains(pq.qLower)) return 1300
+        val gameWords = keys.words
+        if (gameWords.isEmpty()) return 0
+
+        if (pq.isShortSingleChar) {
+            val ch = pq.qLower
+            return when {
+                keys.normGame.startsWith(ch) -> 1100
+                keys.paddedGame.contains(" $ch") -> 950
+                else -> 0
+            }
+        }
+
+        for (v in pq.variants) {
+            val text = v.text
+            if (keys.normGame == text) return 1220 - v.penalty
+            if (keys.normGame.startsWith(v.textSpace)) return 1160 - v.penalty
+            if (text.length >= 2 && keys.normGame.startsWith(text)) {
+                return (if (text.length >= 4) 1100 else 1040) - v.penalty
+            }
+            if (keys.paddedGame.contains(v.padded)) return 1060 - v.penalty
+            if (text.length == 2 && !text.all { it.isDigit() } && v.significantWords.size == 1) {
+                if (keys.paddedGame.contains(" $text")) return 920 - v.penalty
+            }
+
+            var allSignificantMatched = true
+            var totalDist = 0
+            var exactCount = 0
+
+            for (qw in v.significantWords) {
+                var bestDist = 99
+                var matchedThisWord = false
+                for (gw in gameWords) {
+                    val (ok, d) = isWordFuzzyMatch(qw, gw, v.allowTypo)
+                    if (ok && d < bestDist) {
+                        matchedThisWord = true
+                        bestDist = d
+                        if (d == 0) break
+                    }
+                }
+                if (!matchedThisWord) {
+                    allSignificantMatched = false
+                    break
+                }
+                if (bestDist == 0) exactCount++
+                totalDist += bestDist
+            }
+
+            if (allSignificantMatched) {
+                val baseScore = if (totalDist == 0) 980 else (880 - totalDist * 60)
+                return (baseScore + exactCount * 15 - v.penalty).coerceAtLeast(650)
+            }
+        }
+
+        return 0
+    }
 
     private fun isSingleLetterSwap(a: String, b: String): Boolean {
         if (a.length != b.length || a.length < 3) return false
@@ -1380,10 +1625,8 @@ object RuTrackerCloudEngine {
 
     private fun isWordFuzzyMatch(qw: String, gw: String, allowTypo: Boolean = true): Pair<Boolean, Int> {
         if (qw == gw) return true to 0
-        if (!qw.all { it.isDigit() } && gw.startsWith(qw)) {
-            if (qw.length >= 5 || (qw.length == 4 && gw.length <= 7) || (qw.length == 3 && gw.length <= 5)) {
-                return true to 1
-            }
+        if (!qw.all { it.isDigit() } && gw.startsWith(qw) && qw.length >= 3) {
+            return true to 1
         }
         if (!allowTypo) return false to 99
         if (isSingleLetterSwap(qw, gw)) return true to 1
@@ -1403,64 +1646,7 @@ object RuTrackerCloudEngine {
         publisher: String = "",
         genre: String = ""
     ): Int {
-        val q = rawQuery.trim().lowercase().replace('ё', 'е')
-        if (q.isEmpty() || q.equals("nintendo switch", true) || q.equals("все хиты switch", true)) return 500
-
-        val cleanGame = StormNczEngine.extractCleanGameTitle(gameTitle).lowercase().replace('ё', 'е').trim()
-        val normGame = cleanGame.replace(Regex("""[^a-zа-я0-9]+"""), " ").trim()
-        val paddedGame = " $normGame "
-
-        if (titleId.isNotEmpty() && titleId.lowercase().contains(q)) return 1300
-
-        val gameWords = normGame.split(' ').filter { it.isNotEmpty() && it !in ENGLISH_STOP_WORDS }.ifEmpty {
-            normGame.split(' ').filter { it.isNotEmpty() }
-        }
-        if (gameWords.isEmpty()) return 0
-
-        val variants = generateSmartQueryVariants(q)
-        for ((idx, v) in variants.withIndex()) {
-            val penalty = idx * 20
-            val allowTypo = idx <= 1
-            if (normGame == v) return 1220 - penalty
-            if (normGame.startsWith("$v ")) return 1160 - penalty
-            if (v.length >= 4 && normGame.startsWith(v)) return 1100 - penalty
-            if (paddedGame.contains(" $v ")) return 1060 - penalty
-
-            val allQWords = v.split(' ').filter { it.isNotEmpty() }
-            if (allQWords.isEmpty()) continue
-
-            val significantQWords = allQWords.filter { it.length >= 2 && it !in ENGLISH_STOP_WORDS }.ifEmpty { allQWords }
-
-            var allSignificantMatched = true
-            var totalDist = 0
-            var exactCount = 0
-
-            for (qw in significantQWords) {
-                var bestDist = 99
-                var matchedThisWord = false
-                for (gw in gameWords) {
-                    val (ok, d) = isWordFuzzyMatch(qw, gw, allowTypo)
-                    if (ok && d < bestDist) {
-                        matchedThisWord = true
-                        bestDist = d
-                        if (d == 0) break
-                    }
-                }
-                if (!matchedThisWord) {
-                    allSignificantMatched = false
-                    break
-                }
-                if (bestDist == 0) exactCount++
-                totalDist += bestDist
-            }
-
-            if (allSignificantMatched) {
-                val baseScore = if (totalDist == 0) 980 else (880 - totalDist * 60)
-                return (baseScore + exactCount * 15 - penalty).coerceAtLeast(650)
-            }
-        }
-
-        return 0
+        return scorePreparedQuery(prepareFuzzyQuery(rawQuery), buildNormalizedSearchKeys(gameTitle, titleId))
     }
 
     fun explainQueryCorrection(rawQuery: String, results: List<TopicItem>): String? {
@@ -1468,7 +1654,7 @@ object RuTrackerCloudEngine {
         if (q.length < 3 || results.isEmpty()) return null
         val topClean = StormNczEngine.extractCleanGameTitle(results.first().title).trim()
         if (topClean.isEmpty()) return null
-        val qTokens = q.lowercase().split(Regex("""[^a-zа-яё0-9]+""")).filter { it.length >= 3 && it !in ENGLISH_STOP_WORDS }
+        val qTokens = q.lowercase().split(NON_ALNUM_RU_YO_REGEX).filter { it.length >= 3 && it !in ENGLISH_STOP_WORDS }
         val topLower = topClean.lowercase()
         if (qTokens.isEmpty() || qTokens.any { topLower.contains(it) }) return null
         return "🔎 Показаны результаты для «$topClean» (по запросу «$q»)"
@@ -1480,11 +1666,19 @@ object RuTrackerCloudEngine {
         rawQuery: String
     ): List<StormNczEngine.TitleDbGameEntry> {
         val q = rawQuery.trim()
-        val platFiltered = if (platformFilter == "Все") catalog else catalog.filter { it.platform.equals(platformFilter, ignoreCase = true) }
-        if (q.isEmpty()) return platFiltered
+        val filterAll = platformFilter == "Все"
+        if (q.isEmpty()) {
+            return if (filterAll) catalog else catalog.filter { it.platform.equals(platformFilter, ignoreCase = true) }
+        }
+        val pq = prepareFuzzyQuery(q)
+        if (pq.isWildcard) {
+            return if (filterAll) catalog else catalog.filter { it.platform.equals(platformFilter, ignoreCase = true) }
+        }
+        val cached = getOrBuildTitleDbSearchCache(catalog)
         val scored = ArrayList<Pair<StormNczEngine.TitleDbGameEntry, Int>>()
-        for (g in platFiltered) {
-            val sc = scoreFuzzyGameMatch(q, g.name, g.titleId, g.publisher, g.genre)
+        for ((g, keys) in cached) {
+            if (!filterAll && !g.platform.equals(platformFilter, ignoreCase = true)) continue
+            val sc = scorePreparedQuery(pq, keys)
             if (sc > 0) scored.add(g to sc)
         }
         return scored.sortedWith(compareByDescending<Pair<StormNczEngine.TitleDbGameEntry, Int>> { it.second }.thenBy { it.first.name.length }).map { it.first }
@@ -1529,6 +1723,22 @@ object RuTrackerCloudEngine {
         )
     }
 
+    private fun mapRealIndexTopicToItem(t: Map<String, Any>, normMirror: String): TopicItem {
+        val tid = t["t"].toString()
+        val title = ((t["tt"] as? String)?.ifBlank { null } ?: (t["n"] as? String)).orEmpty()
+        val live = cachedForumTopicMap?.get(tid)
+        val rawSzBytes = (t["sz"] as? Number)?.toLong() ?: 0L
+        val szBytes = if (live != null && live.second > 0L) live.second else rawSzBytes
+        val rawSeeds = (t["sd"] as? Number)?.toInt() ?: 0
+        val seeds = if (live != null && live.third > 0) live.third else rawSeeds
+        val rawHash = (t["h"] as? String).orEmpty()
+        val hash = if (live != null && live.first.length == 40) live.first else rawHash
+        val sizeText = if (szBytes > 0L) StormNczEngine.formatSize(szBytes) else "нет данных"
+        val magnet = if (hash.length == 40) buildMagnet(hash, title) else ""
+        val topicUrl = "$normMirror/forum/viewtopic.php?t=$tid"
+        return TopicItem(tid, title, "Nintendo Switch", sizeText, seeds, 0, hash, magnet, topicUrl)
+    }
+
     /**
      * Мгновенный локальный поиск (0 мс) по ВСЕМ 11 380+ играм Nintendo Switch (CURATED_SWITCH_DB + полная база TitleDB)
      * с автоматическим исправлением опечаток, раскладки клавиатуры и русской транслитерации.
@@ -1547,11 +1757,12 @@ object RuTrackerCloudEngine {
         if (directTid != null) {
             val live = lookupRuTrackerTopic(directTid)
             val existing = realIndex.firstOrNull { it["t"].toString() == directTid }
-            val title = (existing?.get("n") as? String)?.ifBlank { null }
+            val title = (existing?.get("tt") as? String)?.ifBlank { null }
+                ?: (existing?.get("n") as? String)?.ifBlank { null }
                 ?: "[Nintendo Switch] Раздача RuTracker #1605 (t=$directTid)"
             val szBytes = (existing?.get("sz") as? Number)?.toLong() ?: (live?.second ?: 0L)
             val seeds = (existing?.get("sd") as? Number)?.toInt() ?: (live?.third ?: 0)
-            val hash = (existing?.get("h") as? String) ?: (live?.first ?: "")
+            val hash = (existing?.get("h") as? String)?.ifBlank { null } ?: (live?.first ?: "")
             val sizeText = if (szBytes > 0L) StormNczEngine.formatSize(szBytes) else "нет данных"
             val magnet = if (hash.length == 40) buildMagnet(hash, title) else ""
             val topicUrl = "$normMirror/forum/viewtopic.php?t=$directTid"
@@ -1563,30 +1774,24 @@ object RuTrackerCloudEngine {
             val curated = CURATED_SWITCH_DB.map { item -> withLiveForumData(item, normMirror) }.toMutableList()
             val curatedTids = curated.map { it.topicId }.toSet()
             val topReal = realIndex
-                .filter { (it["n"] as? String).orEmpty().isNotBlank() && it["t"].toString() !in curatedTids }
+                .filter {
+                    val tName = ((it["tt"] as? String)?.ifBlank { null } ?: (it["n"] as? String)).orEmpty()
+                    tName.isNotBlank() && it["t"].toString() !in curatedTids
+                }
                 .sortedByDescending { (it["sd"] as? Number)?.toInt() ?: 0 }
                 .take(40)
-                .map { t ->
-                    val tid = t["t"].toString()
-                    val title = (t["n"] as? String).orEmpty()
-                    val szBytes = (t["sz"] as? Number)?.toLong() ?: 0L
-                    val seeds = (t["sd"] as? Number)?.toInt() ?: 0
-                    val hash = (t["h"] as? String).orEmpty()
-                    val sizeText = if (szBytes > 0L) StormNczEngine.formatSize(szBytes) else "нет данных"
-                    val magnet = if (hash.length == 40) buildMagnet(hash, title) else ""
-                    val topicUrl = "$normMirror/forum/viewtopic.php?t=$tid"
-                    TopicItem(tid, title, "Nintendo Switch", sizeText, seeds, 0, hash, magnet, topicUrl)
-                }
+                .map { t -> mapRealIndexTopicToItem(t, normMirror) }
             curated.addAll(topReal)
             return curated
         }
 
         val results = mutableListOf<TopicItem>()
         val seenTids = HashSet<String>()
+        val pq = prepareFuzzyQuery(cleanQ)
 
         // 1. Поиск по эталонному списку хитов CURATED_SWITCH_DB
-        for (item in CURATED_SWITCH_DB) {
-            val sc = scoreFuzzyGameMatch(cleanQ, item.title)
+        for ((item, keys) in curatedSearchKeys) {
+            val sc = scorePreparedQuery(pq, keys)
             if (sc > 0) {
                 val mapped = withLiveForumData(item, normMirror)
                 results.add(mapped)
@@ -1594,14 +1799,12 @@ object RuTrackerCloudEngine {
             }
         }
 
-        // 2. Поиск по реальному RuTracker-индексу по полю "n" (title)
-        // Нормализация: .lowercase().trim()
-        // Результаты сортируются по "sd" (seeders) по убыванию
+        // 2. Поиск по реальному RuTracker-индексу по заранее нормализованным ключам
+        // Результаты сортируются по релевантности и "sd" (seeders) по убыванию
+        val cachedReal = getOrBuildRealIndexSearchCache(realIndex)
         val matchedReal = ArrayList<Pair<Map<String, Any>, Int>>()
-        for (t in realIndex) {
-            val n = ((t["tt"] as? String)?.ifBlank { null } ?: (t["n"] as? String)).orEmpty()
-            if (n.isBlank()) continue
-            val sc = scoreFuzzyGameMatch(cleanQ, n)
+        for ((t, keys) in cachedReal) {
+            val sc = scorePreparedQuery(pq, keys)
             if (sc > 0) {
                 matchedReal.add(t to sc)
             }
@@ -1614,36 +1817,36 @@ object RuTrackerCloudEngine {
         for ((t, _) in matchedReal) {
             val tid = t["t"].toString()
             if (!seenTids.add(tid)) continue
-            val title = (t["n"] as? String).orEmpty()
-            val szBytes = (t["sz"] as? Number)?.toLong() ?: 0L
-            val seeds = (t["sd"] as? Number)?.toInt() ?: 0
-            val hash = (t["h"] as? String).orEmpty()
-            val sizeText = if (szBytes > 0L) StormNczEngine.formatSize(szBytes) else "нет данных"
-            val magnet = if (hash.length == 40) buildMagnet(hash, title) else ""
-            val topicUrl = "$normMirror/forum/viewtopic.php?t=$tid"
-            results.add(TopicItem(tid, title, "Nintendo Switch", sizeText, seeds, 0, hash, magnet, topicUrl))
+            results.add(mapRealIndexTopicToItem(t, normMirror))
+        }
+
+        // Для односимвольных префиксов (25+) и заполненных выдач (60+) не тратим время на резервный скан TitleDB
+        if ((pq.isShortSingleChar && results.size >= 25) || results.size >= 60) {
+            return results.take(80)
         }
 
         // 3. Поиск по ПОЛНОЙ базе всех 11 380+ игр Nintendo Switch (titledb_full.tsv.gz) для игр, которых нет в индексе
-        val seenKeys = HashSet<String>()
+        val seenKeys = HashSet<String>(results.size * 2 + 16)
         results.forEach {
-            val k = StormNczEngine.extractCleanGameTitle(it.title).lowercase().replace(Regex("""[^a-zа-яё0-9]+"""), "").trim()
+            val k = StormNczEngine.extractCleanGameTitle(it.title).lowercase().replace(NON_ALNUM_RU_YO_REGEX, "").trim()
             if (k.isNotEmpty()) seenKeys.add(k)
         }
 
         val fullCatalog = StormNczEngine.loadFullTitleDbFromAssets()
-        val tdbScored = mutableListOf<Pair<TopicItem, Int>>()
-        for (entry in fullCatalog) {
+        val cachedTitleDb = getOrBuildTitleDbSearchCache(fullCatalog)
+        val tdbScored = ArrayList<Pair<StormNczEngine.TitleDbGameEntry, Int>>()
+        for ((entry, keys) in cachedTitleDb) {
             if (!entry.platform.equals("Switch", ignoreCase = true)) continue
-            val sc = scoreFuzzyGameMatch(cleanQ, entry.name, entry.titleId, entry.publisher, entry.genre)
+            val sc = scorePreparedQuery(pq, keys)
             if (sc > 0) {
-                val k = entry.name.lowercase().replace(Regex("""[^a-zа-яё0-9]+"""), "").trim()
-                if (k.isNotEmpty() && !seenKeys.add(k)) continue
-                tdbScored.add(buildTopicItemFromTitleDbEntry(entry, normMirror) to sc)
+                if (keys.compactKey.isNotEmpty() && !seenKeys.add(keys.compactKey)) continue
+                tdbScored.add(entry to sc)
             }
         }
         tdbScored.sortByDescending { it.second }
-        results.addAll(tdbScored.take(40).map { it.first })
+        for ((entry, _) in tdbScored.take(40)) {
+            results.add(buildTopicItemFromTitleDbEntry(entry, normMirror))
+        }
 
         return results.take(80)
     }
@@ -1669,7 +1872,7 @@ object RuTrackerCloudEngine {
         fun normalizeGameKey(rawTitle: String): String {
             return StormNczEngine.extractCleanGameTitle(rawTitle)
                 .lowercase()
-                .replace(Regex("""[^a-zа-яё0-9]+"""), "")
+                .replace(NON_ALNUM_RU_YO_REGEX, "")
                 .trim()
         }
 
@@ -1689,14 +1892,16 @@ object RuTrackerCloudEngine {
             }
         }
 
-        // 1. Локальный поиск по всем 11 380+ играм Switch (CURATED_SWITCH_DB + TitleDB + проверка на дурака)
+        // 1. Локальный поиск по всем 11 380+ играм Switch (CURATED_SWITCH_DB + реальный индекс #1605 + TitleDB)
         val localMatches = searchTopicsInstant(cleanQ, normMirror)
         val curatedIds = CURATED_SWITCH_DB.map { it.topicId }.toHashSet()
         val curatedMatches = localMatches.filter { it.topicId in curatedIds }
-        val syntheticTitleDbMatches = localMatches.filter { it.topicId !in curatedIds }
+        val realIndexMatches = localMatches.filter { it.topicId !in curatedIds && !it.topicId.startsWith("TDB-") }
+        val syntheticTitleDbMatches = localMatches.filter { it.topicId.startsWith("TDB-") }
 
-        // Сначала добавляем проверенные эталонные раздачи RuTracker
+        // Сначала добавляем проверенные эталонные и реальные индексные раздачи RuTracker #1605
         addUnique(curatedMatches)
+        addUnique(realIndexMatches)
 
         // Если уже нашли точное совпадение в базе, используем его английское имя для живого сетевого поиска
         val resolvedSearchQuery = if (localMatches.isNotEmpty() && cleanQ.isNotEmpty()) {
@@ -1746,7 +1951,7 @@ object RuTrackerCloudEngine {
 
         try { tAtom.join(1400) } catch (_: Exception) {}
 
-        // Приоритет у настоящих сетевых раздач RuTracker (#1605) перед синтетическим каталогом TitleDB
+        // Затем дополняем живыми раздачами RuTracker (#1605) и синтетическим каталогом TitleDB
         addUnique(liveWvResults)
         addUnique(atomResults)
         addUnique(syntheticTitleDbMatches)
@@ -1769,7 +1974,7 @@ object RuTrackerCloudEngine {
                 val xml = conn.inputStream.bufferedReader(StandardCharsets.UTF_8).use { it.readText() }
                 val entryRegex = Regex("""<entry>(.*?)</entry>""", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
                 val titleRegex = Regex("""<title[^>]*><!\[CDATA\[(.*?)]]></title>|<title[^>]*>(.*?)</title>""", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
-                val linkRegex = Regex("""<link[^>]*href="([^"]*viewtopic\.php\?t=(\d+)[^"]*)" """, RegexOption.IGNORE_CASE)
+                val linkRegex = Regex("""<link[^>]*href=["']([^"']*viewtopic\.php\?t=(\d+)[^"']*)["']""", RegexOption.IGNORE_CASE)
                 val sizeRegex = Regex("""\[(\d+(?:\.\d+)?\s*(?:GB|MB|ГБ|МБ))""", RegexOption.IGNORE_CASE)
 
                 for (em in entryRegex.findAll(xml)) {
@@ -3549,32 +3754,32 @@ object RuTrackerCloudEngine {
      * Находит реальный TitleID игры по названию или кэшу STORM GAMES WORLD / TitleDB.
      */
     fun resolveAuthenticBaseTitleId(rawTitle: String, fallbackHash: String = "", fallbackTopicId: String = ""): String {
-        val tidMatch = Regex("""([0-9A-Fa-f]{16})""").find(rawTitle)
+        val tidMatch = HEX_TID16_REGEX.find(rawTitle)
         if (tidMatch != null) {
             return StormNczEngine.normalizeBaseTitleId(tidMatch.groupValues[1])
         }
+        val cacheKey = if (fallbackTopicId.isNotBlank()) "t:$fallbackTopicId" else rawTitle
+        resolvedTitleIdCache[cacheKey]?.let { return it }
+
+        var resolved = ""
         try {
             val idxTopic = (if (fallbackTopicId.isNotBlank()) RuTrackerSwitchIndex.topicById(fallbackTopicId) else null)
                 ?: (if (fallbackHash.length == 40) RuTrackerSwitchIndex.topicByHash(fallbackHash) else null)
             if (idxTopic != null && idxTopic.titleId.length == 16) {
-                return StormNczEngine.normalizeBaseTitleId(idxTopic.titleId)
+                resolved = StormNczEngine.normalizeBaseTitleId(idxTopic.titleId)
             }
         } catch (_: Throwable) {}
-        val clean = StormNczEngine.extractCleanGameTitle(rawTitle).lowercase().trim()
-        if (clean.isNotEmpty()) {
-            try {
-                val dbMatch = StormNczEngine.loadFullTitleDbFromAssets().firstOrNull {
-                    it.platform.equals("Switch", ignoreCase = true) &&
-                        (clean.equals(it.name.lowercase(), ignoreCase = true) ||
-                            clean.contains(it.name.lowercase()) ||
-                            it.name.lowercase().contains(clean))
-                }
-                if (dbMatch != null && dbMatch.titleId.length == 16) {
-                    return StormNczEngine.normalizeBaseTitleId(dbMatch.titleId)
-                }
-            } catch (_: Throwable) {}
+
+        if (resolved.isEmpty()) {
+            val clean = StormNczEngine.extractCleanGameTitle(rawTitle).lowercase().trim()
+            if (clean.isNotEmpty()) {
+                resolved = try { StormNczEngine.lookupSwitchTitleIdFast(clean).orEmpty() } catch (_: Throwable) { "" }
+            }
         }
-        return ""
+
+        if (resolvedTitleIdCache.size > 4096) resolvedTitleIdCache.clear()
+        resolvedTitleIdCache[cacheKey] = resolved
+        return resolved
     }
 
     // =========================================================================

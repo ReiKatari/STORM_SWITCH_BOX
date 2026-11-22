@@ -1123,6 +1123,14 @@ class MainActivity : Activity() {
         private const val REQ_PICK_CUSTOM_ICON = 1006
     }
 
+    private val uiSearchExecutor: java.util.concurrent.ExecutorService =
+        java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+            Thread(r, "storm-ui-search").apply {
+                isDaemon = true
+                priority = Thread.NORM_PRIORITY
+            }
+        }
+
     override fun onPause() {
         super.onPause()
         stopSeedingRefreshTicker()
@@ -1143,6 +1151,7 @@ class MainActivity : Activity() {
     override fun onDestroy() {
         super.onDestroy()
         stopSeedingRefreshTicker()
+        try { uiSearchExecutor.shutdownNow() } catch (_: Throwable) {}
         RuTrackerCloudEngine.flushSeedingStateSync()
         RuTrackerCloudEngine.detachHostActivity(this)
         if (isFinishing) {
@@ -1180,8 +1189,7 @@ class MainActivity : Activity() {
         }
 
         StormNczEngine.initAppContext(applicationContext)
-        RuTrackerCloudEngine.appContext = applicationContext
-        RuTrackerCloudEngine.cacheRootDir = filesDir
+        RuTrackerCloudEngine.initAndroidContext(applicationContext, filesDir)
         RuTrackerCloudEngine.attachHostActivity(this)
         RuTrackerCloudEngine.warmupCloudflareSessionAsync()
         ensureStormDirectories()
@@ -3610,8 +3618,7 @@ class MainActivity : Activity() {
     // =========================================================================
 
     private fun buildRuTrackerAndModsTab(parent: LinearLayout, th: StormTheme) {
-        RuTrackerCloudEngine.appContext = applicationContext
-        RuTrackerCloudEngine.cacheRootDir = filesDir
+        RuTrackerCloudEngine.initAndroidContext(applicationContext, filesDir)
         RuTrackerCloudEngine.attachHostActivity(this)
         RuTrackerCloudEngine.warmupCloudflareSessionAsync()
         RuTrackerCloudEngine.warmupSwitchForumCacheAsync()
@@ -3803,10 +3810,17 @@ class MainActivity : Activity() {
         }
 
         var searchSeq = 0
-        var debounceRunnable: Runnable? = null
+        var instantDebounceRunnable: Runnable? = null
+        var liveDebounceRunnable: Runnable? = null
         var suppressWatcher = false
 
-        fun renderTopicList(found: List<RuTrackerCloudEngine.TopicItem>, q: String, isLiveSearching: Boolean) {
+        fun renderTopicList(
+            found: List<RuTrackerCloudEngine.TopicItem>,
+            q: String,
+            isLiveSearching: Boolean,
+            maxItems: Int = 60,
+            precomputedCardMeta: Map<String, Pair<String, String>>? = null
+        ) {
             lastRenderedList = found
             lastRenderedQuery = q
             lastIsLiveSearching = isLiveSearching
@@ -3858,7 +3872,7 @@ class MainActivity : Activity() {
                 })
             }
 
-            filtered.take(60).forEach { item ->
+            filtered.take(maxItems).forEach { item ->
                 val itemBox = LinearLayout(this).apply {
                     orientation = LinearLayout.VERTICAL
                     background = makeCardDrawable(th.bgPrimary, th.border, 8)
@@ -3867,8 +3881,9 @@ class MainActivity : Activity() {
                         topMargin = dp(6)
                     }
                 }
-                val cleanName = StormNczEngine.extractCleanGameTitle(item.title).ifBlank { item.title }
-                val resolvedTid = RuTrackerCloudEngine.resolveAuthenticBaseTitleId(item.title, item.infoHash, item.topicId)
+                val preMeta = precomputedCardMeta?.get(item.topicId.ifEmpty { item.title })
+                val cleanName = preMeta?.first ?: StormNczEngine.extractCleanGameTitle(item.title).ifBlank { item.title }
+                val resolvedTid = preMeta?.second ?: RuTrackerCloudEngine.resolveAuthenticBaseTitleId(item.title, item.infoHash, item.topicId)
                 itemBox.addView(TextView(this).apply {
                     text = cleanName
                     setTextColor(th.textPrimary)
@@ -3921,33 +3936,65 @@ class MainActivity : Activity() {
             }
         }
 
-        fun runSearch(q: String, immediateOnly: Boolean = false) {
+        fun precomputeSearchCardMeta(items: List<RuTrackerCloudEngine.TopicItem>, limit: Int): Map<String, Pair<String, String>> {
+            val map = HashMap<String, Pair<String, String>>(minOf(items.size, limit) + 4)
+            for (item in items.take(limit)) {
+                val key = item.topicId.ifEmpty { item.title }
+                val cname = StormNczEngine.extractCleanGameTitle(item.title).ifBlank { item.title }
+                val rtid = RuTrackerCloudEngine.resolveAuthenticBaseTitleId(item.title, item.infoHash, item.topicId)
+                map[key] = cname to rtid
+            }
+            return map
+        }
+
+        fun runSearch(q: String, immediateOnly: Boolean = false, cancelScheduledLive: Boolean = true) {
+            instantDebounceRunnable?.let { mainHandler.removeCallbacks(it) }
+            if (cancelScheduledLive || !immediateOnly) {
+                liveDebounceRunnable?.let { mainHandler.removeCallbacks(it) }
+            }
             val mySeq = ++searchSeq
             val cleanQ = q.trim()
-            val instantList = RuTrackerCloudEngine.searchTopicsInstant(cleanQ)
             val needLiveNetwork = !immediateOnly && cleanQ.isNotEmpty()
+            val indexNeedsWarmup = !RuTrackerCloudEngine.hasRealIndexInMemory() && !RuTrackerSwitchIndex.isLoaded()
 
-            renderTopicList(instantList, cleanQ, needLiveNetwork)
-
-            if (!needLiveNetwork && cleanQ.isEmpty()) {
-                animSearchRow.visibility = View.GONE
-                return
-            }
-            if (immediateOnly) return
-
-            animSearchRow.visibility = View.VISIBLE
-            animStatusText.text = if (cleanQ.isEmpty()) {
-                "🔎 Обновление каталога Nintendo Switch (#1605)..."
+            if (indexNeedsWarmup || needLiveNetwork) {
+                animSearchRow.visibility = View.VISIBLE
+                animStatusText.text = when {
+                    indexNeedsWarmup -> if (cleanQ.isEmpty()) "🔎 Загрузка каталога игр Nintendo Switch (#1605)..." else "🔎 Загрузка индекса и поиск «$cleanQ» в Switch (#1605)..."
+                    cleanQ.isEmpty() -> "🔎 Обновление каталога Nintendo Switch (#1605)..."
+                    else -> "🔎 Динамический поиск «$cleanQ» в разделе Switch (#1605)..."
+                }
             } else {
-                "🔎 Динамический поиск «$cleanQ» в разделе Switch (#1605)..."
+                animSearchRow.visibility = View.GONE
             }
+
+            uiSearchExecutor.execute {
+                if (mySeq != searchSeq) return@execute
+                if (!RuTrackerCloudEngine.hasRealIndexInMemory() && !RuTrackerSwitchIndex.isLoaded()) {
+                    RuTrackerCloudEngine.getOrLoadRealIndex(applicationContext)
+                }
+                if (mySeq != searchSeq) return@execute
+                val instantList = RuTrackerCloudEngine.searchTopicsInstant(cleanQ)
+                if (mySeq != searchSeq) return@execute
+                val limit = if (immediateOnly && cleanQ.isNotEmpty()) 40 else 60
+                val cardMeta = precomputeSearchCardMeta(instantList, limit)
+                if (mySeq != searchSeq) return@execute
+                mainHandler.post {
+                    if (mySeq != searchSeq) return@post
+                    if (!needLiveNetwork) animSearchRow.visibility = View.GONE
+                    renderTopicList(instantList, cleanQ, needLiveNetwork, limit, cardMeta)
+                }
+            }
+
+            if (!needLiveNetwork) return
 
             thread {
                 val found = RuTrackerCloudEngine.searchTopics(cleanQ)
+                val cardMeta = precomputeSearchCardMeta(found, 60)
                 mainHandler.post {
                     if (mySeq != searchSeq) return@post
                     animSearchRow.visibility = View.GONE
-                    renderTopicList(found, cleanQ, false)
+                    renderTopicList(found, cleanQ, false, 60, cardMeta)
                 }
             }
         }
@@ -3958,13 +4005,17 @@ class MainActivity : Activity() {
             override fun afterTextChanged(s: android.text.Editable?) {
                 if (suppressWatcher) return
                 val q = s?.toString() ?: ""
-                // 1. Мгновенная локальная фильтрация за 0 мс прямо во время набора
-                runSearch(q, immediateOnly = true)
-                // 2. Динамический сетевой дозапрос через 220 мс после паузы в наборе
-                debounceRunnable?.let { mainHandler.removeCallbacks(it) }
-                val r = Runnable { runSearch(q, immediateOnly = false) }
-                debounceRunnable = r
-                mainHandler.postDelayed(r, 220L)
+                instantDebounceRunnable?.let { mainHandler.removeCallbacks(it) }
+                liveDebounceRunnable?.let { mainHandler.removeCallbacks(it) }
+                searchSeq++
+                val instantR = Runnable { runSearch(q, immediateOnly = true, cancelScheduledLive = false) }
+                instantDebounceRunnable = instantR
+                mainHandler.postDelayed(instantR, 120L)
+                if (q.trim().length >= 2) {
+                    val liveR = Runnable { runSearch(q, immediateOnly = false, cancelScheduledLive = true) }
+                    liveDebounceRunnable = liveR
+                    mainHandler.postDelayed(liveR, 450L)
+                }
             }
         })
 
@@ -7509,11 +7560,16 @@ class MainActivity : Activity() {
         card.addView(modeRow)
         card.addView(viewerScroll)
 
+        var romfsFilterRunnable: Runnable? = null
         filterInput.addTextChangedListener(object : android.text.TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
             override fun afterTextChanged(s: android.text.Editable?) {
-                renderTreeNodes(s?.toString() ?: "")
+                val q = s?.toString() ?: ""
+                romfsFilterRunnable?.let { mainHandler.removeCallbacks(it) }
+                val r = Runnable { renderTreeNodes(q) }
+                romfsFilterRunnable = r
+                mainHandler.postDelayed(r, 100L)
             }
         })
 
@@ -8328,58 +8384,11 @@ class MainActivity : Activity() {
             }
         }
 
-        fun renderActiveList() {
-            listContainer.removeAllViews()
-            val q = searchQuery.trim().lowercase()
+        var catalogSearchSeq = 0
+        var catalogDebounceRunnable: Runnable? = null
+        lateinit var renderActiveListFn: () -> Unit
 
-            val matchingErrors = StormNczEngine.builtInSwitchErrorCodes.filter {
-                q.isEmpty() || it.code.lowercase().contains(q) || it.title.lowercase().contains(q) ||
-                    it.moduleName.lowercase().contains(q) || it.cause.lowercase().contains(q) || it.solution.lowercase().contains(q)
-            }
-
-            if (subTabMode == 1 || (q.length >= 4 && q[0] == '2' && matchingErrors.isNotEmpty())) {
-                matchingErrors.forEach { err ->
-                    val errCard = LinearLayout(this).apply {
-                        orientation = LinearLayout.VERTICAL
-                        background = makeCardDrawable(th.bgCard, th.border)
-                        setPadding(dp(14), dp(11), dp(14), dp(11))
-                        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                            bottomMargin = dp(8)
-                        }
-                    }
-                    errCard.addView(TextView(this).apply {
-                        text = "⚠️ Код ошибки: ${err.code}  •  ${err.moduleName}"
-                        setTextColor(Color.parseColor("#F59E0B"))
-                        setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
-                        typeface = Typeface.DEFAULT_BOLD
-                    })
-                    errCard.addView(TextView(this).apply {
-                        text = err.title
-                        setTextColor(th.textPrimary)
-                        setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-                        typeface = Typeface.DEFAULT_BOLD
-                        setPadding(0, dp(2), 0, dp(4))
-                    })
-                    errCard.addView(TextView(this).apply {
-                        text = "Причина: ${err.cause}"
-                        setTextColor(th.textSecondary)
-                        setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f)
-                        setPadding(0, 0, 0, dp(6))
-                    })
-                    errCard.addView(TextView(this).apply {
-                        text = "🛠 Как исправить:\n${err.solution}"
-                        setTextColor(th.accent)
-                        setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f)
-                        background = makeCardDrawable(th.bgPrimary, th.border, 8)
-                        setPadding(dp(10), dp(7), dp(10), dp(7))
-                    })
-                    listContainer.addView(errCard)
-                }
-                if (subTabMode == 1) return
-            }
-
-            val filteredGames = RuTrackerCloudEngine.filterTitleDbCatalogFuzzy(currentCatalog, platformFilter, searchQuery)
-
+        fun renderGamesListViews(filteredGames: List<StormNczEngine.TitleDbGameEntry>) {
             listContainer.addView(TextView(this).apply {
                 text = "📊 Найдено игр в полной базе TitleDB: ${filteredGames.size} из ${currentCatalog.size} (показаны первые ${minOf(filteredGames.size, displayLimit)})"
                 setTextColor(th.accent)
@@ -8464,7 +8473,7 @@ class MainActivity : Activity() {
             if (filteredGames.size > displayLimit) {
                 listContainer.addView(makeButton("➕ Показать ещё 100 игр (сейчас показано $displayLimit из ${filteredGames.size})", th.accent) {
                     displayLimit += 100
-                    renderActiveList()
+                    renderActiveListFn()
                 }.apply {
                     layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                         topMargin = dp(4)
@@ -8473,6 +8482,78 @@ class MainActivity : Activity() {
                 })
             }
         }
+
+        fun renderActiveList() {
+            val mySeq = ++catalogSearchSeq
+            listContainer.removeAllViews()
+            val rawQ = searchQuery
+            val q = rawQ.trim().lowercase()
+
+            val matchingErrors = StormNczEngine.builtInSwitchErrorCodes.filter {
+                q.isEmpty() || it.code.lowercase().contains(q) || it.title.lowercase().contains(q) ||
+                    it.moduleName.lowercase().contains(q) || it.cause.lowercase().contains(q) || it.solution.lowercase().contains(q)
+            }
+
+            if (subTabMode == 1 || (q.length >= 4 && q[0] == '2' && matchingErrors.isNotEmpty())) {
+                matchingErrors.forEach { err ->
+                    val errCard = LinearLayout(this).apply {
+                        orientation = LinearLayout.VERTICAL
+                        background = makeCardDrawable(th.bgCard, th.border)
+                        setPadding(dp(14), dp(11), dp(14), dp(11))
+                        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                            bottomMargin = dp(8)
+                        }
+                    }
+                    errCard.addView(TextView(this).apply {
+                        text = "⚠️ Код ошибки: ${err.code}  •  ${err.moduleName}"
+                        setTextColor(Color.parseColor("#F59E0B"))
+                        setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+                        typeface = Typeface.DEFAULT_BOLD
+                    })
+                    errCard.addView(TextView(this).apply {
+                        text = err.title
+                        setTextColor(th.textPrimary)
+                        setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+                        typeface = Typeface.DEFAULT_BOLD
+                        setPadding(0, dp(2), 0, dp(4))
+                    })
+                    errCard.addView(TextView(this).apply {
+                        text = "Причина: ${err.cause}"
+                        setTextColor(th.textSecondary)
+                        setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f)
+                        setPadding(0, 0, 0, dp(6))
+                    })
+                    errCard.addView(TextView(this).apply {
+                        text = "🛠 Как исправить:\n${err.solution}"
+                        setTextColor(th.accent)
+                        setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f)
+                        background = makeCardDrawable(th.bgPrimary, th.border, 8)
+                        setPadding(dp(10), dp(7), dp(10), dp(7))
+                    })
+                    listContainer.addView(errCard)
+                }
+                if (subTabMode == 1) return
+            }
+
+            if (q.isEmpty()) {
+                val filteredGames = RuTrackerCloudEngine.filterTitleDbCatalogFuzzy(currentCatalog, platformFilter, "")
+                renderGamesListViews(filteredGames)
+                return
+            }
+
+            val catalogSnap = currentCatalog
+            val platSnap = platformFilter
+            uiSearchExecutor.execute {
+                if (mySeq != catalogSearchSeq) return@execute
+                val filteredGames = RuTrackerCloudEngine.filterTitleDbCatalogFuzzy(catalogSnap, platSnap, rawQ)
+                if (mySeq != catalogSearchSeq) return@execute
+                mainHandler.post {
+                    if (mySeq != catalogSearchSeq) return@post
+                    renderGamesListViews(filteredGames)
+                }
+            }
+        }
+        renderActiveListFn = { renderActiveList() }
 
         val modeSwitchRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -8533,8 +8614,12 @@ class MainActivity : Activity() {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
             override fun afterTextChanged(s: android.text.Editable?) {
+                catalogDebounceRunnable?.let { mainHandler.removeCallbacks(it) }
+                catalogSearchSeq++
                 searchQuery = s?.toString() ?: ""
-                renderActiveList()
+                val r = Runnable { renderActiveList() }
+                catalogDebounceRunnable = r
+                mainHandler.postDelayed(r, 120L)
             }
         })
 

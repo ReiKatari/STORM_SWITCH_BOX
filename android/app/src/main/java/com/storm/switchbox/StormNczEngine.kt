@@ -222,11 +222,17 @@ object StormNczEngine {
         }
     }
 
+    private val CLEAN_TITLE_EXT_REGEX = Regex("""(?i)\.(nsp|nsz|xci|xcz|nup|3ds|cia|nca|ncz|zip|rar|7z)$""")
+    private val CLEAN_TITLE_BRACKETS_REGEX = Regex("""\([^()]*\)|\[[^\[\]]*\]|\{[^{}]*\}""")
+    private val CLEAN_TITLE_PLUS_DLC_REGEX = Regex("""(?i)\s*\+\s*(wave\s*\d+\s*dlc|\d*\s*dlcs?|updates?|patch(es)?).*$""")
+    private val CLEAN_TITLE_TAGS_REGEX = Regex("""(?i)\b(v\d+(?:\.\d+)*|upd|update|patch|dlc|base|mod|rus|multi\d*|nintendo|switch|nsp|nsz|xci|xcz)\b""")
+    private val CLEAN_TITLE_SEP_REGEX = Regex("""[_\-]+|\.+""")
+    private val CLEAN_TITLE_WS_REGEX = Regex("""\s+""")
+
     fun extractCleanGameTitle(fileName: String): String {
-        val knownExtRegex = Regex("""(?i)\.(nsp|nsz|xci|xcz|nup|3ds|cia|nca|ncz|zip|rar|7z)$""")
-        var work = fileName.replace(knownExtRegex, "")
+        var work = fileName.replace(CLEAN_TITLE_EXT_REGEX, "")
         repeat(4) {
-            val next = work.replace(Regex("""\([^()]*\)|\[[^\[\]]*\]|\{[^{}]*\}"""), " ")
+            val next = work.replace(CLEAN_TITLE_BRACKETS_REGEX, " ")
             if (next == work) return@repeat
             work = next
         }
@@ -235,10 +241,10 @@ object StormNczEngine {
             .replace("]", " ")
             .replace("(", " ")
             .replace(")", " ")
-            .replace(Regex("""(?i)\s*\+\s*(wave\s*\d+\s*dlc|\d*\s*dlcs?|updates?|patch(es)?).*$"""), " ")
-            .replace(Regex("""(?i)\b(v\d+(?:\.\d+)*|upd|update|patch|dlc|base|mod|rus|multi\d*|nintendo|switch|nsp|nsz|xci|xcz)\b"""), " ")
-            .replace(Regex("""[_\-]+|\.+"""), " ")
-            .replace(Regex("""\s+"""), " ")
+            .replace(CLEAN_TITLE_PLUS_DLC_REGEX, " ")
+            .replace(CLEAN_TITLE_TAGS_REGEX, " ")
+            .replace(CLEAN_TITLE_SEP_REGEX, " ")
+            .replace(CLEAN_TITLE_WS_REGEX, " ")
             .trim()
         return stripped.ifBlank { work.replace("[", "").replace("]", "").trim().take(32) }
     }
@@ -4853,7 +4859,7 @@ object StormNczEngine {
 
     private fun extractZ3dsContainerMetadata(plainFile: File, underlyingMagic: ByteArray, frameSize: Int): LinkedHashMap<String, ByteArray> {
         val meta = LinkedHashMap<String, ByteArray>()
-        meta["compressor"] = "STORM SWITCH BOX 8.0.13".toByteArray(StandardCharsets.UTF_8)
+        meta["compressor"] = "STORM SWITCH BOX 8.1.0".toByteArray(StandardCharsets.UTF_8)
         val df = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US).apply {
             timeZone = java.util.TimeZone.getTimeZone("UTC")
         }
@@ -10218,10 +10224,12 @@ object StormNczEngine {
 
     @Volatile
     private var fullTitleDbMemoryCache: List<TitleDbGameEntry>? = null
+    @Volatile
+    private var switchTitleIdByLowerName: Map<String, String>? = null
+    private val fullTitleDbLock = Any()
 
-    fun loadFullTitleDbFromAssets(): List<TitleDbGameEntry> {
-        fullTitleDbMemoryCache?.let { if (it.size > 5000) return it }
-        val mapByTid = LinkedHashMap<String, TitleDbGameEntry>()
+    private fun buildBuiltInTitleDbBaseMap(): LinkedHashMap<String, TitleDbGameEntry> {
+        val mapByTid = LinkedHashMap<String, TitleDbGameEntry>(12288)
         for (curated in builtInTitleDbCatalog) {
             mapByTid[curated.titleId.uppercase()] = curated
         }
@@ -10240,60 +10248,117 @@ object StormNczEngine {
         for (e3 in extra3ds) {
             mapByTid.putIfAbsent(e3.titleId.uppercase(), e3)
         }
+        return mapByTid
+    }
 
-        try {
-            val ctx = appContextRef
-            if (ctx != null) {
-                val rawStream = try {
-                    ctx.assets.open("titledb_full.tsv")
-                } catch (_: Exception) {
-                    ctx.assets.open("titledb_full.tsv.gz")
-                }
-                val pb = java.io.PushbackInputStream(BufferedInputStream(rawStream), 2)
-                val b0 = pb.read()
-                val b1 = pb.read()
-                if (b1 >= 0) pb.unread(b1)
-                if (b0 >= 0) pb.unread(b0)
-                val effectiveIn = if (b0 == 0x1F && b1 == 0x8B) java.util.zip.GZIPInputStream(pb) else pb
-                effectiveIn.bufferedReader(StandardCharsets.UTF_8).useLines { lines ->
-                    lines.forEach { ln ->
-                        val parts = ln.split('\t')
-                        if (parts.size >= 9) {
-                            val tid = parts[0].trim().uppercase()
-                            if (tid.length == 16 && !mapByTid.containsKey(tid)) {
-                                val patchTid = tid.take(13) + "800"
-                                val name = parts[1].trim()
-                                val pub = parts[2].trim()
-                                val rel = parts[3].trim()
-                                val sz = parts[4].trim()
-                                val hasRu = parts[6].trim() == "1"
-                                val dlcs = parts[7].trim().toIntOrNull() ?: 0
-                                val cat = parts[8].trim()
-                                val ruLabel = if (hasRu) "Официальный русский / Мультиязычный" else "EN / Multi (Поиск русификатора)"
-                                val desc = "Официальный релиз Nintendo Switch • Жанр: $cat • Дата выхода: $rel • Поддержка обновлений [$patchTid] и DLC ($dlcs шт.)."
-                                mapByTid[tid] = TitleDbGameEntry(
-                                    titleId = tid,
-                                    patchId = patchTid,
-                                    name = name,
-                                    publisher = pub,
-                                    releaseYear = rel,
-                                    sizeText = sz,
-                                    platform = "Switch",
-                                    ruSupport = ruLabel,
-                                    dlcCount = dlcs,
-                                    genre = cat,
-                                    description = desc
-                                )
-                            }
-                        }
+    private fun mergeTitleDbTsvIntoMap(rawStream: java.io.InputStream, mapByTid: LinkedHashMap<String, TitleDbGameEntry>) {
+        val pb = java.io.PushbackInputStream(BufferedInputStream(rawStream), 2)
+        val b0 = pb.read()
+        val b1 = pb.read()
+        if (b1 >= 0) pb.unread(b1)
+        if (b0 >= 0) pb.unread(b0)
+        val effectiveIn = if (b0 == 0x1F && b1 == 0x8B) java.util.zip.GZIPInputStream(pb) else pb
+        effectiveIn.bufferedReader(StandardCharsets.UTF_8).useLines { lines ->
+            lines.forEach { ln ->
+                val parts = ln.split('\t')
+                if (parts.size >= 9) {
+                    val tid = parts[0].trim().uppercase()
+                    if (tid.length == 16 && !mapByTid.containsKey(tid)) {
+                        val patchTid = tid.take(13) + "800"
+                        val name = parts[1].trim()
+                        val pub = parts[2].trim()
+                        val rel = parts[3].trim()
+                        val sz = parts[4].trim()
+                        val hasRu = parts[6].trim() == "1"
+                        val dlcs = parts[7].trim().toIntOrNull() ?: 0
+                        val cat = parts[8].trim()
+                        val ruLabel = if (hasRu) "Официальный русский / Мультиязычный" else "EN / Multi (Поиск русификатора)"
+                        val desc = "Официальный релиз Nintendo Switch • Жанр: $cat • Дата выхода: $rel • Поддержка обновлений [$patchTid] и DLC ($dlcs шт.)."
+                        mapByTid[tid] = TitleDbGameEntry(
+                            titleId = tid,
+                            patchId = patchTid,
+                            name = name,
+                            publisher = pub,
+                            releaseYear = rel,
+                            sizeText = sz,
+                            platform = "Switch",
+                            ruSupport = ruLabel,
+                            dlcCount = dlcs,
+                            genre = cat,
+                            description = desc
+                        )
                     }
                 }
             }
-        } catch (_: Exception) {}
+        }
+    }
 
-        val result = mapByTid.values.toList()
-        if (result.size > 100) fullTitleDbMemoryCache = result
-        return result
+    private fun buildSwitchTitleIdLookup(entries: List<TitleDbGameEntry>): Map<String, String> {
+        val map = HashMap<String, String>(entries.size * 2)
+        for (e in entries) {
+            if (!e.platform.equals("Switch", ignoreCase = true) || e.titleId.length != 16) continue
+            val normTid = normalizeBaseTitleId(e.titleId)
+            val n1 = e.name.lowercase().trim()
+            if (n1.isNotEmpty()) map.putIfAbsent(n1, normTid)
+            val n2 = extractCleanGameTitle(e.name).lowercase().trim()
+            if (n2.isNotEmpty()) map.putIfAbsent(n2, normTid)
+            val leadColon = n1.substringBefore(':').trim()
+            if (leadColon.length >= 4 && leadColon != n1) map.putIfAbsent(leadColon, normTid)
+        }
+        return map
+    }
+
+    fun parseTitleDbTsvStream(rawStream: java.io.InputStream): List<TitleDbGameEntry> {
+        val mapByTid = buildBuiltInTitleDbBaseMap()
+        mergeTitleDbTsvIntoMap(rawStream, mapByTid)
+        return mapByTid.values.toList()
+    }
+
+    fun setFullTitleDbForTesting(entries: List<TitleDbGameEntry>?) {
+        synchronized(fullTitleDbLock) {
+            fullTitleDbMemoryCache = entries
+            switchTitleIdByLowerName = if (entries != null) buildSwitchTitleIdLookup(entries) else null
+        }
+    }
+
+    fun lookupSwitchTitleIdFast(cleanLowerName: String): String? {
+        if (cleanLowerName.isEmpty()) return null
+        var map = switchTitleIdByLowerName
+        if (map == null) {
+            val loaded = loadFullTitleDbFromAssets()
+            map = switchTitleIdByLowerName ?: buildSwitchTitleIdLookup(loaded).also { switchTitleIdByLowerName = it }
+        }
+        map[cleanLowerName]?.let { return it }
+        val leadColon = cleanLowerName.substringBefore(':').trim()
+        if (leadColon.length >= 4 && leadColon != cleanLowerName) {
+            map[leadColon]?.let { return it }
+        }
+        return null
+    }
+
+    fun loadFullTitleDbFromAssets(): List<TitleDbGameEntry> {
+        fullTitleDbMemoryCache?.let { if (it.size > 5000) return it }
+        synchronized(fullTitleDbLock) {
+            fullTitleDbMemoryCache?.let { if (it.size > 5000) return it }
+            val mapByTid = buildBuiltInTitleDbBaseMap()
+
+            try {
+                val ctx = appContextRef
+                if (ctx != null) {
+                    val rawStream = try {
+                        ctx.assets.open("titledb_full.tsv")
+                    } catch (_: Exception) {
+                        ctx.assets.open("titledb_full.tsv.gz")
+                    }
+                    mergeTitleDbTsvIntoMap(rawStream, mapByTid)
+                }
+            } catch (_: Exception) {}
+
+            val result = mapByTid.values.toList()
+            switchTitleIdByLowerName = buildSwitchTitleIdLookup(result)
+            if (result.size > 100) fullTitleDbMemoryCache = result
+            return result
+        }
     }
 
     fun syncOnlineTitleDb(cacheFile: File, onProgress: (String) -> Unit): List<TitleDbGameEntry> {
