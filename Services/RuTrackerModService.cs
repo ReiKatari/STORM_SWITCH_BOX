@@ -2701,6 +2701,15 @@ namespace StormSwitchBox.Services
             return s;
         }
         private static readonly Regex TidRegex = new(@"(?<![0-9A-Fa-f])(01[0-9A-Fa-f]{14})(?![0-9A-Fa-f])", RegexOptions.Compiled);
+        private static readonly Regex RawAnyPlatformTidRegex = new(@"(?<![0-9A-Fa-f])((?:01|04)[0-9A-Fa-f]{14}|0004[0-9A-Fa-f]{12})(?![0-9A-Fa-f])", RegexOptions.Compiled);
+
+        public static string ExtractRawTitleId(string? s)
+        {
+            if (string.IsNullOrWhiteSpace(s)) return string.Empty;
+            var m = RawAnyPlatformTidRegex.Match(s);
+            return m.Success ? m.Groups[1].Value.ToUpperInvariant() : string.Empty;
+        }
+
         public static string ExtractTitleId(string s)
         {
             var m = TidRegex.Match(s);
@@ -4888,23 +4897,48 @@ namespace StormSwitchBox.Services
             if (IsUnlockerEntryPath(norm))
                 return "UNLOCKER";
 
-            // 4. Игровые контейнеры Switch / 3DS (.nsp, .nsz, .xci, .xcz, .nup, .3ds, .cia, .cci, .cxi)
-            if (ext is ".nsp" or ".nsz" or ".xci" or ".xcz" or ".nup" or ".3ds" or ".cia" or ".cci" or ".cxi")
+            // 4. Игровые контейнеры Switch / Switch 2 / 3DS / Z3DS
+            if (ext is ".nsp" or ".nsz" or ".xci" or ".xcz" or ".nup" or ".3ds" or ".cia" or ".cci" or ".cxi" or ".3dsx" or ".zcci" or ".zcxi" or ".zcia" or ".z3dsx" or ".z3ds")
             {
-                string tid = ExtractTitleId(fn);
-                bool isUpdateByTid = tid.Length == 16 && tid.EndsWith("800", StringComparison.OrdinalIgnoreCase);
-                bool isUpdateByVer = Regex.IsMatch(fn, @"\[v[1-9]\d*\]") || Regex.IsMatch(fn, @"(?:^|[\s_\-\.\(\[])(?:update|patch|upd)(?:$|[\s_\-\.\)\]v\d])");
-                if (isUpdateByTid || isUpdateByVer)
-                {
-                    bool inTransSubfolder = Regex.IsMatch(dir, @"(?:translation|перевод|русиф|machine\s*trans|rus[\s_\-]mod|локализац|укр|ukr)", RegexOptions.IgnoreCase) ||
-                                            Regex.IsMatch(fn, @"(?:translation|перевод|русиф|machine\s*trans|rus[\s_\-]mod|локализац)", RegexOptions.IgnoreCase);
-                    return inTransSubfolder ? "ОБНОВЛЕНИЕ (РУС)" : "ОБНОВЛЕНИЕ";
-                }
+                bool inTransSubfolder = Regex.IsMatch(dir, @"(?:translation|перевод|русиф|machine\s*trans|rus[\s_\-]mod|локализац|укр|ukr)", RegexOptions.IgnoreCase) ||
+                                        Regex.IsMatch(fn, @"(?:translation|перевод|русиф|machine\s*trans|rus[\s_\-]mod|локализац)", RegexOptions.IgnoreCase);
 
-                bool isDlcByTid = tid.Length == 16 && !tid.EndsWith("000", StringComparison.OrdinalIgnoreCase) && !tid.EndsWith("800", StringComparison.OrdinalIgnoreCase);
-                bool isDlcByName = Regex.IsMatch(fn, @"(?:^|[\s_\-\.\(\[])(?:dlc|addon)(?:$|[\s_\-\.\)\]\d])");
-                if (isDlcByTid || isDlcByName)
+                string rawTid = ExtractRawTitleId(fn);
+                bool isSwitchOrSw2Tid = rawTid.Length == 16 && (rawTid.StartsWith("01", StringComparison.Ordinal) || rawTid.StartsWith("04", StringComparison.Ordinal));
+                bool is3dsTid = rawTid.Length == 16 && rawTid.StartsWith("0004", StringComparison.Ordinal);
+
+                // 4.1 DLC TitleID всегда имеет приоритет над тегом версии [v65536]/[v393216]
+                bool isDlcByTid = (isSwitchOrSw2Tid && !rawTid.EndsWith("000", StringComparison.OrdinalIgnoreCase) && !rawTid.EndsWith("800", StringComparison.OrdinalIgnoreCase)) ||
+                                  (is3dsTid && rawTid.StartsWith("0004008C", StringComparison.OrdinalIgnoreCase));
+                if (isDlcByTid)
                     return "DLC";
+
+                // 4.2 Официальное / переводческое обновление по TitleID (...800 или 0004000E...)
+                bool isUpdateByTid = (isSwitchOrSw2Tid && rawTid.EndsWith("800", StringComparison.OrdinalIgnoreCase)) ||
+                                     (is3dsTid && rawTid.StartsWith("0004000E", StringComparison.OrdinalIgnoreCase));
+                if (isUpdateByTid)
+                    return inTransSubfolder ? "ОБНОВЛЕНИЕ (РУС)" : "ОБНОВЛЕНИЕ";
+
+                bool isBaseByTid = (isSwitchOrSw2Tid && rawTid.EndsWith("000", StringComparison.OrdinalIgnoreCase)) ||
+                                   (is3dsTid && rawTid.StartsWith("00040000", StringComparison.OrdinalIgnoreCase));
+
+                // 4.3 Выделенные папки DLC (напр. "7 DLC/") и явные теги [DLC ...], [Standalone DLC ...]
+                bool inDedicatedDlcSubfolder = !string.IsNullOrEmpty(dir) &&
+                    dir.Split('/', StringSplitOptions.RemoveEmptyEntries)
+                       .Any(seg => Regex.IsMatch(seg.Trim(), @"^(?:\d+\s*)?(?:dlcs?|add[\-\s]?ons?|дополнения?)$", RegexOptions.IgnoreCase));
+
+                bool hasExplicitBracketDlcTag = Regex.IsMatch(fn, @"[\[\(]\s*(?:standalone\s+)?(?:dlc|add[\-_]?on)\b|\bstandalone\s+dlc\b", RegexOptions.IgnoreCase);
+
+                bool isDlcByNameNoTid = Regex.IsMatch(fn, @"(?:^|[\s_\-\.\(\[])(?:dlc|add[\-_]?on)(?:$|[\s_\-\.\)\]\d])", RegexOptions.IgnoreCase) &&
+                                        !Regex.IsMatch(fn, @"\+\s*(?:\d+\s*)?(?:dlc|add[\-_]?on)", RegexOptions.IgnoreCase);
+
+                if (hasExplicitBracketDlcTag || inDedicatedDlcSubfolder || (!isBaseByTid && isDlcByNameNoTid))
+                    return "DLC";
+
+                // 4.4 Эвристика обновления по версии/ключевым словам применяется только после исключения DLC
+                bool isUpdateByVer = Regex.IsMatch(fn, @"\[v[1-9]\d*\]") || Regex.IsMatch(fn, @"(?:^|[\s_\-\.\(\[])(?:update|patch|upd)(?:$|[\s_\-\.\)\]v\d])");
+                if (isUpdateByVer)
+                    return inTransSubfolder ? "ОБНОВЛЕНИЕ (РУС)" : "ОБНОВЛЕНИЕ";
 
                 return "ИГРА";
             }
@@ -4927,7 +4961,7 @@ namespace StormSwitchBox.Services
 
         private static readonly HashSet<string> BinaryContainerExtensions = new(StringComparer.OrdinalIgnoreCase)
         {
-            ".nsp", ".nsz", ".xci", ".xcz", ".3ds", ".cia", ".cci", ".cxi", ".nca", ".ncz", ".nro"
+            ".nsp", ".nsz", ".xci", ".xcz", ".nup", ".3ds", ".cia", ".cci", ".cxi", ".3dsx", ".zcci", ".zcxi", ".zcia", ".z3dsx", ".z3ds", ".nca", ".ncz", ".nro"
         };
 
         private static readonly HashSet<string> ArchiveExtensions = new(StringComparer.OrdinalIgnoreCase)
@@ -5153,14 +5187,14 @@ namespace StormSwitchBox.Services
                 .Where(i => i.CategoryBadge == "ОБНОВЛЕНИЕ")
                 .ToList();
 
+            static long ParseVerTag(TorrentFileSelectionItem it)
+            {
+                var vm = Regex.Match(it.RelativePath, @"\[v(\d+)\]", RegexOptions.IgnoreCase);
+                return vm.Success && long.TryParse(vm.Groups[1].Value, out long v) ? v : 0L;
+            }
+
             if (officialUpdates.Count >= 2)
             {
-                static long ParseVer(TorrentFileSelectionItem it)
-                {
-                    var vm = Regex.Match(it.RelativePath, @"\[v(\d+)\]", RegexOptions.IgnoreCase);
-                    return vm.Success && long.TryParse(vm.Groups[1].Value, out long v) ? v : 0L;
-                }
-
                 var groupedByGame = officialUpdates.GroupBy(u =>
                 {
                     string tid = ExtractTitleId(u.RelativePath);
@@ -5171,10 +5205,26 @@ namespace StormSwitchBox.Services
                 {
                     var grpList = grp.ToList();
                     if (grpList.Count < 2) continue;
-                    var newest = grpList.OrderByDescending(ParseVer).ThenByDescending(x => x.Length).First();
+                    var newest = grpList.OrderByDescending(ParseVerTag).ThenByDescending(x => x.Length).First();
                     foreach (var u in grpList)
                         u.IsSelected = ReferenceEquals(u, newest);
                 }
+            }
+
+            // 3. Все разные DLC по умолчанию остаются включёнными; дедуплицируем только полные дубликаты одного и того же 16-символьного DLC TitleID
+            var dlcWithExactTid = items
+                .Where(i => i.CategoryBadge == "DLC")
+                .Select(i => (Item: i, RawTid: ExtractRawTitleId(i.RelativePath)))
+                .Where(x => x.RawTid.Length == 16)
+                .GroupBy(x => x.RawTid, StringComparer.OrdinalIgnoreCase);
+
+            foreach (var dGrp in dlcWithExactTid)
+            {
+                var dupList = dGrp.Select(x => x.Item).ToList();
+                if (dupList.Count < 2) continue;
+                var newestDlc = dupList.OrderByDescending(ParseVerTag).ThenByDescending(x => x.Length).First();
+                foreach (var d in dupList)
+                    d.IsSelected = ReferenceEquals(d, newestDlc);
             }
         }
 

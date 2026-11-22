@@ -3532,16 +3532,41 @@ object RuTrackerCloudEngine {
     }
 
     private fun torrentFileRole(path: String): String? {
-        val n = path.replace('\\', '/').substringAfterLast('/').lowercase()
-        val tid = Regex("""(?<![0-9a-f])(01[0-9a-f]{14})(?![0-9a-f])""").find(n)?.groupValues?.get(1)
-        if (tid != null) return when {
-            tid.endsWith("800") -> "ПАТЧ"
-            tid.endsWith("000") -> "БАЗА"
-            else -> "DLC"
+        val norm = path.replace('\\', '/')
+        val n = norm.substringAfterLast('/').lowercase()
+        val dirSegs = norm.substringBeforeLast('/', "").split('/').filter { it.isNotBlank() }
+        val inDedicatedDlcSubfolder = dirSegs.any {
+            Regex("""^(?:\d+\s*)?(?:dlcs?|add[-\s]?ons?|дополнения?)$""", RegexOption.IGNORE_CASE).matches(it.trim())
         }
+        val hasExplicitBracketDlcTag = Regex(
+            """[\[\(]\s*(?:standalone\s+)?(?:dlc|add[-_]?on)\b|\bstandalone\s+dlc\b""",
+            RegexOption.IGNORE_CASE
+        ).containsMatchIn(n)
+
+        val tid = Regex("""(?<![0-9a-f])((?:01|04)[0-9a-f]{14}|0004[0-9a-f]{12})(?![0-9a-f])""").find(n)?.groupValues?.get(1)
+        if (tid != null) {
+            if (hasExplicitBracketDlcTag) return "DLC"
+            if (tid.startsWith("0004")) {
+                return when {
+                    tid.startsWith("0004008c") -> "DLC"
+                    tid.startsWith("0004000e") -> "ПАТЧ"
+                    inDedicatedDlcSubfolder -> "DLC"
+                    else -> "БАЗА"
+                }
+            }
+            return when {
+                tid.endsWith("800") -> "ПАТЧ"
+                !tid.endsWith("000") -> "DLC"
+                inDedicatedDlcSubfolder -> "DLC"
+                else -> "БАЗА"
+            }
+        }
+
+        val isDlcByName = Regex("""(?:^|[\s_\-.(\[])(?:dlc|add[-_]?on)(?:$|[\s_\-.\)\]\d])""").containsMatchIn(n) &&
+            !Regex("""\+\s*(?:\d+\s*)?(?:dlc|add[-_]?on)""").containsMatchIn(n)
         return when {
-            n.contains("update") || Regex("""\[v[1-9]\d*]""").containsMatchIn(n) -> "ПАТЧ"
-            n.contains("dlc") -> "DLC"
+            hasExplicitBracketDlcTag || inDedicatedDlcSubfolder || isDlcByName -> "DLC"
+            n.contains("update") || Regex("""(?:^|[\s_\-.(\[])(?:patch|upd)(?:$|[\s_\-.\)\]v\d])""").containsMatchIn(n) || Regex("""\[v[1-9]\d*]""").containsMatchIn(n) -> "ПАТЧ"
             else -> null
         }
     }
