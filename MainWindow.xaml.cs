@@ -522,6 +522,7 @@ namespace StormSwitchBox
             
             DisposeTrayResources();
             
+            try { Services.RuTrackerSeedingService.Instance.ShutdownGracefully(); } catch { }
             try { App.TasksVM?.SaveTasksOnExit(); } catch { }
             try { App.Settings?.Save(); } catch { }
             

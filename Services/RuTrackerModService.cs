@@ -947,7 +947,7 @@ namespace StormSwitchBox.Services
         };
         private static int _activeMirrorIndex = 0;
 
-        private static readonly string[] PublicTrackers =
+        public static readonly string[] PublicTrackers =
         {
             "http://bt.t-ru.org/ann?magnet",
             "http://bt2.t-ru.org/ann?magnet",
@@ -5228,7 +5228,7 @@ namespace StormSwitchBox.Services
             }
         }
 
-        private static int FindFreeHighListenPort(int preferredStart = 44859, int maxOffset = 90)
+        public static int FindFreeHighListenPort(int preferredStart = 44859, int maxOffset = 90)
         {
             for (int offset = 0; offset <= maxOffset; offset++)
             {
@@ -5618,6 +5618,104 @@ namespace StormSwitchBox.Services
             return null;
         }
 
+        public static (string? InfoHash, string? MagnetUri) TryResolveTopicHashAndMagnet(string? topicId)
+        {
+            if (string.IsNullOrWhiteSpace(topicId))
+                return (null, null);
+            lock (_indexLock)
+            {
+                if (_topicsById.TryGetValue(topicId.Trim(), out var topic) && !string.IsNullOrWhiteSpace(topic.InfoHash))
+                {
+                    string h = topic.InfoHash.Trim().ToUpperInvariant();
+                    string title = !string.IsNullOrWhiteSpace(topic.TopicTitle) ? topic.TopicTitle : topic.TorrentName;
+                    return (h, BuildMagnetUri(h, title));
+                }
+            }
+            return (null, null);
+        }
+
+        public static string GetCachedTorrentFilePath(string? infoHash)
+        {
+            string h = (infoHash ?? string.Empty).Trim().ToUpperInvariant();
+            if (h.Length != 40)
+                return string.Empty;
+            string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            return Path.Combine(localAppData, "STORM SWITCH BOX", "cache", "torrents", $"{h}.torrent");
+        }
+
+        public static byte[]? TryResolveCachedTorrentBytes(string? infoHash)
+        {
+            string h = (infoHash ?? string.Empty).Trim().ToUpperInvariant();
+            if (h.Length != 40)
+                return null;
+
+            if (_memoryTorrentCache.TryGetValue(h, out var memBytes) && memBytes != null && memBytes.Length > 64 && memBytes[0] == (byte)'d')
+                return memBytes;
+
+            string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            var candidates = new[]
+            {
+                GetCachedTorrentFilePath(h),
+                Path.Combine(localAppData, "STORM SWITCH BOX", "dht_cache", "metadata", $"{h}.torrent"),
+                Path.Combine(appData, "STORM SWITCH BOX", "dht_cache", "metadata", $"{h}.torrent"),
+            };
+
+            foreach (var cp in candidates)
+            {
+                try
+                {
+                    if (!string.IsNullOrEmpty(cp) && File.Exists(cp) && new FileInfo(cp).Length > 64)
+                    {
+                        byte[] b = File.ReadAllBytes(cp);
+                        if (b.Length > 64 && b[0] == (byte)'d' && TryLoadValidatedTorrent(b, h, out _))
+                        {
+                            _memoryTorrentCache[h] = b;
+                            return b;
+                        }
+                    }
+                }
+                catch { }
+            }
+
+            return null;
+        }
+
+        public static string? TrySaveCachedTorrentBytes(string? infoHash, byte[]? torrentBytes)
+        {
+            if (torrentBytes == null || torrentBytes.Length <= 64 || torrentBytes[0] != (byte)'d')
+                return null;
+
+            string resolvedHash = (infoHash ?? string.Empty).Trim().ToUpperInvariant();
+            if (Torrent.TryLoad(torrentBytes, out var tObj) && tObj != null)
+            {
+                string parsedHash = tObj.InfoHashes.V1OrV2.ToHex().ToUpperInvariant();
+                if (resolvedHash.Length != 40)
+                    resolvedHash = parsedHash;
+                else if (!string.Equals(parsedHash, resolvedHash, StringComparison.OrdinalIgnoreCase))
+                    return null;
+            }
+            if (resolvedHash.Length != 40)
+                return null;
+
+            _memoryTorrentCache[resolvedHash] = torrentBytes;
+            string cachedPath = GetCachedTorrentFilePath(resolvedHash);
+            try
+            {
+                string? dir = Path.GetDirectoryName(cachedPath);
+                if (!string.IsNullOrEmpty(dir))
+                    Directory.CreateDirectory(dir);
+                if (!File.Exists(cachedPath) || new FileInfo(cachedPath).Length <= 64)
+                {
+                    string tmp = cachedPath + $".{Environment.ProcessId}.tmp";
+                    File.WriteAllBytes(tmp, torrentBytes);
+                    File.Move(tmp, cachedPath, overwrite: true);
+                }
+            }
+            catch { }
+            return cachedPath;
+        }
+
         public async Task<List<string>> DownloadTorrentAsync(
             string saveDirectory,
             IReadOnlyList<TorrentFileSelectionItem> fileSelections,
@@ -5682,6 +5780,11 @@ namespace StormSwitchBox.Services
             else
             {
                 throw new InvalidOperationException("Не выбран .torrent файл или Magnet-ссылка для скачивания.");
+            }
+
+            if (rawTorrent != null && rawTorrent.Length > 64 && currentHash.Length == 40)
+            {
+                TrySaveCachedTorrentBytes(currentHash, rawTorrent);
             }
 
             // Мгновенно подтягиваем .torrent из локального кэша или itorrents (1.8с), чтобы стартовать загрузку кусков с 0.0с без ожидания ut_metadata!
@@ -6007,6 +6110,15 @@ namespace StormSwitchBox.Services
                         if ((allSelectedDone || manager.PartialProgress >= 99.99 || manager.State == TorrentState.Seeding) &&
                             fileSelections != null && fileSelections.Any(x => x.IsSelected))
                         {
+                            if (currentHash.Length == 40 && !string.IsNullOrEmpty(manager.MetadataPath) && File.Exists(manager.MetadataPath))
+                            {
+                                try
+                                {
+                                    byte[] metaBytes = await File.ReadAllBytesAsync(manager.MetadataPath, CancellationToken.None).ConfigureAwait(false);
+                                    TrySaveCachedTorrentBytes(currentHash, metaBytes);
+                                }
+                                catch { }
+                            }
                             progress?.Report(new TorrentDownloadProgress
                             {
                                 Percent = 100.0,
@@ -7155,6 +7267,18 @@ namespace StormSwitchBox.Services
                     $"--listen-port {ltListenPort}",
                     $"--parent-pid {Environment.ProcessId}"
                 };
+
+                if (hashLower.Length == 40)
+                {
+                    string cachedTorrentPath = GetCachedTorrentFilePath(hashLower);
+                    if (!string.IsNullOrEmpty(cachedTorrentPath))
+                    {
+                        string? cacheParent = Path.GetDirectoryName(cachedTorrentPath);
+                        if (!string.IsNullOrEmpty(cacheParent))
+                            Directory.CreateDirectory(cacheParent);
+                        argsList.Add($"--save-torrent \"{cachedTorrentPath}\"");
+                    }
+                }
 
                 if (rawTorrent != null && rawTorrent.Length > 0)
                 {

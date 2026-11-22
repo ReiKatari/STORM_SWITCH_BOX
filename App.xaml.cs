@@ -16,7 +16,7 @@ namespace StormSwitchBox
                 if (v != null) return $"{v.Major}.{v.Minor}.{Math.Max(0, v.Build)}";
             }
             catch { }
-            return "8.0.9";
+            return "8.0.10";
         }
         public static Window? MainWindow { get; private set; }
         public static IntPtr MainWindowHandle { get; set; }
@@ -381,6 +381,8 @@ namespace StormSwitchBox
                 MainWindow = new MainWindow();
                 MainWindow.Activate();
             }
+
+            _ = System.Threading.Tasks.Task.Run(() => Services.RuTrackerSeedingService.Instance.LoadAndResumePersistedAsync());
         }
 
         private static bool ProcessCommandLineArgs(string[] cmdArgs)

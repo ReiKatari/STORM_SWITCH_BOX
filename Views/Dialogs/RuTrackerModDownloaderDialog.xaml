@@ -1143,79 +1143,232 @@
                     </StackPanel>
                 </Grid>
 
-                <!-- Виртуализированный список активных и добавленных закачек (сворачиваемый!) -->
-                <Grid x:Name="ActiveDownloadsScrollViewer" Grid.Row="1" Visibility="Collapsed">
-                    <ListView x:Name="ActiveDownloadsItemsControl" SelectionMode="None" MaxHeight="132"
-                              Background="#090D16" BorderBrush="#1E293B" BorderThickness="1" CornerRadius="6" Padding="2">
-                        <ListView.ItemContainerStyle>
-                            <Style TargetType="ListViewItem">
-                                <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-                                <Setter Property="Padding" Value="2,1"/>
-                                <Setter Property="MinHeight" Value="0"/>
-                            </Style>
-                        </ListView.ItemContainerStyle>
-                        <ListView.ItemTemplate>
-                            <DataTemplate>
-                                <Border Background="#151E2E" BorderBrush="#25354F" BorderThickness="1" CornerRadius="5" Padding="6,2" Margin="0,1" Height="29">
-                                    <Grid ColumnSpacing="8">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="92"/>
-                                            <ColumnDefinition Width="*"/>
-                                            <ColumnDefinition Width="135"/>
-                                            <ColumnDefinition Width="168"/>
-                                            <ColumnDefinition Width="154"/>
-                                            <ColumnDefinition Width="Auto"/>
-                                        </Grid.ColumnDefinitions>
+                <!-- Виртуализированный список активных закачек + блок «Раздачи» на вкладке «Закачки» -->
+                <Grid x:Name="DownloadsAndSeedingGrid" Grid.Row="1">
+                    <Grid.RowDefinitions>
+                        <RowDefinition x:Name="DownloadsListRowDef" Height="Auto"/>
+                        <RowDefinition x:Name="SeedingSectionRowDef" Height="0"/>
+                    </Grid.RowDefinitions>
 
-                                        <Border Grid.Column="0" Background="{Binding StageBrush}" CornerRadius="3" Padding="6,2" VerticalAlignment="Center" HorizontalAlignment="Stretch">
-                                            <TextBlock Text="{Binding StageBadgeDisplay}" FontSize="9.5" FontFamily="Consolas" Foreground="White" FontWeight="Bold" VerticalAlignment="Center" TextAlignment="Center"/>
+                    <Grid x:Name="ActiveDownloadsContainerGrid" Grid.Row="0">
+                        <TextBlock x:Name="NoActiveDownloadsText"
+                                   Text="Активных закачек нет"
+                                   FontSize="11.5" FontStyle="Italic" Foreground="#64748B"
+                                   Margin="6,6,0,4" VerticalAlignment="Center" Visibility="Collapsed"/>
+
+                        <Grid x:Name="ActiveDownloadsScrollViewer" Visibility="Collapsed">
+                            <ListView x:Name="ActiveDownloadsItemsControl" SelectionMode="None" MaxHeight="132"
+                                      Background="#090D16" BorderBrush="#1E293B" BorderThickness="1" CornerRadius="6" Padding="2">
+                                <ListView.ItemContainerStyle>
+                                    <Style TargetType="ListViewItem">
+                                        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                        <Setter Property="Padding" Value="2,1"/>
+                                        <Setter Property="MinHeight" Value="0"/>
+                                    </Style>
+                                </ListView.ItemContainerStyle>
+                                <ListView.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Background="#151E2E" BorderBrush="#25354F" BorderThickness="1" CornerRadius="5" Padding="6,2" Margin="0,1" Height="29">
+                                            <Grid ColumnSpacing="8">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="92"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="135"/>
+                                                    <ColumnDefinition Width="168"/>
+                                                    <ColumnDefinition Width="154"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                </Grid.ColumnDefinitions>
+
+                                                <Border Grid.Column="0" Background="{Binding StageBrush}" CornerRadius="3" Padding="6,2" VerticalAlignment="Center" HorizontalAlignment="Stretch">
+                                                    <TextBlock Text="{Binding StageBadgeDisplay}" FontSize="9.5" FontFamily="Consolas" Foreground="White" FontWeight="Bold" VerticalAlignment="Center" TextAlignment="Center"/>
+                                                </Border>
+
+                                                <TextBlock Grid.Column="1" Text="{Binding DisplayTitle}" FontSize="11" FontWeight="SemiBold" Foreground="#F8FAFC"
+                                                           VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{Binding DisplayTitle}"/>
+
+                                                <ProgressBar Grid.Column="2" Value="{Binding ProgressPercent}" Minimum="0" Maximum="100" Height="6" CornerRadius="3" VerticalAlignment="Center"/>
+
+                                                <TextBlock Grid.Column="3" Text="{Binding ProgressDetailsDisplay}" FontSize="10.5" FontFamily="Consolas" Foreground="#CBD5E1"
+                                                           VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+
+                                                <TextBlock Grid.Column="4" Text="{Binding SpeedTextDisplay}" FontSize="10.5" FontFamily="Consolas" Foreground="{Binding SpeedBrush}" FontWeight="SemiBold"
+                                                           VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+
+                                                <StackPanel Grid.Column="5" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                                                    <Button Click="TogglePauseQueueItem_Click" Tag="{Binding}"
+                                                            Padding="4,2" Width="25" Height="21" MinHeight="21" CornerRadius="3"
+                                                            Background="#25354F" Foreground="#38BDF8" VerticalAlignment="Center"
+                                                            ToolTipService.ToolTip="{Binding PauseResumeTooltip}">
+                                                        <FontIcon Glyph="{Binding PauseResumeGlyph}" FontSize="10.5"/>
+                                                    </Button>
+
+                                                    <Button Click="MoveQueueItemUp_Click" Tag="{Binding}"
+                                                            Padding="4,2" Width="25" Height="21" MinHeight="21" CornerRadius="3"
+                                                            Background="#25354F" Foreground="#CBD5E1" VerticalAlignment="Center"
+                                                            ToolTipService.ToolTip="Поднять выше в очереди закачек">
+                                                        <FontIcon Glyph="&#xE74A;" FontSize="10.5"/>
+                                                    </Button>
+
+                                                    <Button Click="MoveQueueItemDown_Click" Tag="{Binding}"
+                                                            Padding="4,2" Width="25" Height="21" MinHeight="21" CornerRadius="3"
+                                                            Background="#25354F" Foreground="#CBD5E1" VerticalAlignment="Center"
+                                                            ToolTipService.ToolTip="Опустить ниже в очереди закачек">
+                                                        <FontIcon Glyph="&#xE74B;" FontSize="10.5"/>
+                                                    </Button>
+
+                                                    <Button Click="CancelSingleBatch_Click" Tag="{Binding}"
+                                                            Padding="4,2" Width="25" Height="21" MinHeight="21" CornerRadius="3"
+                                                            Background="#7FDC2626" Foreground="White" VerticalAlignment="Center"
+                                                            ToolTipService.ToolTip="Отменить закачку и убрать из списка">
+                                                        <FontIcon Glyph="&#xE711;" FontSize="10.5"/>
+                                                    </Button>
+                                                </StackPanel>
+                                            </Grid>
                                         </Border>
+                                    </DataTemplate>
+                                </ListView.ItemTemplate>
+                            </ListView>
+                        </Grid>
+                    </Grid>
 
-                                        <TextBlock Grid.Column="1" Text="{Binding DisplayTitle}" FontSize="11" FontWeight="SemiBold" Foreground="#F8FAFC"
-                                                   VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{Binding DisplayTitle}"/>
+                    <!-- Блок «Раздачи» (видим исключительно на вкладке «Закачки»!) -->
+                    <Border x:Name="SeedingPanelBorder" Grid.Row="1" Visibility="Collapsed"
+                            Background="#0C1322" BorderBrush="#1E3A5F" BorderThickness="1" CornerRadius="7" Padding="8,6" Margin="0,6,0,0">
+                        <Grid RowSpacing="6">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
 
-                                        <ProgressBar Grid.Column="2" Value="{Binding ProgressPercent}" Minimum="0" Maximum="100" Height="6" CornerRadius="3" VerticalAlignment="Center"/>
+                            <Grid Grid.Row="0" ColumnSpacing="8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
 
-                                        <TextBlock Grid.Column="3" Text="{Binding ProgressDetailsDisplay}" FontSize="10.5" FontFamily="Consolas" Foreground="#CBD5E1"
-                                                   VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                    <FontIcon Glyph="&#xE898;" FontSize="12.5" Foreground="#10B981"/>
+                                    <TextBlock x:Name="SeedingSectionHeaderText" Text="Раздачи" FontSize="12" FontWeight="Bold" Foreground="#E2E8F0" VerticalAlignment="Center"/>
+                                    <Border Background="#0F2E28" BorderBrush="#10B981" BorderThickness="1" CornerRadius="10" Padding="7,1" VerticalAlignment="Center">
+                                        <TextBlock x:Name="SeedingCountBadgeText" Text="0" FontSize="10.5" FontFamily="Consolas" FontWeight="Bold" Foreground="#34D399"/>
+                                    </Border>
+                                </StackPanel>
 
-                                        <TextBlock Grid.Column="4" Text="{Binding SpeedTextDisplay}" FontSize="10.5" FontFamily="Consolas" Foreground="{Binding SpeedBrush}" FontWeight="SemiBold"
-                                                   VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                                <TextBlock x:Name="SeedingSummaryText" Grid.Column="2"
+                                           Text="Активно: 0 / 0 • Отдача: 0,00 МБ/с • Отдано: 0 МБ • Личи: 0"
+                                           FontSize="11" FontFamily="Consolas" Foreground="#94A3B8" VerticalAlignment="Center"
+                                           TextTrimming="CharacterEllipsis"/>
 
-                                        <StackPanel Grid.Column="5" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
-                                            <Button Click="TogglePauseQueueItem_Click" Tag="{Binding}"
-                                                    Padding="4,2" Width="25" Height="21" MinHeight="21" CornerRadius="3"
-                                                    Background="#25354F" Foreground="#38BDF8" VerticalAlignment="Center"
-                                                    ToolTipService.ToolTip="{Binding PauseResumeTooltip}">
-                                                <FontIcon Glyph="{Binding PauseResumeGlyph}" FontSize="10.5"/>
-                                            </Button>
-
-                                            <Button Click="MoveQueueItemUp_Click" Tag="{Binding}"
-                                                    Padding="4,2" Width="25" Height="21" MinHeight="21" CornerRadius="3"
-                                                    Background="#25354F" Foreground="#CBD5E1" VerticalAlignment="Center"
-                                                    ToolTipService.ToolTip="Поднять выше в очереди закачек">
-                                                <FontIcon Glyph="&#xE74A;" FontSize="10.5"/>
-                                            </Button>
-
-                                            <Button Click="MoveQueueItemDown_Click" Tag="{Binding}"
-                                                    Padding="4,2" Width="25" Height="21" MinHeight="21" CornerRadius="3"
-                                                    Background="#25354F" Foreground="#CBD5E1" VerticalAlignment="Center"
-                                                    ToolTipService.ToolTip="Опустить ниже в очереди закачек">
-                                                <FontIcon Glyph="&#xE74B;" FontSize="10.5"/>
-                                            </Button>
-
-                                            <Button Click="CancelSingleBatch_Click" Tag="{Binding}"
-                                                    Padding="4,2" Width="25" Height="21" MinHeight="21" CornerRadius="3"
-                                                    Background="#7FDC2626" Foreground="White" VerticalAlignment="Center"
-                                                    ToolTipService.ToolTip="Отменить закачку и убрать из списка">
-                                                <FontIcon Glyph="&#xE711;" FontSize="10.5"/>
-                                            </Button>
+                                <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="5" VerticalAlignment="Center">
+                                    <Button x:Name="ResumeAllSeedingBtn" Click="ResumeAllSeeding_Click"
+                                            Padding="8,0" Height="24" MinHeight="24" CornerRadius="4" FontSize="10.5"
+                                            Background="#0F2E28" BorderBrush="#10B981" BorderThickness="1" Foreground="#34D399"
+                                            ToolTipService.ToolTip="Запустить все раздачи в блоке сидирования">
+                                        <StackPanel Orientation="Horizontal" Spacing="4">
+                                            <FontIcon Glyph="&#xE768;" FontSize="10.5"/>
+                                            <TextBlock Text="Запустить все" FontSize="10.5"/>
                                         </StackPanel>
-                                    </Grid>
-                                </Border>
-                            </DataTemplate>
-                        </ListView.ItemTemplate>
-                    </ListView>
+                                    </Button>
+                                    <Button x:Name="PauseAllSeedingBtn" Click="PauseAllSeeding_Click"
+                                            Padding="8,0" Height="24" MinHeight="24" CornerRadius="4" FontSize="10.5"
+                                            ToolTipService.ToolTip="Приостановить все раздачи">
+                                        <StackPanel Orientation="Horizontal" Spacing="4">
+                                            <FontIcon Glyph="&#xE769;" FontSize="10.5"/>
+                                            <TextBlock Text="Пауза все" FontSize="10.5"/>
+                                        </StackPanel>
+                                    </Button>
+                                </StackPanel>
+                            </Grid>
+
+                            <Grid Grid.Row="1">
+                                <ListView x:Name="SeedingItemsListView" SelectionMode="None"
+                                          Background="#090D16" BorderBrush="#1E293B" BorderThickness="1" CornerRadius="6" Padding="2">
+                                    <ListView.ItemContainerStyle>
+                                        <Style TargetType="ListViewItem">
+                                            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                            <Setter Property="Padding" Value="2,1"/>
+                                            <Setter Property="MinHeight" Value="0"/>
+                                        </Style>
+                                    </ListView.ItemContainerStyle>
+                                    <ListView.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border Background="#131E30" BorderBrush="#233754" BorderThickness="1" CornerRadius="5" Padding="7,2" Margin="0,1" Height="34">
+                                                <Grid ColumnSpacing="8">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="94"/>
+                                                        <ColumnDefinition Width="*"/>
+                                                        <ColumnDefinition Width="86"/>
+                                                        <ColumnDefinition Width="134"/>
+                                                        <ColumnDefinition Width="104"/>
+                                                        <ColumnDefinition Width="216"/>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                    </Grid.ColumnDefinitions>
+
+                                                    <Border Grid.Column="0" Background="{Binding StageBrush}" CornerRadius="3" Padding="6,2" VerticalAlignment="Center" HorizontalAlignment="Stretch">
+                                                        <TextBlock Text="{Binding StageBadgeDisplay}" FontSize="9.5" FontFamily="Consolas" Foreground="White" FontWeight="Bold" VerticalAlignment="Center" TextAlignment="Center"/>
+                                                    </Border>
+
+                                                    <TextBlock Grid.Column="1" Text="{Binding DisplayTitle}" FontSize="11.5" FontWeight="SemiBold" Foreground="#F8FAFC"
+                                                               VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{Binding TooltipDetails}"/>
+
+                                                    <TextBlock Grid.Column="2" Text="{Binding SizeDisplay}" FontSize="10.5" FontFamily="Consolas" Foreground="#94A3B8"
+                                                               VerticalAlignment="Center" HorizontalAlignment="Right"/>
+
+                                                    <TextBlock Grid.Column="3" Text="{Binding UploadedDisplay}" FontSize="10.5" FontFamily="Consolas" Foreground="#38BDF8" FontWeight="SemiBold"
+                                                               VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+
+                                                    <TextBlock Grid.Column="4" Text="{Binding RatioDisplay}" FontSize="10.5" FontFamily="Consolas" Foreground="{Binding RatioBrush}" FontWeight="Bold"
+                                                               VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+
+                                                    <TextBlock Grid.Column="5" Text="{Binding SpeedAndPeersDisplay}" FontSize="10.5" FontFamily="Consolas" Foreground="{Binding SpeedBrush}" FontWeight="SemiBold"
+                                                               VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+
+                                                    <StackPanel Grid.Column="6" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                                                        <Button Click="TogglePauseSeedingItem_Click" Tag="{Binding}"
+                                                                Padding="4,2" Width="25" Height="22" MinHeight="22" CornerRadius="3"
+                                                                Background="#25354F" Foreground="#38BDF8" VerticalAlignment="Center"
+                                                                ToolTipService.ToolTip="{Binding PauseResumeTooltip}">
+                                                            <FontIcon Glyph="{Binding PauseResumeGlyph}" FontSize="10.5"/>
+                                                        </Button>
+
+                                                        <Button Click="ReannounceSeedingItem_Click" Tag="{Binding}"
+                                                                Padding="4,2" Width="25" Height="22" MinHeight="22" CornerRadius="3"
+                                                                Background="#25354F" Foreground="#34D399" VerticalAlignment="Center"
+                                                                ToolTipService.ToolTip="Обновить трекеры и пиров">
+                                                            <FontIcon Glyph="&#xE72C;" FontSize="10.5"/>
+                                                        </Button>
+
+                                                        <Button Click="OpenSeedingFolder_Click" Tag="{Binding}"
+                                                                Padding="4,2" Width="25" Height="22" MinHeight="22" CornerRadius="3"
+                                                                Background="#25354F" Foreground="#CBD5E1" VerticalAlignment="Center"
+                                                                ToolTipService.ToolTip="Открыть папку раздачи">
+                                                            <FontIcon Glyph="&#xE8B7;" FontSize="10.5"/>
+                                                        </Button>
+
+                                                        <Button Click="RemoveSeedingItem_Click" Tag="{Binding}"
+                                                                Padding="4,2" Width="25" Height="22" MinHeight="22" CornerRadius="3"
+                                                                Background="#7FDC2626" Foreground="White" VerticalAlignment="Center"
+                                                                ToolTipService.ToolTip="Остановить и убрать из раздач (файлы на диске сохранятся)">
+                                                            <FontIcon Glyph="&#xE711;" FontSize="10.5"/>
+                                                        </Button>
+                                                    </StackPanel>
+                                                </Grid>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ListView.ItemTemplate>
+                                </ListView>
+
+                                <StackPanel x:Name="SeedingEmptyStatePanel" Orientation="Horizontal" Spacing="10"
+                                            HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed">
+                                    <FontIcon Glyph="&#xE898;" FontSize="16" Foreground="#34D399" VerticalAlignment="Center"/>
+                                    <TextBlock Text="Активных раздач нет. Отключите пункт &quot;Удалять исходные файлы после успешной проверки контейнера&quot;, чтобы скачанные раздачи автоматически оставались здесь и раздавались."
+                                               FontSize="11.5" Foreground="#94A3B8" TextWrapping="Wrap" MaxWidth="760" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Grid>
+                        </Grid>
+                    </Border>
                 </Grid>
 
                 <ProgressBar x:Name="DownloadProgressBar" Grid.Row="1" Minimum="0" Maximum="100" Value="0" Height="5" CornerRadius="3" Visibility="Collapsed"/>

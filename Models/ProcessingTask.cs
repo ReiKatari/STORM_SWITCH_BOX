@@ -769,6 +769,7 @@ namespace StormSwitchBox.Models
         public string SharedReleaseDir { get; set; } = string.Empty;
         public bool AppendAutoTags { get; set; } = false;
         public GameMetadataEditModel? CustomMetadata { get; set; }
+        public List<string>? PreMatchedContainerPaths { get; set; }
     }
 
     public sealed class PersistedTaskSnapshot

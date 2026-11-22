@@ -342,6 +342,8 @@ namespace StormSwitchBox.Services
         public const double StartupWarmupSeconds = 8.0;
         public const int MaxTotalConcurrentDownloads = 30;
         public ObservableCollection<RuTrackerActiveDownloadItem> Items { get; } = new();
+        public ObservableCollection<RuTrackerSeedingItem> SeedingItems => RuTrackerSeedingService.Instance.Items;
+        public RuTrackerSeedingService Seeding => RuTrackerSeedingService.Instance;
         private readonly List<RuTrackerActiveDownloadItem> _backingItems = new();
 
         private readonly object _syncLock = new();
@@ -410,8 +412,6 @@ namespace StormSwitchBox.Services
             {
                 snapshot = _backingItems.ToArray();
             }
-
-            if (snapshot.Length == 0) return;
 
             double totalSpeedBps = 0;
             int totalSeeds = 0;
@@ -487,11 +487,27 @@ namespace StormSwitchBox.Services
             int inQueue = snapshot.Count(i => i.StageBadge is "В ОЧЕРЕДИ");
             int finished = snapshot.Count(i => i.StageBadge is "ГОТОВО");
 
+            RuTrackerSeedingService.Instance.CommitAllUiUpdates();
+            var seedSummary = RuTrackerSeedingService.Instance.GetSummarySnapshot();
+
             // Если открыто диалоговое окно RuTrackerModDownloaderDialog, обновляем его заголовочную панель
             var activeDlg = RuTrackerModDownloaderDialog.ActiveInstance;
             if (activeDlg != null)
             {
-                activeDlg.UpdateHeaderSummary(inList, downloading, inQueue, finished, totalSpeedBps, totalSeeds, totalPeers);
+                activeDlg.UpdateHeaderSummary(
+                    inList,
+                    downloading,
+                    inQueue,
+                    finished,
+                    totalSpeedBps,
+                    totalSeeds,
+                    totalPeers,
+                    seedSummary.TotalCount,
+                    seedSummary.ActiveSeedingCount,
+                    seedSummary.TotalUploadBps,
+                    seedSummary.TotalUploadedBytes,
+                    seedSummary.TotalLeeches,
+                    seedSummary.TotalSeeds);
             }
         }
 
@@ -675,6 +691,7 @@ namespace StormSwitchBox.Services
             {
                 var batchCts = item.Cts ?? new CancellationTokenSource();
                 var ct = batchCts.Token;
+                bool handledByFinalizer = false;
 
                 try
                 {
@@ -687,6 +704,8 @@ namespace StormSwitchBox.Services
                     {
                         await ExecuteMultiTaskPipelineAsync(item, ct).ConfigureAwait(false);
                     }
+
+                    handledByFinalizer = await HandleSuccessfulBatchCompletionAsync(item).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException)
                 {
@@ -712,6 +731,7 @@ namespace StormSwitchBox.Services
                     if (item.IsBuildCompletedOnDisk || item.RawStageBadge == "ГОТОВО")
                     {
                         App.Logger?.Log($"[RuTracker Queue] Пост-сборочное исключение проигнорировано (образ уже собран) [{item.BatchId}]: {ex.GetType().Name} {ex.Message}", LogLevel.Warning);
+                        handledByFinalizer = await HandleSuccessfulBatchCompletionAsync(item).ConfigureAwait(false);
                     }
                     else
                     {
@@ -744,27 +764,150 @@ namespace StormSwitchBox.Services
                 {
                     item.IsActive = false;
                     item.RawSpeedBps = 0;
-                    try
+                    if (!handledByFinalizer)
                     {
-                        if (item.RawStageBadge != "ОТМЕНЕНО" && item.RawStageBadge != "ОШИБКА")
+                        try
                         {
-                            item.RawStageBadge = "ГОТОВО";
-                            item.RawStageColor = Windows.UI.Color.FromArgb(255, 34, 197, 94);
-                            item.RawPercent = 100.0;
-                            item.RawSpeedText = "100% Завершено";
-                            item.RawDetails = "Сборка завершена";
+                            if (item.RawStageBadge != "ОТМЕНЕНО" && item.RawStageBadge != "ОШИБКА")
+                            {
+                                item.RawStageBadge = "ГОТОВО";
+                                item.RawStageColor = Windows.UI.Color.FromArgb(255, 34, 197, 94);
+                                item.RawPercent = 100.0;
+                                item.RawSpeedText = "100% Завершено";
+                                item.RawDetails = "Сборка завершена";
+                            }
+                            item.IsActive = false;
+                            RunOnUiSyncOrAsync(() =>
+                            {
+                                item.CommitUiUpdates();
+                                SaveQueueState();
+                            });
                         }
-                        item.IsActive = false;
-                        RunOnUiSyncOrAsync(() =>
-                        {
-                            item.CommitUiUpdates();
-                            SaveQueueState();
-                        });
+                        catch { }
                     }
-                    catch { }
                     EvaluateQueuePriorities();
                 }
             });
+        }
+
+        private async Task<bool> HandleSuccessfulBatchCompletionAsync(RuTrackerActiveDownloadItem item)
+        {
+            if (item == null || item.RawStageBadge is "ОШИБКА" or "ОТМЕНЕНО")
+                return false;
+
+            if (item.CreatedTasks == null || item.CreatedTasks.Count == 0)
+                return false;
+
+            bool allTasksSucceeded = item.CreatedTasks.All(c =>
+                c.Task.Status == "Успешно" ||
+                c.Task.Status == "Готово" ||
+                (!c.Payload.AutoBuild && !c.Task.Status.StartsWith("Ошибка", StringComparison.OrdinalIgnoreCase)));
+
+            if (!allTasksSucceeded)
+                return false;
+
+            bool hadAutoBuild = item.CreatedTasks.Any(c => c.Payload.AutoBuild);
+            bool deleteSource = item.DeleteSourceAfterVerify && item.CreatedTasks.All(c => c.Task.DeleteSourceAfterVerify);
+
+            if (deleteSource && hadAutoBuild)
+            {
+                RemoveCompletedBatchFromQueue(item, disposeItem: true);
+                return true;
+            }
+
+            if (!deleteSource && item.HasTorrentSource)
+            {
+                string contentDir = item.CreatedTasks.Count > 1
+                    ? item.SharedReleaseDir
+                    : (!string.IsNullOrWhiteSpace(item.CreatedTasks[0].Payload.TargetReleaseDir)
+                        ? item.CreatedTasks[0].Payload.TargetReleaseDir
+                        : item.SharedReleaseDir);
+
+                byte[]? tBytes = item.Service?.LoadedTorrentBytes
+                    ?? item.CreatedTasks.Select(c => c.Payload.TorrentBytes).FirstOrDefault(b => b != null && b.Length > 0);
+                string magnetUri = item.Service?.LoadedMagnet?.ToV1String()
+                    ?? item.CreatedTasks.Select(c => c.Payload.MagnetLink?.ToV1String()).FirstOrDefault(m => !string.IsNullOrEmpty(m))
+                    ?? item.CurrentTopic?.MagnetUri
+                    ?? string.Empty;
+                string topicId = item.CurrentTopic?.TopicId
+                    ?? item.CreatedTasks.Select(c => c.Payload.Topic?.TopicId).FirstOrDefault(id => !string.IsNullOrEmpty(id))
+                    ?? string.Empty;
+                string topicTitle = !string.IsNullOrWhiteSpace(item.CurrentTopic?.Title)
+                    ? item.CurrentTopic!.Title
+                    : item.DisplayTitle;
+
+                var selectedRels = item.CreatedTasks
+                    .SelectMany(c => c.Payload.TorrentFiles ?? new List<TorrentFileSelectionItem>())
+                    .Where(f => f.IsSelected)
+                    .SelectMany(f => f.GetEffectiveRelativePaths())
+                    .Where(p => !string.IsNullOrWhiteSpace(p))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                long totalSelectedSize = item.CreatedTasks
+                    .SelectMany(c => c.Payload.TorrentFiles ?? new List<TorrentFileSelectionItem>())
+                    .Where(f => f.IsSelected)
+                    .GroupBy(f => f.RelativePath, StringComparer.OrdinalIgnoreCase)
+                    .Sum(g => Math.Max(0L, g.First().Length));
+
+                var req = new RuTrackerSeedingAddRequest
+                {
+                    DisplayTitle = item.DisplayTitle,
+                    TopicId = topicId,
+                    TopicTitle = topicTitle,
+                    ContentDir = contentDir,
+                    TorrentBytes = tBytes,
+                    MagnetLink = magnetUri,
+                    SelectedRelativePaths = selectedRels,
+                    TotalSelectedSizeBytes = totalSelectedSize
+                };
+
+                RemoveCompletedBatchFromQueue(item, disposeItem: false);
+                try
+                {
+                    await RuTrackerSeedingService.Instance.AddOrUpdateSeedingAsync(req).ConfigureAwait(false);
+                }
+                finally
+                {
+                    try { item.Dispose(); } catch { }
+                }
+                return true;
+            }
+
+            return false;
+        }
+
+        private void RemoveCompletedBatchFromQueue(RuTrackerActiveDownloadItem item, bool disposeItem)
+        {
+            lock (_syncLock)
+            {
+                _backingItems.Remove(item);
+            }
+            RunOnUiSyncOrAsync(() =>
+            {
+                Items.Remove(item);
+                SaveQueueState();
+                TriggerDialogHeaderRefresh();
+            });
+            if (disposeItem)
+            {
+                try { item.Dispose(); } catch { }
+            }
+        }
+
+        private void TriggerDialogHeaderRefresh()
+        {
+            RuTrackerActiveDownloadItem[] snapshot;
+            lock (_syncLock) { snapshot = _backingItems.ToArray(); }
+            int inList = snapshot.Length;
+            int downloading = snapshot.Count(i => i.IsActive && i.EffectiveStage is "СКАЧИВАНИЕ" or "МОДЫ" or "МЕТАДАННЫЕ");
+            int inQueue = snapshot.Count(i => i.StageBadge is "В ОЧЕРЕДИ");
+            int finished = snapshot.Count(i => i.StageBadge is "ГОТОВО");
+            var seedSummary = RuTrackerSeedingService.Instance.GetSummarySnapshot();
+            RuTrackerModDownloaderDialog.ActiveInstance?.UpdateHeaderSummary(
+                inList, downloading, inQueue, finished, 0, 0, 0,
+                seedSummary.TotalCount, seedSummary.ActiveSeedingCount, seedSummary.TotalUploadBps,
+                seedSummary.TotalUploadedBytes, seedSummary.TotalLeeches, seedSummary.TotalSeeds);
         }
 
         private async Task ExecuteSingleTaskPipelineAsync(
@@ -878,13 +1021,29 @@ namespace StormSwitchBox.Services
                     .Select(s => s!)
                     .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-                foreach (var p in RuTrackerModService.DiscoverModPayloadsInDirectory(payload.TargetReleaseDir))
+                var modScanDirs = new List<string>();
+                if (!string.IsNullOrWhiteSpace(payload.TargetReleaseDir) && Directory.Exists(payload.TargetReleaseDir))
+                    modScanDirs.Add(payload.TargetReleaseDir);
+                if (!string.IsNullOrWhiteSpace(payload.SharedReleaseDir) &&
+                    !string.Equals(payload.SharedReleaseDir, payload.TargetReleaseDir, StringComparison.OrdinalIgnoreCase) &&
+                    Directory.Exists(payload.SharedReleaseDir))
                 {
-                    bool matchesSelected = allowedModFolderNames.Count == 0 ||
-                                           allowedModFolderNames.Any(m => p.Contains(m, StringComparison.OrdinalIgnoreCase)) ||
-                                           p.Contains("Extracted_TorrentMod_", StringComparison.OrdinalIgnoreCase);
-                    if (matchesSelected && !discoveredModPayloads.Contains(p, StringComparer.OrdinalIgnoreCase))
-                        discoveredModPayloads.Add(p);
+                    modScanDirs.Add(payload.SharedReleaseDir);
+                }
+
+                foreach (var scanDir in modScanDirs)
+                {
+                    foreach (var p in RuTrackerModService.DiscoverModPayloadsInDirectory(scanDir))
+                    {
+                        if (scanDir.Equals(payload.SharedReleaseDir, StringComparison.OrdinalIgnoreCase) &&
+                            p.Contains($"{Path.DirectorySeparatorChar}Part_", StringComparison.OrdinalIgnoreCase))
+                            continue;
+                        bool matchesSelected = allowedModFolderNames.Count == 0 ||
+                                               allowedModFolderNames.Any(m => p.Contains(m, StringComparison.OrdinalIgnoreCase)) ||
+                                               p.Contains("Extracted_TorrentMod_", StringComparison.OrdinalIgnoreCase);
+                        if (matchesSelected && !discoveredModPayloads.Contains(p, StringComparer.OrdinalIgnoreCase))
+                            discoveredModPayloads.Add(p);
+                    }
                 }
             }
 
@@ -895,15 +1054,26 @@ namespace StormSwitchBox.Services
                     .ToList()
                 : new List<string>();
 
-            var matchedContainers = RuTrackerModDownloaderDialog.FilterDownloadedContainersForSlot(
-                candidateContainers,
-                payload.TorrentFiles ?? new List<TorrentFileSelectionItem>(),
-                payload.SlotNumber,
-                payload.SlotGameTitle,
-                new List<string> { payload.SlotGameTitle });
-            if (matchedContainers.Count == 0 && candidateContainers.Count > 0 && RuTrackerModDownloaderDialog.IsDedicatedPartDir(payload.TargetReleaseDir))
+            List<string> matchedContainers;
+            if (payload.PreMatchedContainerPaths != null && payload.PreMatchedContainerPaths.Count > 0)
             {
-                matchedContainers = candidateContainers;
+                matchedContainers = payload.PreMatchedContainerPaths
+                    .Where(File.Exists)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+            }
+            else
+            {
+                matchedContainers = RuTrackerModDownloaderDialog.FilterDownloadedContainersForSlot(
+                    candidateContainers,
+                    payload.TorrentFiles ?? new List<TorrentFileSelectionItem>(),
+                    payload.SlotNumber,
+                    payload.SlotGameTitle,
+                    new List<string> { payload.SlotGameTitle });
+                if (matchedContainers.Count == 0 && candidateContainers.Count > 0 && RuTrackerModDownloaderDialog.IsDedicatedPartDir(payload.TargetReleaseDir))
+                {
+                    matchedContainers = candidateContainers;
+                }
             }
 
             // 4. Привязка файлов к задаче на UI-потоке
@@ -1181,39 +1351,43 @@ namespace StormSwitchBox.Services
                 }
             }
 
-            var remainingMoveCounts = new Dictionary<string, int>(containerRefCounts, StringComparer.OrdinalIgnoreCase);
-            for (int i = 0; i < createdTasks.Count; i++)
+            bool preserveForSeeding = hasTorrentSource && !createdTasks.Any(c => c.Task.DeleteSourceAfterVerify);
+            if (!preserveForSeeding)
             {
-                var (_, payload, _) = createdTasks[i];
-                Directory.CreateDirectory(payload.TargetReleaseDir);
-                foreach (var srcContainer in perSlotMatches[i])
+                var remainingMoveCounts = new Dictionary<string, int>(containerRefCounts, StringComparer.OrdinalIgnoreCase);
+                for (int i = 0; i < createdTasks.Count; i++)
                 {
-                    int rem = remainingMoveCounts.TryGetValue(srcContainer, out int rCount) ? rCount - 1 : 0;
-                    remainingMoveCounts[srcContainer] = rem;
-
-                    string dstFile = Path.Combine(payload.TargetReleaseDir, Path.GetFileName(srcContainer));
-                    if (string.Equals(Path.GetFullPath(srcContainer), Path.GetFullPath(dstFile), StringComparison.OrdinalIgnoreCase) || File.Exists(dstFile))
-                        continue;
-                    if (!File.Exists(srcContainer))
-                        continue;
-
-                    try
+                    var (_, payload, _) = createdTasks[i];
+                    Directory.CreateDirectory(payload.TargetReleaseDir);
+                    foreach (var srcContainer in perSlotMatches[i])
                     {
-                        if (rem > 0)
-                            File.Copy(srcContainer, dstFile, true);
-                        else
-                            File.Move(srcContainer, dstFile);
-                    }
-                    catch (Exception moveEx)
-                    {
-                        App.Logger?.Log($"[RuTracker Queue] Ошибка подготовки файла '{Path.GetFileName(srcContainer)}' для части #{payload.SlotNumber}: {moveEx.Message}", LogLevel.Warning);
+                        int rem = remainingMoveCounts.TryGetValue(srcContainer, out int rCount) ? rCount - 1 : 0;
+                        remainingMoveCounts[srcContainer] = rem;
+
+                        string dstFile = Path.Combine(payload.TargetReleaseDir, Path.GetFileName(srcContainer));
+                        if (string.Equals(Path.GetFullPath(srcContainer), Path.GetFullPath(dstFile), StringComparison.OrdinalIgnoreCase) || File.Exists(dstFile))
+                            continue;
+                        if (!File.Exists(srcContainer))
+                            continue;
+
                         try
                         {
-                            if (File.Exists(srcContainer)) File.Copy(srcContainer, dstFile, true);
+                            if (rem > 0)
+                                File.Copy(srcContainer, dstFile, true);
+                            else
+                                File.Move(srcContainer, dstFile);
                         }
-                        catch (Exception copyEx)
+                        catch (Exception moveEx)
                         {
-                            App.Logger?.Log($"[RuTracker Queue] Повторное копирование '{Path.GetFileName(srcContainer)}' не удалось: {copyEx.Message}", LogLevel.Warning);
+                            App.Logger?.Log($"[RuTracker Queue] Ошибка подготовки файла '{Path.GetFileName(srcContainer)}' для части #{payload.SlotNumber}: {moveEx.Message}", LogLevel.Warning);
+                            try
+                            {
+                                if (File.Exists(srcContainer)) File.Copy(srcContainer, dstFile, true);
+                            }
+                            catch (Exception copyEx)
+                            {
+                                App.Logger?.Log($"[RuTracker Queue] Повторное копирование '{Path.GetFileName(srcContainer)}' не удалось: {copyEx.Message}", LogLevel.Warning);
+                            }
                         }
                     }
                 }
@@ -1247,7 +1421,8 @@ namespace StormSwitchBox.Services
                     SlotGameTitle = payload.SlotGameTitle,
                     SharedReleaseDir = sharedReleaseDir,
                     AppendAutoTags = payload.AppendAutoTags,
-                    CustomMetadata = payload.CustomMetadata
+                    CustomMetadata = payload.CustomMetadata,
+                    PreMatchedContainerPaths = preserveForSeeding ? perSlotMatches[i] : null
                 };
 
                 try
@@ -1435,6 +1610,7 @@ namespace StormSwitchBox.Services
                     {
                         Items.Remove(item);
                         SaveQueueState();
+                        TriggerDialogHeaderRefresh();
                     });
                     item.Dispose();
                     return;
@@ -1574,6 +1750,7 @@ namespace StormSwitchBox.Services
                         Items.Remove(item);
                     }
                     SaveQueueState();
+                    TriggerDialogHeaderRefresh();
                 });
                 foreach (var item in toDispose)
                 {
@@ -1886,7 +2063,8 @@ namespace StormSwitchBox.Services
                                 IsActive = false,
                                 IsBuildCompletedOnDisk = r.StageBadge == "ГОТОВО",
                                 SharedReleaseDir = r.SharedReleaseDir ?? string.Empty,
-                                HasTorrentSource = r.HasTorrentSource
+                                HasTorrentSource = r.HasTorrentSource,
+                                DeleteSourceAfterVerify = r.Tasks == null || r.Tasks.Count == 0 || r.Tasks.All(tp => tp.DeleteSourceAfterVerify)
                             };
                             item.RawPercent = r.ProgressPercent;
                             item.RawDetails = r.ProgressDetails ?? string.Empty;

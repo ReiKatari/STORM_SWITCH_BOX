@@ -10,11 +10,13 @@ import argparse
 import ctypes
 import json
 import os
+import queue
 import re
 import shutil
 import socket
 import sys
 import tempfile
+import threading
 import time
 import libtorrent as lt
 
@@ -250,6 +252,587 @@ def apply_clean_trackers(handle, trackers):
         pass
 
 
+def save_torrent_info_file(ti, out_path):
+    if ti is None or not out_path:
+        return False
+    try:
+        tparent = os.path.dirname(out_path)
+        if tparent:
+            os.makedirs(tparent, exist_ok=True)
+        if hasattr(ti, "info_section"):
+            raw_tor = b"d4:info" + bytes(ti.info_section()) + b"e"
+        else:
+            ct = lt.create_torrent(ti)
+            raw_tor = lt.bencode(ct.generate())
+        tmp_tor = f"{out_path}.{os.getpid()}.tmp"
+        with open(tmp_tor, "wb") as tf:
+            tf.write(raw_tor)
+        os.replace(tmp_tor, out_path)
+        return True
+    except Exception:
+        return False
+
+
+def _handle_info_hash_hex(handle):
+    try:
+        if hasattr(handle, "info_hashes"):
+            ihs = handle.info_hashes()
+            if ihs.has_v1():
+                return str(ihs.v1).lower()
+            if ihs.has_v2():
+                return str(ihs.v2).lower()
+    except Exception:
+        pass
+    try:
+        return str(handle.info_hash()).lower()
+    except Exception:
+        return ""
+
+
+def _resolve_seed_save_dir(ti, save_dir, skip_set):
+    if ti is None or not save_dir or not os.path.isdir(save_dir):
+        return save_dir
+    try:
+        fs = ti.files()
+        num_files = fs.num_files()
+        if num_files <= 0:
+            return save_dir
+
+        probe_idx = next((i for i in range(num_files) if i not in skip_set), 0)
+        rel = fs.file_path(probe_idx).replace("\\", "/").lstrip("/")
+        direct_candidate = os.path.join(save_dir, rel.replace("/", os.sep))
+        if os.path.exists(direct_candidate):
+            return save_dir
+
+        if "/" in rel:
+            top_prefix, stripped = rel.split("/", 1)
+            stripped_candidate = os.path.join(save_dir, stripped.replace("/", os.sep))
+            if os.path.exists(stripped_candidate):
+                norm_save = os.path.normpath(save_dir)
+                if os.path.basename(norm_save).lower() == top_prefix.lower():
+                    return os.path.dirname(norm_save)
+                # Files live flat inside save_dir without the torrent root folder prefix: remap paths
+                for i in range(num_files):
+                    orig_p = fs.file_path(i).replace("\\", "/").lstrip("/")
+                    if orig_p.lower().startswith(top_prefix.lower() + "/"):
+                        new_p = orig_p.split("/", 1)[1]
+                        try:
+                            ti.rename_file(i, new_p)
+                        except Exception:
+                            pass
+                return save_dir
+    except Exception:
+        pass
+    return save_dir
+
+
+def merge_seed_trackers(existing_trackers):
+    merged = []
+    seen = set()
+    has_tru = False
+    for tr in (existing_trackers or []):
+        url = str(tr.url if hasattr(tr, "url") else tr).strip()
+        if not url:
+            continue
+        low = url.lower()
+        if "retracker.local" in low:
+            continue
+        if "t-ru.org" in low:
+            has_tru = True
+        if url not in seen:
+            seen.add(url)
+            merged.append(url)
+            if len(merged) >= 32:
+                return merged
+
+    if not has_tru:
+        for tr in (
+            "http://bt.t-ru.org/ann?magnet",
+            "http://bt2.t-ru.org/ann?magnet",
+            "http://bt3.t-ru.org/ann?magnet",
+            "http://bt4.t-ru.org/ann?magnet",
+        ):
+            if tr not in seen:
+                seen.add(tr)
+                merged.append(tr)
+
+    for tr in DEFAULT_PUBLIC_TRACKERS:
+        if tr not in seen:
+            seen.add(tr)
+            merged.append(tr)
+            if len(merged) >= 32:
+                break
+    return merged[:32]
+
+
+def run_seed_daemon(ses, args):
+    seed_cfg = build_turbo_settings(args.listen_port, metadata_only=False)
+    seed_cfg["enable_lsd"] = True
+    seed_cfg["enable_dht"] = True
+    seed_cfg["enable_upnp"] = True
+    seed_cfg["enable_natpmp"] = True
+    seed_cfg["active_downloads"] = 0
+    seed_cfg["active_seeds"] = 200
+    seed_cfg["active_limit"] = 250
+    seed_cfg["upload_rate_limit"] = 0
+    seed_cfg["seed_choking_algorithm"] = 1
+    try:
+        seed_cfg["alert_mask"] = (
+            lt.alert.category_t.storage_notification
+            | lt.alert.category_t.status_notification
+        )
+    except Exception:
+        pass
+    ses.apply_settings(seed_cfg)
+
+    if args.dht_state and os.path.isfile(args.dht_state):
+        try:
+            with open(args.dht_state, "rb") as df:
+                dht_blob = lt.bdecode(df.read())
+            if dht_blob and hasattr(ses, "load_state"):
+                ses.load_state(dht_blob)
+        except Exception:
+            pass
+
+    resume_dir = args.resume_dir
+    if resume_dir:
+        os.makedirs(resume_dir, exist_ok=True)
+
+    cmd_queue = queue.Queue()
+    stdin_eof = threading.Event()
+
+    def stdin_reader():
+        try:
+            while True:
+                line = sys.stdin.readline()
+                if not line:
+                    break
+                s = line.strip()
+                if not s:
+                    continue
+                try:
+                    obj = json.loads(s)
+                    if isinstance(obj, dict):
+                        cmd_queue.put(obj)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        finally:
+            stdin_eof.set()
+
+    reader_thread = threading.Thread(target=stdin_reader, daemon=True)
+    reader_thread.start()
+
+    tracked = {} # info_hash_lower -> dict
+
+    def write_resume_atomic(ih, params_obj):
+        if not resume_dir or not ih:
+            return
+        try:
+            buf = lt.write_resume_data_buf(params_obj)
+            res_path = os.path.join(resume_dir, f"{ih}.resume")
+            tmp_path = f"{res_path}.{os.getpid()}.tmp"
+            with open(tmp_path, "wb") as rf:
+                rf.write(buf)
+            os.replace(tmp_path, res_path)
+        except Exception:
+            pass
+
+    def drain_alerts(wait_hashes=None, wait_timeout=0.0):
+        deadline = time.time() + wait_timeout
+        pending = set(wait_hashes) if wait_hashes else set()
+        while True:
+            try:
+                alerts = ses.pop_alerts()
+            except Exception:
+                alerts = []
+            for a in alerts:
+                try:
+                    if isinstance(a, lt.save_resume_data_alert):
+                        ih = _handle_info_hash_hex(a.handle)
+                        if not ih:
+                            for k, rec in tracked.items():
+                                if rec.get("handle") == a.handle:
+                                    ih = k
+                                    break
+                        if ih:
+                            write_resume_atomic(ih, a.params)
+                            pending.discard(ih)
+                    elif hasattr(lt, "save_resume_data_failed_alert") and isinstance(a, lt.save_resume_data_failed_alert):
+                        ih = _handle_info_hash_hex(a.handle)
+                        pending.discard(ih)
+                except Exception:
+                    pass
+            if not pending or time.time() >= deadline:
+                break
+            time.sleep(0.05)
+
+    def remove_entry(ih, delete_resume=False):
+        rec = tracked.pop(ih, None)
+        if rec is None:
+            return
+        h = rec.get("handle")
+        if h is not None:
+            try:
+                if h.is_valid():
+                    ses.remove_torrent(h)
+            except Exception:
+                pass
+        if delete_resume and resume_dir:
+            res_path = os.path.join(resume_dir, f"{ih}.resume")
+            try:
+                if os.path.exists(res_path):
+                    os.remove(res_path)
+            except Exception:
+                pass
+
+    def add_entry(cmd):
+        ih = str(cmd.get("hash") or "").strip().lower()
+        torrent_path = str(cmd.get("torrent_path") or "").strip()
+        magnet = str(cmd.get("magnet") or "").strip()
+        save_dir = str(cmd.get("save_dir") or "").strip()
+        skip_set = set(int(x) for x in (cmd.get("skip_indices") or []))
+        paused = bool(cmd.get("paused", False))
+
+        if ih and ih in tracked:
+            remove_entry(ih, delete_resume=False)
+
+        if not save_dir or not os.path.isdir(save_dir):
+            if ih:
+                tracked[ih] = {
+                    "handle": None,
+                    "paused": paused,
+                    "skip_set": skip_set,
+                    "file_prio_applied": True,
+                    "torrent_path": torrent_path,
+                    "torrent_saved": bool(torrent_path and os.path.isfile(torrent_path)),
+                    "last_resume_at": time.time(),
+                    "missing_dir": True,
+                    "error": "missing_dir",
+                }
+            return
+
+        ti = None
+        if torrent_path and os.path.isfile(torrent_path):
+            try:
+                ti = lt.torrent_info(torrent_path)
+            except Exception:
+                ti = None
+
+        atp = None
+        if resume_dir and ih:
+            res_path = os.path.join(resume_dir, f"{ih}.resume")
+            if os.path.isfile(res_path):
+                try:
+                    with open(res_path, "rb") as rf:
+                        atp = lt.read_resume_data(rf.read())
+                except Exception:
+                    atp = None
+
+        if atp is None:
+            if ti is not None:
+                atp = lt.add_torrent_params()
+                atp.ti = ti
+            elif magnet:
+                atp = lt.parse_magnet_uri(magnet)
+            else:
+                if ih:
+                    tracked[ih] = {
+                        "handle": None,
+                        "paused": paused,
+                        "skip_set": skip_set,
+                        "file_prio_applied": True,
+                        "torrent_path": torrent_path,
+                        "torrent_saved": False,
+                        "last_resume_at": time.time(),
+                        "missing_dir": False,
+                        "error": "missing_torrent_source",
+                    }
+                return
+        else:
+            if ti is not None:
+                atp.ti = ti
+            elif getattr(atp, "ti", None) is None and magnet:
+                try:
+                    mag_atp = lt.parse_magnet_uri(magnet)
+                    atp.info_hashes = mag_atp.info_hashes
+                    if getattr(mag_atp, "trackers", None):
+                        atp.trackers = mag_atp.trackers
+                except Exception:
+                    pass
+
+        eff_ti = ti or getattr(atp, "ti", None)
+        eff_save_dir = _resolve_seed_save_dir(eff_ti, save_dir, skip_set)
+        atp.save_path = eff_save_dir
+
+        existing_tr = eff_ti.trackers() if eff_ti is not None else getattr(atp, "trackers", None)
+        clean_trackers = merge_seed_trackers(existing_tr)
+        try:
+            atp.trackers = clean_trackers
+        except Exception:
+            pass
+
+        if eff_ti is not None:
+            try:
+                num_f = eff_ti.num_files()
+                atp.file_priorities = [0 if idx in skip_set else 4 for idx in range(num_f)]
+            except Exception:
+                pass
+
+        atp.flags |= lt.torrent_flags.upload_mode
+        if paused:
+            atp.flags |= lt.torrent_flags.paused
+            atp.flags &= ~lt.torrent_flags.auto_managed
+        else:
+            atp.flags &= ~lt.torrent_flags.paused
+            atp.flags |= lt.torrent_flags.auto_managed
+
+        handle = ses.add_torrent(atp)
+        apply_clean_trackers(handle, clean_trackers)
+        resolved_ih = ih or _handle_info_hash_hex(handle)
+
+        if paused:
+            try:
+                handle.unset_flags(lt.torrent_flags.auto_managed)
+                handle.pause()
+            except Exception:
+                pass
+        else:
+            try:
+                handle.set_upload_mode(True)
+                handle.set_flags(lt.torrent_flags.auto_managed)
+                handle.resume()
+                handle.force_reannounce()
+                handle.force_dht_announce()
+            except Exception:
+                pass
+
+        tracked[resolved_ih] = {
+            "handle": handle,
+            "paused": paused,
+            "skip_set": skip_set,
+            "file_prio_applied": eff_ti is not None,
+            "torrent_path": torrent_path,
+            "torrent_saved": bool(torrent_path and os.path.isfile(torrent_path) and os.path.getsize(torrent_path) > 64),
+            "last_resume_at": time.time(),
+            "missing_dir": False,
+            "error": "",
+        }
+
+    def emit_snapshot():
+        torrents_map = {}
+        now_t = time.time()
+        for ih, rec in list(tracked.items()):
+            h = rec.get("handle")
+            paused = bool(rec.get("paused", False))
+            if rec.get("missing_dir"):
+                torrents_map[ih] = {
+                    "state": "missing_files",
+                    "up_bps": 0,
+                    "session_up": 0,
+                    "leechs": 0,
+                    "seeds": 0,
+                    "swarm": 0,
+                    "done": 0,
+                    "wanted": 0,
+                    "error": "",
+                }
+                continue
+            if h is None or not h.is_valid():
+                torrents_map[ih] = {
+                    "state": "error",
+                    "up_bps": 0,
+                    "session_up": 0,
+                    "leechs": 0,
+                    "seeds": 0,
+                    "swarm": 0,
+                    "done": 0,
+                    "wanted": 0,
+                    "error": rec.get("error") or "invalid_handle",
+                }
+                continue
+
+            st = h.status()
+            has_meta = bool(getattr(st, "has_metadata", False))
+            if not paused:
+                if not st.upload_mode:
+                    try:
+                        h.set_upload_mode(True)
+                    except Exception:
+                        pass
+                if has_meta and not rec.get("file_prio_applied"):
+                    rec["file_prio_applied"] = True
+                    try:
+                        ti = st.torrent_file if hasattr(st, "torrent_file") and st.torrent_file is not None else h.torrent_file()
+                        if ti is not None:
+                            skip_set = rec.get("skip_set") or set()
+                            if skip_set:
+                                for idx in range(ti.num_files()):
+                                    h.file_priority(idx, 0 if idx in skip_set else 4)
+                            if not rec.get("torrent_saved") and rec.get("torrent_path"):
+                                rec["torrent_saved"] = save_torrent_info_file(ti, rec["torrent_path"])
+                    except Exception:
+                        pass
+
+            err_code = 0
+            err_msg = ""
+            try:
+                if st.errc:
+                    err_code = int(st.errc.value())
+                    if err_code != 0:
+                        err_msg = str(st.errc.message() or st.error or "")
+            except Exception:
+                pass
+            if err_code == 0 and getattr(st, "error", ""):
+                err_msg = str(st.error)
+
+            is_checking = st.state in (
+                lt.torrent_status.checking_files,
+                lt.torrent_status.checking_resume_data,
+            )
+            if paused:
+                state_str = "paused"
+            elif err_code != 0 or err_msg:
+                state_str = "error"
+            elif is_checking:
+                state_str = "checking"
+            elif not has_meta:
+                state_str = "metadata"
+            else:
+                state_str = "seeding"
+
+            num_seeds = int(st.num_seeds)
+            num_peers = int(st.num_peers)
+            leechs = max(0, num_peers - num_seeds)
+            swarm = max(num_seeds + leechs, int(st.num_complete) + int(st.num_incomplete))
+            up_bps = int(getattr(st, "upload_payload_rate", 0) or st.upload_rate)
+            session_up = int(getattr(st, "total_payload_upload", 0) or st.total_upload)
+
+            torrents_map[ih] = {
+                "state": state_str,
+                "up_bps": max(0, up_bps) if not paused else 0,
+                "session_up": max(0, session_up),
+                "leechs": leechs if not paused else 0,
+                "seeds": num_seeds if not paused else 0,
+                "swarm": swarm,
+                "done": int(st.total_wanted_done),
+                "wanted": int(st.total_wanted),
+                "error": err_msg,
+            }
+
+            if resume_dir and not paused and state_str == "seeding" and (now_t - rec.get("last_resume_at", 0.0)) >= 60.0:
+                rec["last_resume_at"] = now_t
+                try:
+                    h.save_resume_data(lt.save_resume_flags_t.save_info_dict)
+                except Exception:
+                    pass
+
+        sys.stdout.write(json.dumps({"event": "stats", "torrents": torrents_map}, ensure_ascii=False) + "\n")
+        sys.stdout.flush()
+
+    def shutdown_all():
+        pending_hashes = []
+        for ih, rec in tracked.items():
+            h = rec.get("handle")
+            if h is not None and h.is_valid():
+                try:
+                    h.pause()
+                    if resume_dir:
+                        h.save_resume_data(lt.save_resume_flags_t.save_info_dict)
+                        pending_hashes.append(ih)
+                except Exception:
+                    pass
+        if pending_hashes:
+            drain_alerts(wait_hashes=pending_hashes, wait_timeout=1.0)
+        if args.dht_state:
+            try:
+                dht_dir = os.path.dirname(args.dht_state)
+                if dht_dir:
+                    os.makedirs(dht_dir, exist_ok=True)
+                raw_state = lt.bencode(ses.save_state())
+                tmp_dht = f"{args.dht_state}.{os.getpid()}.tmp"
+                with open(tmp_dht, "wb") as df:
+                    df.write(raw_state)
+                os.replace(tmp_dht, args.dht_state)
+            except Exception:
+                pass
+        sys.stdout.write(json.dumps({"event": "shutdown_ok"}) + "\n")
+        sys.stdout.flush()
+
+    last_emit = 0.0
+    last_parent_check = 0.0
+    while True:
+        now_t = time.time()
+        if stdin_eof.is_set() or (args.parent_pid and (now_t - last_parent_check) >= 1.0):
+            last_parent_check = now_t
+            if stdin_eof.is_set() or not is_parent_alive(args.parent_pid):
+                shutdown_all()
+                return 0
+
+        did_cmd = False
+        shutdown_requested = False
+        while True:
+            try:
+                cmd = cmd_queue.get_nowait()
+            except queue.Empty:
+                break
+            did_cmd = True
+            act = str(cmd.get("cmd") or "").strip().lower()
+            ih = str(cmd.get("hash") or "").strip().lower()
+            if act == "add":
+                add_entry(cmd)
+            elif act == "pause" and ih in tracked:
+                rec = tracked[ih]
+                rec["paused"] = True
+                h = rec.get("handle")
+                if h is not None and h.is_valid():
+                    try:
+                        h.unset_flags(lt.torrent_flags.auto_managed)
+                        h.pause()
+                        if resume_dir:
+                            h.save_resume_data(lt.save_resume_flags_t.save_info_dict)
+                    except Exception:
+                        pass
+            elif act == "resume" and ih in tracked:
+                rec = tracked[ih]
+                rec["paused"] = False
+                h = rec.get("handle")
+                if h is not None and h.is_valid():
+                    try:
+                        h.set_upload_mode(True)
+                        h.set_flags(lt.torrent_flags.auto_managed)
+                        h.resume()
+                        h.force_reannounce()
+                        h.force_dht_announce()
+                    except Exception:
+                        pass
+            elif act == "reannounce" and ih in tracked:
+                h = tracked[ih].get("handle")
+                if h is not None and h.is_valid():
+                    try:
+                        h.force_reannounce()
+                        h.force_dht_announce()
+                    except Exception:
+                        pass
+            elif act == "remove" and ih in tracked:
+                remove_entry(ih, delete_resume=True)
+            elif act == "shutdown":
+                shutdown_requested = True
+                break
+
+        if shutdown_requested:
+            shutdown_all()
+            return 0
+
+        drain_alerts()
+        if did_cmd or (now_t - last_emit) >= 1.0:
+            last_emit = now_t
+            emit_snapshot()
+
+        time.sleep(0.2)
+
+
 def run_metadata_only(ses, args):
     tmp_meta_dir = None if args.save_dir else tempfile.mkdtemp(prefix="storm_lt_meta_")
     save_dir = args.save_dir or tmp_meta_dir
@@ -337,21 +920,7 @@ def run_metadata_only(ses, args):
 
             if ti is not None:
                 if args.save_torrent:
-                    try:
-                        tparent = os.path.dirname(args.save_torrent)
-                        if tparent:
-                            os.makedirs(tparent, exist_ok=True)
-                        if hasattr(ti, "info_section"):
-                            raw_tor = b"d4:info" + bytes(ti.info_section()) + b"e"
-                        else:
-                            ct = lt.create_torrent(ti)
-                            raw_tor = lt.bencode(ct.generate())
-                        tmp_tor = f"{args.save_torrent}.{os.getpid()}.tmp"
-                        with open(tmp_tor, "wb") as tf:
-                            tf.write(raw_tor)
-                        os.replace(tmp_tor, args.save_torrent)
-                    except Exception:
-                        pass
+                    save_torrent_info_file(ti, args.save_torrent)
 
                 fs = ti.files()
                 files_list = [
@@ -391,20 +960,27 @@ def main():
     parser.add_argument("--listen-port", type=int, default=44859, help="TCP/UDP listen port matching tracker announce")
     parser.add_argument("--dht-state", type=str, default=None, help="Path to cached DHT routing table state")
     parser.add_argument("--metadata-only", action="store_true", help="Resolve BEP-9 metadata only without downloading")
-    parser.add_argument("--save-torrent", type=str, default=None, help="Save resolved .torrent file path in metadata-only mode")
+    parser.add_argument("--seed-daemon", action="store_true", help="Run persistent multi-torrent seeding daemon controlled via JSON stdin")
+    parser.add_argument("--resume-dir", type=str, default=None, help="Directory for FastResume files in seed-daemon mode")
+    parser.add_argument("--save-torrent", type=str, default=None, help="Save resolved .torrent file path")
     parser.add_argument("--timeout", type=float, default=4.5, help="Metadata-only timeout in seconds")
     args = parser.parse_args()
 
-    if not args.torrent and not args.magnet:
-        sys.stderr.write("Error: Either --torrent or --magnet must be specified.\n")
-        sys.exit(1)
+    if not args.seed_daemon:
+        if not args.torrent and not args.magnet:
+            sys.stderr.write("Error: Either --torrent or --magnet must be specified.\n")
+            sys.exit(1)
 
-    if not args.metadata_only and not args.save_dir:
-        sys.stderr.write("Error: --save-dir is required unless --metadata-only is set.\n")
-        sys.exit(1)
+        if not args.metadata_only and not args.save_dir:
+            sys.stderr.write("Error: --save-dir is required unless --metadata-only is set.\n")
+            sys.exit(1)
 
     ses = lt.session()
     ses.apply_settings(build_turbo_settings(args.listen_port, metadata_only=args.metadata_only))
+
+    if args.seed_daemon:
+        rc = run_seed_daemon(ses, args)
+        os._exit(rc)
 
     if args.metadata_only:
         if not args.magnet:
@@ -626,6 +1202,8 @@ def main():
                         num_files = ti.num_files()
                         for i in range(num_files):
                             handle.file_priority(i, 0 if i in skip_set else 4)
+                        if args.save_torrent and (not os.path.exists(args.save_torrent) or os.path.getsize(args.save_torrent) <= 64):
+                            save_torrent_info_file(ti, args.save_torrent)
                 except Exception:
                     pass
 
