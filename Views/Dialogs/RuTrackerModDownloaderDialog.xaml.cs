@@ -1103,6 +1103,8 @@ namespace StormSwitchBox.Views.Dialogs
             var ct = selCts.Token;
             long mySeq = System.Threading.Interlocked.Increment(ref _topicSelectionSeq);
 
+            _service.TryHydrateTopicFromParsedCache(topic);
+
             _localTorrentPath = null;
             _activeLoadedTopicId = topic.TopicId ?? string.Empty;
             _activeTopicHasRealFiles = false;
@@ -1311,6 +1313,19 @@ namespace StormSwitchBox.Views.Dialogs
                             if (ct.IsCancellationRequested || mySeq != System.Threading.Interlocked.Read(ref _topicSelectionSeq))
                                 return;
 
+                            _service.TryHydrateTopicFromParsedCache(topic);
+                            bool versionMetaUpdated = false;
+                            if (string.IsNullOrWhiteSpace(_currentTopicParsedGameVersion) && !string.IsNullOrWhiteSpace(topic.ParsedGameVersion))
+                            {
+                                _currentTopicParsedGameVersion = topic.ParsedGameVersion;
+                                versionMetaUpdated = true;
+                            }
+                            if (topic.ParsedTitleVersions != null && topic.ParsedTitleVersions.Count > _currentTopicParsedTitleVersions.Count)
+                            {
+                                _currentTopicParsedTitleVersions = new Dictionary<string, string>(topic.ParsedTitleVersions, StringComparer.OrdinalIgnoreCase);
+                                versionMetaUpdated = true;
+                            }
+
                             if (fullLinks != null && fullLinks.Count > _discussionLinks.Count)
                             {
                                 var previouslySelectedUrls = new HashSet<string>(
@@ -1335,6 +1350,9 @@ namespace StormSwitchBox.Views.Dialogs
                             {
                                 ModLinksHintText.Text = "Внешних ссылок в теме не найдено";
                             }
+
+                            if (versionMetaUpdated)
+                                EnrichGameSlotsFromFilesAndTitleDb();
                         });
                     }
                     catch { }
@@ -1449,7 +1467,7 @@ namespace StormSwitchBox.Views.Dialogs
                 if (mySeq == System.Threading.Interlocked.Read(ref _topicSelectionSeq))
                 {
                     _isTopicLoading = false;
-                    if (!ct.IsCancellationRequested && _gameSlots.Any(s => s.DisplayVersion == "..."))
+                    if (!ct.IsCancellationRequested)
                     {
                         EnrichGameSlotsFromFilesAndTitleDb();
                     }
@@ -2203,6 +2221,14 @@ namespace StormSwitchBox.Views.Dialogs
                 return;
             }
 
+            if (sender is RuTrackerGameSlotItem &&
+                e.PropertyName == nameof(RuTrackerGameSlotItem.GameTitle) &&
+                !_isEnrichingSlots &&
+                !_suppressSlotFileSync)
+            {
+                EnrichGameSlotsFromFilesAndTitleDb();
+            }
+
             UpdateGameSlotsSummary();
         }
 
@@ -2232,9 +2258,14 @@ namespace StormSwitchBox.Views.Dialogs
         private RuTrackerGameSlotItem? _activeStudioSlot;
         private GameMetadataEditModel? _activeStudioModel;
         private bool _isInitializingStudioOverlay;
+        private bool _isEnrichingSlots;
 
         private void EnrichGameSlotsFromFilesAndTitleDb()
         {
+            if (_isEnrichingSlots) return;
+            _isEnrichingSlots = true;
+            try
+            {
             foreach (var slot in _gameSlots)
             {
                 var selectedSlotFiles = _torrentFiles
@@ -2307,7 +2338,7 @@ namespace StormSwitchBox.Views.Dialogs
                     int best = 0;
                     foreach (System.Text.RegularExpressions.Match ivm in System.Text.RegularExpressions.Regex.Matches(
                         relPath,
-                        @"\[v?(?<iv>\d{5,10})\]|\(\d+\.\d+(?:\.\d+)*\s*-\s*(?<iv>\d+)\)",
+                        @"\[v?(?<iv>\d{5,10})\]|\(\s*\d{1,3}\.\d{1,4}(?:\.\d{1,4}){0,2}\s*-\s*(?<iv>\d{5,10})(?:\s*-\s*[0-9A-Fa-f]{16})?\s*\)",
                         System.Text.RegularExpressions.RegexOptions.IgnoreCase))
                     {
                         if (int.TryParse(ivm.Groups["iv"].Value, out int val) && val > best)
@@ -2419,13 +2450,19 @@ namespace StormSwitchBox.Views.Dialogs
 
                 void ScanVerTextSource(string srcText, bool scanPatchInt)
                 {
-                    var comboMatch = System.Text.RegularExpressions.Regex.Match(srcText, @"\((?<dv>\d+\.\d+(?:\.\d+)*)\s*-\s*(?<iv>\d+)\)");
-                    if (comboMatch.Success)
+                    foreach (System.Text.RegularExpressions.Match comboMatch in System.Text.RegularExpressions.Regex.Matches(
+                        srcText,
+                        @"\(\s*(?<dv>\d{1,3}\.\d{1,4}(?:\.\d{1,4}){0,2})\s*-\s*(?<iv>\d{1,10})(?:\s*-\s*[0-9A-Fa-f]{16})?\s*\)"))
                     {
-                        if (string.IsNullOrEmpty(explicitSemanticVer) && TitleDbService.IsValidSemanticVersion(comboMatch.Groups["dv"].Value))
-                            explicitSemanticVer = comboMatch.Groups["dv"].Value.Trim().TrimStart('v', 'V');
-                        if (scanPatchInt && int.TryParse(comboMatch.Groups["iv"].Value, out int ivCombo) && ivCombo > maxPatchVer)
+                        bool hasIv = int.TryParse(comboMatch.Groups["iv"].Value, out int ivCombo);
+                        if (scanPatchInt && hasIv && ivCombo > maxPatchVer)
                             maxPatchVer = ivCombo;
+                        string dv = comboMatch.Groups["dv"].Value.Trim().TrimStart('v', 'V');
+                        if (TitleDbService.IsValidSemanticVersion(dv) && (maxPatchVer == 0 || (hasIv && ivCombo == maxPatchVer)))
+                        {
+                            if (string.IsNullOrEmpty(explicitSemanticVer) || TitleDbService.CompareSemanticVersions(dv, explicitSemanticVer) > 0)
+                                explicitSemanticVer = dv;
+                        }
                     }
 
                     foreach (System.Text.RegularExpressions.Match vm in System.Text.RegularExpressions.Regex.Matches(
@@ -2577,10 +2614,46 @@ namespace StormSwitchBox.Views.Dialogs
                 slot.Is3ds = is3ds;
                 slot.SetEnrichedMetadataSilently(bestTid, displayVer, internalVerStr, engTitle, rusTitle, publisher, cachedIcon);
 
+                if (displayVer == "?" && !_isTopicLoading && maxPatchVer > 0 && !string.IsNullOrEmpty(bestTid) && App.TitleDb != null)
+                {
+                    long capturedSeq = System.Threading.Interlocked.Read(ref _topicSelectionSeq);
+                    CancellationToken capturedCt = _topicSelectionCts?.Token ?? CancellationToken.None;
+                    string capturedTid = bestTid;
+                    int capturedPatch = maxPatchVer;
+                    string capturedTitle = !string.IsNullOrWhiteSpace(engTitle) ? engTitle : slot.GameTitle;
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            string? resolved = await App.TitleDb.TryResolveDisplayVersionOnlineAsync(
+                                capturedTid, capturedPatch, capturedTitle, capturedCt).ConfigureAwait(false);
+                            if (!string.IsNullOrWhiteSpace(resolved) &&
+                                !capturedCt.IsCancellationRequested &&
+                                capturedSeq == System.Threading.Interlocked.Read(ref _topicSelectionSeq))
+                            {
+                                App.RunOnUI(() =>
+                                {
+                                    if (!capturedCt.IsCancellationRequested &&
+                                        capturedSeq == System.Threading.Interlocked.Read(ref _topicSelectionSeq))
+                                    {
+                                        EnrichGameSlotsFromFilesAndTitleDb();
+                                    }
+                                });
+                            }
+                        }
+                        catch { }
+                    }, capturedCt);
+                }
+
                 if ((cachedIcon == null || cachedIcon.Length == 0) && !string.IsNullOrWhiteSpace(iconUrl))
                 {
                     _ = FetchAndCacheSlotIconFromUrlAsync(slot, bestTid, iconUrl);
                 }
+            }
+            }
+            finally
+            {
+                _isEnrichingSlots = false;
             }
         }
 
@@ -2780,7 +2853,14 @@ namespace StormSwitchBox.Views.Dialogs
         {
             if (sender is FrameworkElement fe && fe.Tag is RuTrackerGameSlotItem slot)
             {
-                CopyTextToClipboardWithFeedback(slot.CleanVersionDisplay.TrimStart('v', 'V'), "Версия");
+                string ver = slot.CleanVersionDisplay.Trim().TrimStart('v', 'V');
+                if (string.IsNullOrEmpty(ver) || ver == "?" || ver == "...")
+                {
+                    if (StatusText != null)
+                        StatusText.Text = "Версия пока не определена";
+                    return;
+                }
+                CopyTextToClipboardWithFeedback(ver, "Версия");
             }
         }
 

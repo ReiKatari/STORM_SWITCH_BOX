@@ -140,6 +140,10 @@ namespace StormSwitchBox.Services
             "cache",
             "known_display_versions.json");
         private int _observedVersionsSaveScheduled = 0;
+        private readonly ConcurrentDictionary<string, byte> _stormOnlineLookupAttempted = new(StringComparer.OrdinalIgnoreCase);
+        private static readonly Regex StormTitleTripleRegex = new(
+            @"\(\s*(?<dv>\d{1,3}\.\d{1,4}(?:\.\d{1,4}){0,2})\s*-\s*(?<iv>\d{5,10})\s*-\s*(?<tid>[0-9A-Fa-f]{16})\s*\)",
+            RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
         public TitleDbService()
         {
@@ -1039,6 +1043,124 @@ namespace StormSwitchBox.Services
             }
 
             return false;
+        }
+
+        public async Task<string?> TryResolveDisplayVersionOnlineAsync(
+            string? titleId,
+            int patchCode,
+            string? gameTitleHint,
+            CancellationToken ct = default)
+        {
+            if (TryResolveDisplayVersion(titleId, patchCode, out var existing) && IsValidSemanticVersion(existing))
+                return existing;
+
+            if (patchCode <= 0 || string.IsNullOrWhiteSpace(titleId))
+                return null;
+
+            string baseTid = RuTrackerModService.NormalizeSwitchBaseApplicationTitleId(titleId);
+            if (baseTid.Length != 16)
+                return null;
+
+            string attemptKey = $"{baseTid}:{patchCode}";
+            if (!_stormOnlineLookupAttempted.TryAdd(attemptKey, 1))
+                return null;
+
+            string rawHint = !string.IsNullOrWhiteSpace(gameTitleHint)
+                ? gameTitleHint
+                : (TryGetTitleInfo(baseTid, out var dbEntry) && !string.IsNullOrWhiteSpace(dbEntry?.Name) ? dbEntry.Name : string.Empty);
+
+            if (string.IsNullOrWhiteSpace(rawHint))
+                return null;
+
+            string cleanQuery = Regex.Replace(rawHint, @"\[[^\]]*\]|\([^)]*\)", " ");
+            cleanQuery = Regex.Replace(cleanQuery, @"[^\p{L}\p{Nd}\s:+&'.\-]", " ");
+            cleanQuery = Regex.Replace(cleanQuery, @"\s+", " ").Trim(' ', '-', ':');
+            if (cleanQuery.Length > 60)
+                cleanQuery = cleanQuery.Substring(0, 60).Trim();
+
+            if (cleanQuery.Length < 2)
+                return null;
+
+            try
+            {
+                using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                cts.CancelAfter(TimeSpan.FromSeconds(4.5));
+
+                string url = $"https://stormgamesworld.ru/api/games?search={Uri.EscapeDataString(cleanQuery)}";
+                using var req = new HttpRequestMessage(HttpMethod.Get, url);
+                req.Headers.TryAddWithoutValidation("Accept", "application/json");
+                using var resp = await StormHttpClientFactory.Shared.SendAsync(req, cts.Token).ConfigureAwait(false);
+                if (!resp.IsSuccessStatusCode)
+                    return null;
+
+                string json = await resp.Content.ReadAsStringAsync(cts.Token).ConfigureAwait(false);
+                if (string.IsNullOrWhiteSpace(json))
+                    return null;
+
+                using var doc = JsonDocument.Parse(json);
+                JsonElement root = doc.RootElement;
+                JsonElement arrayEl = default;
+                if (root.ValueKind == JsonValueKind.Array)
+                {
+                    arrayEl = root;
+                }
+                else if (root.ValueKind == JsonValueKind.Object)
+                {
+                    if (root.TryGetProperty("games", out var gEl) && gEl.ValueKind == JsonValueKind.Array)
+                        arrayEl = gEl;
+                    else if (root.TryGetProperty("items", out var iEl) && iEl.ValueKind == JsonValueKind.Array)
+                        arrayEl = iEl;
+                    else
+                        return null;
+                }
+                else
+                {
+                    return null;
+                }
+
+                string? bestVer = null;
+                string[] candidateFields = new[] { "finalTitle", "title", "correctTitle", "correctTitle2" };
+
+                foreach (var item in arrayEl.EnumerateArray())
+                {
+                    if (item.ValueKind != JsonValueKind.Object) continue;
+
+                    foreach (var fieldName in candidateFields)
+                    {
+                        if (!item.TryGetProperty(fieldName, out var fieldEl) || fieldEl.ValueKind != JsonValueKind.String)
+                            continue;
+
+                        string? titleVal = fieldEl.GetString();
+                        if (string.IsNullOrWhiteSpace(titleVal)) continue;
+
+                        foreach (Match m in StormTitleTripleRegex.Matches(titleVal))
+                        {
+                            string foundTid = RuTrackerModService.NormalizeSwitchBaseApplicationTitleId(m.Groups["tid"].Value);
+                            if (!string.Equals(foundTid, baseTid, StringComparison.OrdinalIgnoreCase))
+                                continue;
+
+                            if (!int.TryParse(m.Groups["iv"].Value, out int foundIv) || foundIv != patchCode)
+                                continue;
+
+                            string candVer = m.Groups["dv"].Value.Trim().TrimStart('v', 'V');
+                            if (!IsValidSemanticVersion(candVer))
+                                continue;
+
+                            if (string.IsNullOrEmpty(bestVer) || CompareSemanticVersions(candVer, bestVer) > 0)
+                                bestVer = candVer;
+                        }
+                    }
+                }
+
+                if (!string.IsNullOrEmpty(bestVer))
+                {
+                    RecordObservedDisplayVersion(baseTid, patchCode.ToString(CultureInfo.InvariantCulture), bestVer, isAuthoritative: false);
+                    return bestVer;
+                }
+            }
+            catch { }
+
+            return null;
         }
 
         private static bool HasGarbageCharacters(string s)

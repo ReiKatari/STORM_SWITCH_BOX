@@ -1,3 +1,40 @@
+## **8.1.1** (23.11.2026)
+
+> 💡 **Релиз 8.1.1** - *Исправление отображения версий игр в загрузчике RuTracker (устранение индикатора `"?"` вместо реальной версии патча, поддержка 3-компонентных названий STORM, автообновление версии при правке названия слота и точный онлайн-резерв через `stormgamesworld.ru`)*
+
+---
+
+### 🚀 Ключевые изменения и улучшения (STORM SWITCH BOX 8.1.1)
+
+- 🌟 **[Исправление отображения версии игр в загрузчике RuTracker (`RuTrackerModService.cs`, `RuTrackerModDownloaderDialog.xaml.cs`)]**:
+  - Устранена причина отображения `"?"` вместо версии игры при устаревании суточного TTL в локальном кэше `rutracker_topic_parsed_v2.json` и временной недоступности HTML темы RuTracker (например, *Golden Force* `1.1.6`): добавлена мгновенная предгидратация `TryHydrateTopicFromParsedCache`, сохранение кэшированных версий при сбое или пустом парсинге HTML и обязательный пересчёт метаданных после завершения загрузки темы независимо от текущего статуса `"..."` или `"?"`.
+  - В `FetchValidatedTopicPageHtmlAsync` увеличено окно быстрой гонки до `5.0` секунд с параллельным опросом основного и резервного зеркал (`rutracker.org` / `rutracker.net`), а в `ExtractGameVersionsFromTopicHtml` расширена граница разделителей для строк вида `1.1.6 - 196608` и `1.1.6-196608`.
+  - Исправлены регулярные выражения в `ExtractFilePatchCode` и `ScanVerTextSource` для 3-компонентного формата STORM `(версия - код_патча - TitleID)` с проверкой совпадения кода патча, добавлен автопересчёт версии при редактировании названия слота `GameTitle` и защита `CopySlotVersion_Click` от копирования заглушек `"?"`/`"..."`.
+- 🌟 **[Точный онлайн-резерв версий через API `stormgamesworld.ru` (`TitleDbService.cs`)]**:
+  - Добавлен метод `TryResolveDisplayVersionOnlineAsync`, который при отсутствии версии в локальных источниках разово за сессию запрашивает `https://stormgamesworld.ru/api/games` и принимает версию строго при точном совпадении одновременно базового `TitleID` (16 hex) и целочисленного кода патча, без эвристических подстановок.
+- 🌟 **[Синхронизированная сборка Windows и Android 8.1.1]**:
+  - Версия обновлена до `8.1.1` (`versionCode = 8101` на Android) для всех сборок Windows x64 (`Setup.exe` и Portable ZIP) и Android (`Modern` и `Legacy`).
+
+<details>
+
+<summary><b>📋 Полный список изменений (нажмите, чтобы развернуть)</b></summary>
+
+- 🔹 **[Services/RuTrackerModService.cs]**: Добавлен метод `TryHydrateTopicFromParsedCache(topic)` и его вызов в `PrimeQuickTopicState`; в `FetchTopicDetailsAsync` добавлено сохранение кэшированных версий/постера/хэша/ссылок при просроченном TTL или недоступном HTML темы; расширена регулярка `ExtractGameVersionsFromTopicHtml` на дефис/двоеточие; `FetchValidatedTopicPageHtmlAsync` теперь гоняет оба зеркала (`rutracker.org` и `rutracker.net`) с таймаутом `5.0` сек.
+- 🔹 **[Services/TitleDbService.cs]**: Добавлен дедуплицированный онлайн-резерв `TryResolveDisplayVersionOnlineAsync` по API `stormgamesworld.ru/api/games` со строгим совпадением `baseTid` и `patchCode`.
+- 🔹 **[Views/Dialogs/RuTrackerModDownloaderDialog.xaml.cs]**: Добавлен предпрогрев кэша темы в `LoadSelectedTopicAsync`, синхронизация версий в фоновом обратном вызове `FetchTopicCommentLinksAsync`, обязательный пересчёт в блоке `finally`, триггер `OnGameSlotPropertyChanged` на `GameTitle` с защитой от рекурсии `_isEnrichingSlots`, 3-компонентная поддержка `(dv - iv - tid)`, фоновый онлайн-резерв для слотов со статусом `"?"` и защита `CopySlotVersion_Click`.
+
+</details>
+
+<details>
+
+<summary><b>🌐 English Changelog (click to expand)</b></summary>
+
+- 🔸 Fixed the `"?"` game version regression in the RuTracker Downloader where expired topic cache entries (>24h) discarded `ParsedGameVersion` when live RuTracker HTML was unreachable.
+- 🔸 Added `TryHydrateTopicFromParsedCache`, mirror-pair parallel HTTP race (`rutracker.org` + `rutracker.net`, 5.0s window), 3-part STORM title `(ver - patchCode - TitleID)` regex parsing, `GameTitle` edit re-enrichment, and a strict exact-`(TitleID, patchCode)` online fallback via `stormgamesworld.ru/api/games`.
+- 🔸 Unified build and release update to version `8.1.1` (`versionCode 8101` on Android) across Windows x64 and Android Modern/Legacy.
+
+</details>
+
 ## **8.1.0** (23.11.2026)
 
 > 💡 **Релиз 8.1.0** - *Исправление офлайн-индекса и поиска RuTracker #1605 на Android (восстановление всех 7 301 раздачи Switch), устранение задержки 5-8 сек на каждый символ при вводе и единая синхронизированная сборка Windows + Android (`versionCode 8100`)*

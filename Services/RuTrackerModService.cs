@@ -1416,9 +1416,62 @@ namespace StormSwitchBox.Services
             }
         }
 
+        public bool TryHydrateTopicFromParsedCache(RuTrackerTopicItem? topic)
+        {
+            if (topic == null) return false;
+            string tid = (topic.TopicId ?? string.Empty).Trim();
+            if (string.IsNullOrEmpty(tid)) return false;
+
+            if (!_topicParsedCache.TryGetValue(tid, out var cached) || cached == null || cached.SchemaVersion < 2)
+                return false;
+
+            bool hydrated = false;
+
+            if (string.IsNullOrWhiteSpace(topic.ParsedGameVersion) && !string.IsNullOrWhiteSpace(cached.ParsedGameVersion))
+            {
+                topic.ParsedGameVersion = cached.ParsedGameVersion;
+                hydrated = true;
+            }
+
+            if ((topic.ParsedTitleVersions == null || topic.ParsedTitleVersions.Count == 0) &&
+                cached.ParsedTitleVersions != null && cached.ParsedTitleVersions.Count > 0)
+            {
+                topic.ParsedTitleVersions = new Dictionary<string, string>(cached.ParsedTitleVersions, StringComparer.OrdinalIgnoreCase);
+                hydrated = true;
+            }
+
+            if (string.IsNullOrWhiteSpace(topic.PosterUrl) && !string.IsNullOrWhiteSpace(cached.PosterUrl))
+            {
+                topic.PosterUrl = cached.PosterUrl;
+                hydrated = true;
+            }
+
+            if (string.IsNullOrWhiteSpace(topic.InfoHash) && !string.IsNullOrWhiteSpace(cached.InfoHash))
+            {
+                topic.InfoHash = cached.InfoHash;
+                hydrated = true;
+            }
+
+            if (string.IsNullOrWhiteSpace(topic.MagnetUri) && !string.IsNullOrWhiteSpace(cached.MagnetUri))
+            {
+                topic.MagnetUri = cached.MagnetUri;
+                hydrated = true;
+            }
+
+            if ((topic.ExtractedModLinks == null || topic.ExtractedModLinks.Count == 0) &&
+                cached.Links != null && cached.Links.Count > 0)
+            {
+                topic.ExtractedModLinks = cached.Links.Select(CloneCloudModLink).ToList();
+                hydrated = true;
+            }
+
+            return hydrated;
+        }
+
         public void PrimeQuickTopicState(RuTrackerTopicItem? topic, byte[]? explicitTorrentBytes = null)
         {
             if (topic == null) return;
+            TryHydrateTopicFromParsedCache(topic);
             _activeTopicId = topic.TopicId ?? string.Empty;
             _activeTopicSeeds = topic.Seeds;
             _loadedMagnet = null;
@@ -2918,7 +2971,7 @@ namespace StormSwitchBox.Services
                     if (fwSplit.Success && fwSplit.Index > 0)
                         val = val.Substring(0, fwSplit.Index);
 
-                    foreach (Match vm in Regex.Matches(val, @"(?:^|[\s(\[/]|[vV]\.?)(?<ver>\d{1,2}\.\d{1,4}(?:\.\d{1,4}){0,2})(?=$|[\s)\]/,;|+])"))
+                    foreach (Match vm in Regex.Matches(val, @"(?:^|[\s(\[/]|[vV]\.?)(?<ver>\d{1,2}\.\d{1,4}(?:\.\d{1,4}){0,2})(?=$|[\s)\]/,;|+\-:])"))
                     {
                         string prefix = val.Substring(0, vm.Index);
                         int after = vm.Index + vm.Length;
@@ -2953,7 +3006,7 @@ namespace StormSwitchBox.Services
                         string baseTid = NormalizeSwitchBaseApplicationTitleId(tidMatch.Groups[1].Value);
                         if (baseTid.Length == 16)
                         {
-                            foreach (Match vm in Regex.Matches(line, @"(?:^|[\s(\[/]|[vV]\.?)(?<ver>\d{1,2}\.\d{1,4}(?:\.\d{1,4}){0,2})(?=$|[\s)\]/,;|+])"))
+                            foreach (Match vm in Regex.Matches(line, @"(?:^|[\s(\[/]|[vV]\.?)(?<ver>\d{1,2}\.\d{1,4}(?:\.\d{1,4}){0,2})(?=$|[\s)\]/,;|+\-:])"))
                             {
                                 string prefix = line.Substring(0, vm.Index);
                                 int after = vm.Index + vm.Length;
@@ -3041,8 +3094,18 @@ namespace StormSwitchBox.Services
                 }
 
                 var (parsedMainVer, parsedPerTitleVers) = ExtractGameVersionsFromTopicHtml(topicHtml);
-                item.ParsedGameVersion = parsedMainVer;
+                item.ParsedGameVersion = !string.IsNullOrWhiteSpace(parsedMainVer)
+                    ? parsedMainVer
+                    : (cachedParsed != null && cachedParsed.SchemaVersion >= 2 ? (cachedParsed.ParsedGameVersion ?? string.Empty) : string.Empty);
                 item.ParsedTitleVersions = parsedPerTitleVers;
+                if (cachedParsed != null && cachedParsed.SchemaVersion >= 2 && cachedParsed.ParsedTitleVersions != null)
+                {
+                    foreach (var kv in cachedParsed.ParsedTitleVersions)
+                    {
+                        if (!item.ParsedTitleVersions.ContainsKey(kv.Key) && !string.IsNullOrWhiteSpace(kv.Value))
+                            item.ParsedTitleVersions[kv.Key] = kv.Value;
+                    }
+                }
 
                 var magnetMatch = Regex.Match(topicHtml, @"href=""(magnet:\?xt=urn:btih:[^""]+)""", RegexOptions.IgnoreCase);
                 if (magnetMatch.Success)
@@ -3060,6 +3123,10 @@ namespace StormSwitchBox.Services
                 if (posterMatch.Success)
                 {
                     item.PosterUrl = WebUtility.HtmlDecode(!string.IsNullOrEmpty(posterMatch.Groups[1].Value) ? posterMatch.Groups[1].Value : posterMatch.Groups[2].Value);
+                }
+                else if (string.IsNullOrWhiteSpace(item.PosterUrl) && cachedParsed != null && cachedParsed.SchemaVersion >= 2 && !string.IsNullOrWhiteSpace(cachedParsed.PosterUrl))
+                {
+                    item.PosterUrl = cachedParsed.PosterUrl;
                 }
 
                 var allLinks = new List<CloudModLinkItem>();
@@ -3097,6 +3164,29 @@ namespace StormSwitchBox.Services
                     UpdatedUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
                 };
                 ScheduleSaveTopicParsedCache();
+            }
+            else if (cachedParsed != null && cachedParsed.SchemaVersion >= 2)
+            {
+                if (!string.IsNullOrWhiteSpace(cachedParsed.Title) &&
+                    (string.IsNullOrWhiteSpace(item.Title) || item.Title.StartsWith("Раздача RuTracker #", StringComparison.OrdinalIgnoreCase)))
+                {
+                    item.Title = cachedParsed.Title;
+                }
+                if (string.IsNullOrWhiteSpace(item.MagnetUri) && !string.IsNullOrWhiteSpace(cachedParsed.MagnetUri))
+                    item.MagnetUri = cachedParsed.MagnetUri;
+                if (string.IsNullOrWhiteSpace(item.InfoHash) && !string.IsNullOrWhiteSpace(cachedParsed.InfoHash))
+                    item.InfoHash = cachedParsed.InfoHash;
+                if (string.IsNullOrWhiteSpace(item.PosterUrl) && !string.IsNullOrWhiteSpace(cachedParsed.PosterUrl))
+                    item.PosterUrl = cachedParsed.PosterUrl;
+                if (string.IsNullOrWhiteSpace(item.ParsedGameVersion) && !string.IsNullOrWhiteSpace(cachedParsed.ParsedGameVersion))
+                    item.ParsedGameVersion = cachedParsed.ParsedGameVersion;
+                if ((item.ParsedTitleVersions == null || item.ParsedTitleVersions.Count == 0) &&
+                    cachedParsed.ParsedTitleVersions != null && cachedParsed.ParsedTitleVersions.Count > 0)
+                {
+                    item.ParsedTitleVersions = new Dictionary<string, string>(cachedParsed.ParsedTitleVersions, StringComparer.OrdinalIgnoreCase);
+                }
+                if (cachedParsed.Links != null && cachedParsed.Links.Count > 0)
+                    item.ExtractedModLinks = cachedParsed.Links.Select(CloneCloudModLink).ToList();
             }
 
             if (string.IsNullOrEmpty(item.MagnetUri) && !string.IsNullOrEmpty(item.InfoHash))
@@ -9585,20 +9675,27 @@ namespace StormSwitchBox.Services
                 ? $"{baseMirror}/forum/viewtopic.php?t={tid}&start={startOffset}"
                 : $"{baseMirror}/forum/viewtopic.php?t={tid}";
 
-            // Параллельная гонка: прямой HttpClient (DoH/Mirror) + SameOrigin WebView2 одновременно (ответ за ~0.35 сек!)
+            string altMirror = baseMirror.Contains("rutracker.net", StringComparison.OrdinalIgnoreCase)
+                ? "https://rutracker.org"
+                : "https://rutracker.net";
+            string altPageUrl = startOffset > 0
+                ? $"{altMirror}/forum/viewtopic.php?t={tid}&start={startOffset}"
+                : $"{altMirror}/forum/viewtopic.php?t={tid}";
+
+            // Параллельная гонка: прямой HttpClient по основному и резервному зеркалам + SameOrigin WebView2 одновременно
             using (var fastCts = CancellationTokenSource.CreateLinkedTokenSource(ct))
             {
-                fastCts.CancelAfter(TimeSpan.FromSeconds(2.0));
+                fastCts.CancelAfter(TimeSpan.FromSeconds(5.0));
                 var fct = fastCts.Token;
 
                 var raceTasks = new List<Task<string?>>();
 
-                raceTasks.Add(Task.Run(async () =>
+                async Task<string?> TryFetchDirectAsync(string targetUrl)
                 {
                     try
                     {
                         using var client = CreateHttpClient();
-                        using var resp = await client.GetAsync(pageUrl, fct).ConfigureAwait(false);
+                        using var resp = await client.GetAsync(targetUrl, fct).ConfigureAwait(false);
                         if (resp.IsSuccessStatusCode)
                         {
                             byte[] bytes = await resp.Content.ReadAsByteArrayAsync(fct).ConfigureAwait(false);
@@ -9608,7 +9705,13 @@ namespace StormSwitchBox.Services
                     }
                     catch { }
                     return null;
-                }, fct));
+                }
+
+                raceTasks.Add(Task.Run(() => TryFetchDirectAsync(pageUrl), fct));
+                if (!string.Equals(altPageUrl, pageUrl, StringComparison.OrdinalIgnoreCase))
+                {
+                    raceTasks.Add(Task.Run(() => TryFetchDirectAsync(altPageUrl), fct));
+                }
 
                 if (SameOriginFetchHandler != null)
                 {
