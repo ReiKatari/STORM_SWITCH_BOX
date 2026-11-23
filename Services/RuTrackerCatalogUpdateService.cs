@@ -308,10 +308,10 @@ namespace StormSwitchBox.Services
 
                 foreach (Match vm in Regex.Matches(
                     rel,
-                    @"(?:\[|\(|\b(?:[vV]|Update|UPD|Patch)\s*)(?<sv>\d+\.\d+(?:\.\d+){0,2})(?=\]|\)|\b)",
+                    @"(?:[\[\(]\s*(?:[vV]\.?\s*)?|\b(?:[vV]\.?|Update|UPD|Patch)\s*)(?<sv>\d{1,3}\.\d{1,4}(?:\.\d{1,6}){0,2})(?=[\]\)\(\s,.;/+\-:]|$)",
                     RegexOptions.IgnoreCase))
                 {
-                    string candVer = vm.Groups["sv"].Value.Trim();
+                    string candVer = Regex.Replace(vm.Groups["sv"].Value.Trim(), @"^[vV]+\.?\s*", "");
                     if (!TitleDbService.IsValidSemanticVersion(candVer)) continue;
                     int afterIdx = vm.Index + vm.Length;
                     string tail = afterIdx < rel.Length ? rel.Substring(afterIdx, Math.Min(8, rel.Length - afterIdx)) : string.Empty;
@@ -347,10 +347,10 @@ namespace StormSwitchBox.Services
             {
                 foreach (Match vm in Regex.Matches(
                     topic.Title,
-                    @"(?:\[|\(|\b(?:[vV]|Update|UPD|Patch)\s*)(?<sv>\d+\.\d+(?:\.\d+){0,2})(?=\]|\)|\b)",
+                    @"(?:[\[\(]\s*(?:[vV]\.?\s*)?|\b(?:[vV]\.?|Update|UPD|Patch)\s*)(?<sv>\d{1,3}\.\d{1,4}(?:\.\d{1,6}){0,2})(?=[\]\)\(\s,.;/+\-:]|$)",
                     RegexOptions.IgnoreCase))
                 {
-                    string candVer = vm.Groups["sv"].Value.Trim();
+                    string candVer = Regex.Replace(vm.Groups["sv"].Value.Trim(), @"^[vV]+\.?\s*", "");
                     if (!TitleDbService.IsValidSemanticVersion(candVer)) continue;
                     int afterIdx = vm.Index + vm.Length;
                     string tail = afterIdx < topic.Title.Length ? topic.Title.Substring(afterIdx, Math.Min(8, topic.Title.Length - afterIdx)) : string.Empty;

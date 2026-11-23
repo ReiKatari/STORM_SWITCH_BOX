@@ -3109,6 +3109,10 @@ public partial class TasksViewModel : ObservableObject
 					{
 						workingInput = decompResult;
 					}
+					else
+					{
+						throw new InvalidOperationException("Не удалось распаковать NSZ/XCZ контейнер в NSP/XCI (проверьте prod.keys и целостность архива).");
+					}
 				}
 			}
 			bool isConvertTargetXci = task.TargetFormat.Equals("XCI", StringComparison.OrdinalIgnoreCase) || 

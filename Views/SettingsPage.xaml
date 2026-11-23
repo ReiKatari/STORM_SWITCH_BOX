@@ -286,9 +286,9 @@
                             <Grid>
                                 <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
                                     <TextBlock x:Name="TasksTitleTxt" Text="Максимум одновременных задач" FontWeight="Medium"/>
-                                    <TextBlock x:Name="TasksDescTxt" Text="Количество задач, выполняемых одновременно в фоновой очереди (от 1 до 5)" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                                    <TextBlock x:Name="TasksDescTxt" Text="Количество задач, выполняемых одновременно в фоновой очереди (от 1 до 8)" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
                                 </StackPanel>
-                                <NumberBox HorizontalAlignment="Right" Width="220" Value="{x:Bind Settings.ConcurrentTasks, Mode=TwoWay}" Minimum="1" Maximum="5" SpinButtonPlacementMode="Inline" ValueChanged="Setting_ValueChanged" VerticalAlignment="Center"/>
+                                <NumberBox HorizontalAlignment="Right" Width="220" Value="{x:Bind Settings.ConcurrentTasks, Mode=TwoWay}" Minimum="1" Maximum="8" SpinButtonPlacementMode="Inline" ValueChanged="Setting_ValueChanged" VerticalAlignment="Center"/>
                             </Grid>
 
                             <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>

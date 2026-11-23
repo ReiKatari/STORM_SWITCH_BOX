@@ -204,6 +204,7 @@ namespace StormSwitchBox.Views.Dialogs
             AutoBuildCheckBox.IsChecked = cfg.RuTrackerAutoBuildTask;
             DeleteRuTrackerSourceCheckBox.IsChecked = cfg.RuTrackerDeleteSourceOnSuccess;
             SyncSpeedLimitControlsFromSettings();
+            SyncConcurrencyControlsFromSettings();
 
             string normalizedSavedDl = NormalizeNonTempOutputDir(cfg.RuTrackerDownloadFolder);
             string normalizedGlobalOut = NormalizeNonTempOutputDir(cfg.OutputFolder);
@@ -386,6 +387,69 @@ namespace StormSwitchBox.Views.Dialogs
                 App.Settings.Current.RuTrackerGlobalSpeedLimitMbPerSec = Math.Round(val, 2);
                 _ = App.Settings.SaveAsync();
                 RuTrackerDownloadQueueService.Instance.NotifySpeedLimitSettingsChanged();
+            }
+        }
+
+        private bool _suppressConcurrencyCombos = false;
+
+        private static void SelectNearestIntComboItem(ComboBox? box, int targetValue)
+        {
+            if (box == null || box.Items.Count == 0) return;
+            int bestIdx = 0;
+            int bestDiff = int.MaxValue;
+            for (int i = 0; i < box.Items.Count; i++)
+            {
+                if (box.Items[i] is ComboBoxItem cbi && int.TryParse(cbi.Tag?.ToString(), out int v))
+                {
+                    int diff = Math.Abs(v - targetValue);
+                    if (diff < bestDiff)
+                    {
+                        bestDiff = diff;
+                        bestIdx = i;
+                        if (diff == 0) break;
+                    }
+                }
+            }
+            box.SelectedIndex = bestIdx;
+        }
+
+        public void SyncConcurrencyControlsFromSettings()
+        {
+            if (MaxConcurrentDownloadsComboBox == null && MaxConcurrentBuildsComboBox == null) return;
+            _suppressConcurrencyCombos = true;
+            try
+            {
+                var cfg = App.Settings.Current;
+                SelectNearestIntComboItem(MaxConcurrentDownloadsComboBox, Math.Clamp(cfg.RuTrackerMaxConcurrentDownloads, 1, 10));
+                SelectNearestIntComboItem(MaxConcurrentBuildsComboBox, Math.Clamp(cfg.ConcurrentTasks, 1, 8));
+            }
+            finally
+            {
+                _suppressConcurrencyCombos = false;
+            }
+        }
+
+        private void MaxConcurrentDownloadsCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (!_isUiInitialized || _suppressConcurrencyCombos) return;
+            if (MaxConcurrentDownloadsComboBox?.SelectedItem is not ComboBoxItem item || item.Tag == null) return;
+            if (int.TryParse(item.Tag.ToString(), out int val))
+            {
+                App.Settings.Current.RuTrackerMaxConcurrentDownloads = Math.Clamp(val, 1, 10);
+                _ = App.Settings.SaveAsync();
+                RuTrackerDownloadQueueService.Instance.NotifyConcurrencySettingsChanged();
+            }
+        }
+
+        private void MaxConcurrentBuildsCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (!_isUiInitialized || _suppressConcurrencyCombos) return;
+            if (MaxConcurrentBuildsComboBox?.SelectedItem is not ComboBoxItem item || item.Tag == null) return;
+            if (int.TryParse(item.Tag.ToString(), out int val))
+            {
+                App.Settings.Current.ConcurrentTasks = Math.Clamp(val, 1, 8);
+                _ = App.Settings.SaveAsync();
+                RuTrackerDownloadQueueService.Instance.NotifyConcurrencySettingsChanged();
             }
         }
 
@@ -1216,12 +1280,14 @@ namespace StormSwitchBox.Views.Dialogs
 
             try
             {
-                // ПАРАЛЛЕЛЬНАЯ ФАЗА (~0.3-0.7 сек): список файлов .torrent и 1-я страница темы грузятся ОДНОВРЕМЕННО!
+                // ПАРАЛЛЕЛЬНАЯ ФАЗА: список файлов .torrent и 1-я страница темы грузятся ОДНОВРЕМЕННО,
+                // при этом UI и P2P-фолбэк никогда не ждут таймаутов HTML/прокси темы.
                 Task<List<TorrentFileSelectionItem>>? filesTask = (instantCachedFiles == null || instantCachedFiles.Count == 0)
                     ? _service.InspectTorrentFilesAsync(topic, null, ct)
                     : null;
 
                 Task<RuTrackerTopicItem?> detailsTask = _service.FetchTopicDetailsAsync(topic.TopicId ?? string.Empty, ct, includeCommentPages: false);
+                string hashBeforeDetails = topic.InfoHash ?? string.Empty;
 
                 if (filesTask != null)
                 {
@@ -1234,7 +1300,99 @@ namespace StormSwitchBox.Views.Dialogs
                     }, TaskScheduler.Default);
                 }
 
-                string hashBeforeDetails = topic.InfoHash ?? string.Empty;
+                bool magnetBgStarted = false;
+                void StartMagnetMetadataBackground()
+                {
+                    if (magnetBgStarted || string.IsNullOrWhiteSpace(topic.InfoHash) || ct.IsCancellationRequested)
+                        return;
+                    magnetBgStarted = true;
+                    TorrentFilesHeader.Text = $"Получение списка файлов по P2P ({topic.SizeText})...";
+                    StatusText.Text = "Раздача готова к высокоскоростной загрузке.";
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            var bgItems = await _service.ResolveMagnetMetadataBackgroundAsync(topic, TimeSpan.FromSeconds(22), ct).ConfigureAwait(false);
+                            if (ct.IsCancellationRequested || mySeq != System.Threading.Interlocked.Read(ref _topicSelectionSeq))
+                                return;
+
+                            if (bgItems != null && bgItems.Count > 0)
+                            {
+                                App.RunOnUI(() =>
+                                {
+                                    if (!ct.IsCancellationRequested && mySeq == System.Threading.Interlocked.Read(ref _topicSelectionSeq))
+                                        ApplyResolvedFilesOnUi(bgItems);
+                                });
+                            }
+                            else
+                            {
+                                App.RunOnUI(() =>
+                                {
+                                    if (!ct.IsCancellationRequested && mySeq == System.Threading.Interlocked.Read(ref _topicSelectionSeq) && !_activeTopicHasRealFiles && TorrentFilesHeader != null)
+                                        TorrentFilesHeader.Text = $"Magnet-разрешение активно ({topic.SizeText}) - файлы загрузятся при старте";
+                                });
+                            }
+                        }
+                        catch { }
+                    }, ct);
+                }
+
+                // 1. Сначала дожидаемся списка файлов .torrent и сразу показываем его / запускаем P2P Magnet
+                if (filesTask != null)
+                {
+                    try
+                    {
+                        var resolvedEntries = await filesTask;
+                        if (!filesApplied && resolvedEntries != null)
+                            ApplyResolvedFilesOnUi(resolvedEntries);
+                    }
+                    catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+                    {
+                    }
+                    catch when (!ct.IsCancellationRequested)
+                    {
+                    }
+                }
+                if (ct.IsCancellationRequested || mySeq != System.Threading.Interlocked.Read(ref _topicSelectionSeq))
+                    return;
+
+                if (!filesApplied)
+                {
+                    var fallbackParts = RuTrackerModService.DetectMultiGameTitlesFromRelease(topic.Title, topic.TopicId);
+                    var fallbackEntries = fallbackParts.Count > 1
+                        ? fallbackParts.Select((partName, idx) => new TorrentFileSelectionItem
+                        {
+                            IsSelected = true,
+                            TargetGameSlot = idx + 1,
+                            RelativePath = $"{partName} - Базовая игра + Обновления / DLC (получение по Magnet/DHT)",
+                            Length = 0,
+                            CategoryBadge = $"ИГРА #{idx + 1}"
+                        }).ToList()
+                        : new List<TorrentFileSelectionItem>
+                        {
+                            new TorrentFileSelectionItem
+                            {
+                                IsSelected = true,
+                                TargetGameSlot = 1,
+                                RelativePath = $"{topic.CleanTitleDisplay} - Полный пакет раздачи (получение списка файлов по Magnet при старте)",
+                                Length = topic.EffectiveSizeBytes,
+                                CategoryBadge = "MAGNET"
+                            }
+                        };
+                    ApplyResolvedFilesOnUi(fallbackEntries);
+
+                    if (!string.IsNullOrWhiteSpace(topic.InfoHash))
+                    {
+                        StartMagnetMetadataBackground();
+                    }
+                    else
+                    {
+                        TorrentFilesHeader.Text = $"Magnet-разрешение активно ({topic.SizeText}) - файлы загрузятся при старте";
+                        StatusText.Text = "Раздача готова к высокоскоростной загрузке.";
+                    }
+                }
+
+                // 2. Теперь дожидаемся метаданных темы (версия игры, обложка, хеш, ссылки из шапки)
                 RuTrackerTopicItem? detailed = null;
                 try
                 {
@@ -1299,79 +1457,67 @@ namespace StormSwitchBox.Views.Dialogs
                     }
 
                     EnrichGameSlotsFromFilesAndTitleDb();
-                }
 
-                // ФОНОВАЯ ФАЗА: тихо догружаем ссылки на русификаторы/моды из комментариев без блокировки интерфейса
-                _ = Task.Run(async () =>
-                {
-                    try
+                    // ФОНОВАЯ ФАЗА: тихо догружаем ссылки на русификаторы/моды из последних комментариев
+                    _ = Task.Run(async () =>
                     {
-                        var fullLinks = await _service.FetchTopicCommentLinksAsync(topic.TopicId ?? string.Empty, ct).ConfigureAwait(false);
-                        if (ct.IsCancellationRequested) return;
-                        App.RunOnUI(() =>
+                        try
                         {
-                            if (ct.IsCancellationRequested || mySeq != System.Threading.Interlocked.Read(ref _topicSelectionSeq))
-                                return;
-
-                            _service.TryHydrateTopicFromParsedCache(topic);
-                            bool versionMetaUpdated = false;
-                            if (string.IsNullOrWhiteSpace(_currentTopicParsedGameVersion) && !string.IsNullOrWhiteSpace(topic.ParsedGameVersion))
+                            var fullLinks = await _service.FetchTopicCommentLinksAsync(topic.TopicId ?? string.Empty, ct).ConfigureAwait(false);
+                            if (ct.IsCancellationRequested) return;
+                            App.RunOnUI(() =>
                             {
-                                _currentTopicParsedGameVersion = topic.ParsedGameVersion;
-                                versionMetaUpdated = true;
-                            }
-                            if (topic.ParsedTitleVersions != null && topic.ParsedTitleVersions.Count > _currentTopicParsedTitleVersions.Count)
-                            {
-                                _currentTopicParsedTitleVersions = new Dictionary<string, string>(topic.ParsedTitleVersions, StringComparer.OrdinalIgnoreCase);
-                                versionMetaUpdated = true;
-                            }
+                                if (ct.IsCancellationRequested || mySeq != System.Threading.Interlocked.Read(ref _topicSelectionSeq))
+                                    return;
 
-                            if (fullLinks != null && fullLinks.Count > _discussionLinks.Count)
-                            {
-                                var previouslySelectedUrls = new HashSet<string>(
-                                    _discussionLinks.Where(x => x.IsSelected).Select(x => x.Url),
-                                    StringComparer.OrdinalIgnoreCase);
-
-                                topic.ExtractedModLinks = fullLinks;
-                                PopulateDiscussionLinks(fullLinks);
-                                foreach (var lnk in _discussionLinks)
+                                _service.TryHydrateTopicFromParsedCache(topic);
+                                bool versionMetaUpdated = false;
+                                if (string.IsNullOrWhiteSpace(_currentTopicParsedGameVersion) && !string.IsNullOrWhiteSpace(topic.ParsedGameVersion))
                                 {
-                                    if (previouslySelectedUrls.Contains(lnk.Url))
-                                        lnk.IsSelected = true;
+                                    _currentTopicParsedGameVersion = topic.ParsedGameVersion;
+                                    versionMetaUpdated = true;
                                 }
-                                var slotTitles = _gameSlots.Select(s => s.GameTitle).ToList();
-                                _suppressGroupRebuild = true;
-                                RuTrackerModService.AutoAssignLinksToGameSlots(_discussionLinks, slotTitles);
-                                _suppressGroupRebuild = false;
-                                RebuildFileAndLinkGroups();
-                                UpdateGameSlotsSummary();
-                            }
-                            else if (_discussionLinks.Count == 0)
-                            {
-                                ModLinksHintText.Text = "Внешних ссылок в теме не найдено";
-                            }
+                                if (topic.ParsedTitleVersions != null && topic.ParsedTitleVersions.Count > _currentTopicParsedTitleVersions.Count)
+                                {
+                                    _currentTopicParsedTitleVersions = new Dictionary<string, string>(topic.ParsedTitleVersions, StringComparer.OrdinalIgnoreCase);
+                                    versionMetaUpdated = true;
+                                }
 
-                            if (versionMetaUpdated)
-                                EnrichGameSlotsFromFilesAndTitleDb();
-                        });
-                    }
-                    catch { }
-                }, ct);
+                                if (fullLinks != null && fullLinks.Count > _discussionLinks.Count)
+                                {
+                                    var previouslySelectedUrls = new HashSet<string>(
+                                        _discussionLinks.Where(x => x.IsSelected).Select(x => x.Url),
+                                        StringComparer.OrdinalIgnoreCase);
 
-                if (filesTask != null)
+                                    topic.ExtractedModLinks = fullLinks;
+                                    PopulateDiscussionLinks(fullLinks);
+                                    foreach (var lnk in _discussionLinks)
+                                    {
+                                        if (previouslySelectedUrls.Contains(lnk.Url))
+                                            lnk.IsSelected = true;
+                                    }
+                                    var slotTitles = _gameSlots.Select(s => s.GameTitle).ToList();
+                                    _suppressGroupRebuild = true;
+                                    RuTrackerModService.AutoAssignLinksToGameSlots(_discussionLinks, slotTitles);
+                                    _suppressGroupRebuild = false;
+                                    RebuildFileAndLinkGroups();
+                                    UpdateGameSlotsSummary();
+                                }
+                                else if (_discussionLinks.Count == 0)
+                                {
+                                    ModLinksHintText.Text = "Внешних ссылок в теме не найдено";
+                                }
+
+                                if (versionMetaUpdated)
+                                    EnrichGameSlotsFromFilesAndTitleDb();
+                            });
+                        }
+                        catch { }
+                    }, ct);
+                }
+                else if (_discussionLinks.Count == 0)
                 {
-                    try
-                    {
-                        var resolvedEntries = await filesTask;
-                        if (!filesApplied && resolvedEntries != null)
-                            ApplyResolvedFilesOnUi(resolvedEntries);
-                    }
-                    catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-                    {
-                    }
-                    catch when (!ct.IsCancellationRequested)
-                    {
-                    }
+                    ModLinksHintText.Text = "Внешних ссылок в теме не найдено";
                 }
 
                 if (discoveredNewHash && !_activeTopicHasRealFiles && !ct.IsCancellationRequested && mySeq == System.Threading.Interlocked.Read(ref _topicSelectionSeq))
@@ -1390,68 +1536,9 @@ namespace StormSwitchBox.Views.Dialogs
                     }
                 }
 
-                if (!filesApplied && !ct.IsCancellationRequested && mySeq == System.Threading.Interlocked.Read(ref _topicSelectionSeq))
+                if (!_activeTopicHasRealFiles && !magnetBgStarted && !string.IsNullOrWhiteSpace(topic.InfoHash) && !ct.IsCancellationRequested && mySeq == System.Threading.Interlocked.Read(ref _topicSelectionSeq))
                 {
-                    var fallbackParts = RuTrackerModService.DetectMultiGameTitlesFromRelease(topic.Title, topic.TopicId);
-                    var fallbackEntries = fallbackParts.Count > 1
-                        ? fallbackParts.Select((partName, idx) => new TorrentFileSelectionItem
-                        {
-                            IsSelected = true,
-                            TargetGameSlot = idx + 1,
-                            RelativePath = $"{partName} - Базовая игра + Обновления / DLC (получение по Magnet/DHT)",
-                            Length = 0,
-                            CategoryBadge = $"ИГРА #{idx + 1}"
-                        }).ToList()
-                        : new List<TorrentFileSelectionItem>
-                        {
-                            new TorrentFileSelectionItem
-                            {
-                                IsSelected = true,
-                                TargetGameSlot = 1,
-                                RelativePath = $"{topic.CleanTitleDisplay} - Полный пакет раздачи (получение списка файлов по Magnet при старте)",
-                                Length = topic.EffectiveSizeBytes,
-                                CategoryBadge = "MAGNET"
-                            }
-                        };
-                    ApplyResolvedFilesOnUi(fallbackEntries);
-
-                    if (!string.IsNullOrWhiteSpace(topic.InfoHash) && !ct.IsCancellationRequested)
-                    {
-                        TorrentFilesHeader.Text = $"Получение списка файлов по P2P ({topic.SizeText})...";
-                        StatusText.Text = "Раздача готова к высокоскоростной загрузке.";
-                        _ = Task.Run(async () =>
-                        {
-                            try
-                            {
-                                var bgItems = await _service.ResolveMagnetMetadataBackgroundAsync(topic, TimeSpan.FromSeconds(22), ct).ConfigureAwait(false);
-                                if (ct.IsCancellationRequested || mySeq != System.Threading.Interlocked.Read(ref _topicSelectionSeq))
-                                    return;
-
-                                if (bgItems != null && bgItems.Count > 0)
-                                {
-                                    App.RunOnUI(() =>
-                                    {
-                                        if (!ct.IsCancellationRequested && mySeq == System.Threading.Interlocked.Read(ref _topicSelectionSeq))
-                                            ApplyResolvedFilesOnUi(bgItems);
-                                    });
-                                }
-                                else
-                                {
-                                    App.RunOnUI(() =>
-                                    {
-                                        if (!ct.IsCancellationRequested && mySeq == System.Threading.Interlocked.Read(ref _topicSelectionSeq) && !_activeTopicHasRealFiles && TorrentFilesHeader != null)
-                                            TorrentFilesHeader.Text = $"Magnet-разрешение активно ({topic.SizeText}) - файлы загрузятся при старте";
-                                    });
-                                }
-                            }
-                            catch { }
-                        }, ct);
-                    }
-                    else
-                    {
-                        TorrentFilesHeader.Text = $"Magnet-разрешение активно ({topic.SizeText}) - файлы загрузятся при старте";
-                        StatusText.Text = "Раздача готова к высокоскоростной загрузке.";
-                    }
+                    StartMagnetMetadataBackground();
                 }
             }
             catch (OperationCanceledException)
@@ -2338,7 +2425,7 @@ namespace StormSwitchBox.Views.Dialogs
                     int best = 0;
                     foreach (System.Text.RegularExpressions.Match ivm in System.Text.RegularExpressions.Regex.Matches(
                         relPath,
-                        @"\[v?(?<iv>\d{5,10})\]|\(\s*\d{1,3}\.\d{1,4}(?:\.\d{1,4}){0,2}\s*-\s*(?<iv>\d{5,10})(?:\s*-\s*[0-9A-Fa-f]{16})?\s*\)",
+                        @"\[v?(?<iv>\d{5,10})\]|\(\s*[vV]?\.?\s*\d{1,3}\.\d{1,4}(?:\.\d{1,6}){0,2}\s*-\s*(?<iv>\d{5,10})(?:\s*-\s*[0-9A-Fa-f]{16})?\s*\)",
                         System.Text.RegularExpressions.RegexOptions.IgnoreCase))
                     {
                         if (int.TryParse(ivm.Groups["iv"].Value, out int val) && val > best)
@@ -2452,12 +2539,12 @@ namespace StormSwitchBox.Views.Dialogs
                 {
                     foreach (System.Text.RegularExpressions.Match comboMatch in System.Text.RegularExpressions.Regex.Matches(
                         srcText,
-                        @"\(\s*(?<dv>\d{1,3}\.\d{1,4}(?:\.\d{1,4}){0,2})\s*-\s*(?<iv>\d{1,10})(?:\s*-\s*[0-9A-Fa-f]{16})?\s*\)"))
+                        @"\(\s*[vV]?\.?\s*(?<dv>\d{1,3}\.\d{1,4}(?:\.\d{1,6}){0,2})\s*-\s*(?<iv>\d{1,10})(?:\s*-\s*[0-9A-Fa-f]{16})?\s*\)"))
                     {
                         bool hasIv = int.TryParse(comboMatch.Groups["iv"].Value, out int ivCombo);
                         if (scanPatchInt && hasIv && ivCombo > maxPatchVer)
                             maxPatchVer = ivCombo;
-                        string dv = comboMatch.Groups["dv"].Value.Trim().TrimStart('v', 'V');
+                        string dv = System.Text.RegularExpressions.Regex.Replace(comboMatch.Groups["dv"].Value.Trim(), @"^[vV]+\.?\s*", "");
                         if (TitleDbService.IsValidSemanticVersion(dv) && (maxPatchVer == 0 || (hasIv && ivCombo == maxPatchVer)))
                         {
                             if (string.IsNullOrEmpty(explicitSemanticVer) || TitleDbService.CompareSemanticVersions(dv, explicitSemanticVer) > 0)
@@ -2467,10 +2554,10 @@ namespace StormSwitchBox.Views.Dialogs
 
                     foreach (System.Text.RegularExpressions.Match vm in System.Text.RegularExpressions.Regex.Matches(
                         srcText,
-                        @"(?:\[|\(|\b(?:[vV]|Update|UPD|Patch)\s*)(?<sv>\d+\.\d+(?:\.\d+){0,2})(?=\]|\)|\b)",
+                        @"(?:[\[\(]\s*(?:[vV]\.?\s*)?|\b(?:[vV]\.?|Update|UPD|Patch)\s*)(?<sv>\d{1,3}\.\d{1,4}(?:\.\d{1,6}){0,2})(?=[\]\)\(\s,.;/+\-:]|$)",
                         System.Text.RegularExpressions.RegexOptions.IgnoreCase))
                     {
-                        string cand = vm.Groups["sv"].Value.Trim();
+                        string cand = System.Text.RegularExpressions.Regex.Replace(vm.Groups["sv"].Value.Trim(), @"^[vV]+\.?\s*", "");
                         if (!TitleDbService.IsValidSemanticVersion(cand)) continue;
                         int afterIdx = vm.Index + vm.Length;
                         string tail = afterIdx < srcText.Length ? srcText.Substring(afterIdx, Math.Min(8, srcText.Length - afterIdx)) : string.Empty;
@@ -2549,7 +2636,7 @@ namespace StormSwitchBox.Views.Dialogs
                     dbEntry?.VersionsDictionary != null && dbEntry.VersionsDictionary.Count > 0)
                 {
                     var rev = dbEntry.VersionsDictionary.FirstOrDefault(kv =>
-                        string.Equals(kv.Value?.Trim().TrimStart('v', 'V'), explicitSemanticVer, StringComparison.OrdinalIgnoreCase));
+                        string.Equals(System.Text.RegularExpressions.Regex.Replace((kv.Value ?? string.Empty).Trim(), @"^[vV]+\.?\s*", ""), explicitSemanticVer, StringComparison.OrdinalIgnoreCase));
                     if (!string.IsNullOrEmpty(rev.Key) && int.TryParse(rev.Key, out int mappedIv) && mappedIv > 0)
                         maxPatchVer = mappedIv;
                 }
@@ -2557,7 +2644,7 @@ namespace StormSwitchBox.Views.Dialogs
                 string displayVer;
                 if (!string.IsNullOrWhiteSpace(explicitSemanticVer))
                 {
-                    displayVer = explicitSemanticVer.Trim().TrimStart('v', 'V');
+                    displayVer = System.Text.RegularExpressions.Regex.Replace(explicitSemanticVer.Trim(), @"^[vV]+\.?\s*", "");
                 }
                 else if (maxPatchVer == 0)
                 {
@@ -5220,24 +5307,30 @@ namespace StormSwitchBox.Views.Dialogs
                             if (!string.IsNullOrWhiteSpace(App.Settings.Current.RuTrackerCfClearance))
                             {
                                 RuTrackerModService.SharedCfClearance = App.Settings.Current.RuTrackerCfClearance;
-                                try
+                                foreach (var rtDomain in new[] { ".rutracker.org", ".rutracker.net" })
                                 {
-                                    var cfCookie = coreWv.CookieManager.CreateCookie(
-                                        "cf_clearance", App.Settings.Current.RuTrackerCfClearance, ".rutracker.org", "/");
-                                    coreWv.CookieManager.AddOrUpdateCookie(cfCookie);
+                                    try
+                                    {
+                                        var cfCookie = coreWv.CookieManager.CreateCookie(
+                                            "cf_clearance", App.Settings.Current.RuTrackerCfClearance, rtDomain, "/");
+                                        coreWv.CookieManager.AddOrUpdateCookie(cfCookie);
+                                    }
+                                    catch { }
                                 }
-                                catch { }
                             }
 
                             if (!string.IsNullOrWhiteSpace(App.Settings.Current.RuTrackerCookie))
                             {
-                                try
+                                foreach (var rtDomain in new[] { ".rutracker.org", ".rutracker.net" })
                                 {
-                                    var bbCookie = coreWv.CookieManager.CreateCookie(
-                                        "bb_session", App.Settings.Current.RuTrackerCookie, ".rutracker.org", "/");
-                                    coreWv.CookieManager.AddOrUpdateCookie(bbCookie);
+                                    try
+                                    {
+                                        var bbCookie = coreWv.CookieManager.CreateCookie(
+                                            "bb_session", App.Settings.Current.RuTrackerCookie, rtDomain, "/");
+                                        coreWv.CookieManager.AddOrUpdateCookie(bbCookie);
+                                    }
+                                    catch { }
                                 }
-                                catch { }
                             }
 
                             _webViewConfigured = true;

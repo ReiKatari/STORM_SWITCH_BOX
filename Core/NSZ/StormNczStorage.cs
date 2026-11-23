@@ -430,7 +430,7 @@ namespace StormSwitchBox.Core.NSZ
                     // Never overwrite a non-zero CryptoKey already stored in NCZSECTN.
                     // Also do not apply AES-CTR to CryptoType == 2 (XTS/passthrough).
                     bool sectionKeyIsZero = StormNczCompressor.IsAllZero(section.CryptoKey);
-                    if (sectionKeyIsZero && (section.CryptoType == 3 || section.CryptoType == 4))
+                    if (sectionKeyIsZero && (section.CryptoType == 3 || section.CryptoType == 4 || section.CryptoType == 5))
                     {
                         byte[]? expectedKey = null;
                         if (ncaRightsIdHex != null)
@@ -447,20 +447,26 @@ namespace StormSwitchBox.Core.NSZ
                         {
                             try
                             {
-                                byte[] headerEncrypted = new byte[0xC00];
-                                _baseStorage.Read(0, headerEncrypted).ThrowIfFailure();
-
-                                byte[] decHdr = new byte[0xC00];
-                                if (TryDecryptNcaHeader(headerEncrypted, decHdr, _keyset))
+                                byte[]? decHdr = decryptedHeader;
+                                if (decHdr == null)
                                 {
-                                    var nca = new LibHac.Tools.FsSystem.NcaUtils.Nca(_keyset, new MemoryStream(decHdr).AsStorage());
-                                    int keysetIndex = Math.Max(0, nca.Header.KeyGeneration - 1);
-                                    int keyAreaKeyIndex = nca.Header.KeyAreaKeyIndex;
+                                    byte[] headerEncrypted = new byte[0xC00];
+                                    _baseStorage.Read(0, headerEncrypted).ThrowIfFailure();
+                                    byte[] tmpDec = new byte[0xC00];
+                                    if (TryDecryptNcaHeader(headerEncrypted, tmpDec, _keyset))
+                                        decHdr = tmpDec;
+                                }
+
+                                if (decHdr != null)
+                                {
+                                    int hdrKeyGen = Math.Max((int)decHdr[0x220], (int)decHdr[0x206]);
+                                    int keysetIndex = Math.Max(0, hdrKeyGen - 1);
+                                    int keyAreaKeyIndex = decHdr[0x207];
 
                                     if (keysetIndex >= 0 && keysetIndex < _keyset.KeyAreaKeys.Length &&
                                         keyAreaKeyIndex >= 0 && keyAreaKeyIndex < 3)
                                     {
-                                        int keyOffset = 0x320;
+                                        int keyOffset = section.CryptoType == 2 ? 0x300 : 0x320;
                                         byte[] areaKey = new byte[16];
                                         ((ReadOnlySpan<byte>)_keyset.KeyAreaKeys[keysetIndex][keyAreaKeyIndex]).CopyTo(areaKey);
 
@@ -522,19 +528,34 @@ namespace StormSwitchBox.Core.NSZ
                     currentOffset += 64;
                 }
 
-                // Сортируем секции по виртуальному Offset для правильного расчета PhysicalOffset последовательно
-                var physicalSortedSections = new List<NczSection>(_sections);
-                physicalSortedSections.Sort((a, b) => a.Offset.CompareTo(b.Offset));
+                // Сортируем секции по виртуальному Offset и пересчитываем SolidStreamOffset и PhysicalOffset в правильном порядке
+                _sections.Sort((a, b) => a.Offset.CompareTo(b.Offset));
 
-                currentPhysicalOffset = 0x4000;
-                foreach (var section in physicalSortedSections)
+                currentSolidOffset = _ncaHeaderInSolidStream ? 0x4000L : 0L;
+                currentPhysicalOffset = 0x4000L;
+                if (_sections.Count > 0 && _sections[0].Offset > 0x4000L)
                 {
+                    long leadGap = _sections[0].Offset - 0x4000L;
+                    currentSolidOffset += leadGap;
+                    currentPhysicalOffset += leadGap;
+                }
+
+                long prevSectionEnd = _sections.Count > 0 ? Math.Max(0x4000L, _sections[0].Offset) : 0x4000L;
+                foreach (var section in _sections)
+                {
+                    if (section.Offset > prevSectionEnd)
+                    {
+                        currentPhysicalOffset += (section.Offset - prevSectionEnd);
+                    }
                     long vOffset = section.Offset;
                     long vSize = section.Size;
-                    long pSize = (vOffset < 0x4000) ? Math.Max(0, vSize - (0x4000 - vOffset)) : vSize;
+                    long pSize = (vOffset < 0x4000) ? Math.Max(0, (vOffset + vSize) - 0x4000L) : vSize;
+                    section.SolidStreamOffset = currentSolidOffset;
                     section.PhysicalOffset = currentPhysicalOffset;
                     section.PhysicalSize = pSize;
+                    currentSolidOffset += pSize;
                     currentPhysicalOffset += pSize;
+                    prevSectionEnd = Math.Max(prevSectionEnd, vOffset + vSize);
                 }
 
                 if (ncaUniqueId != null)
@@ -801,6 +822,7 @@ namespace StormSwitchBox.Core.NSZ
                 
                 // Ищем секцию, в которую попадает currentOffset (если они есть)
                 NczSection? targetSection = null;
+                long nextGapEnd = _uncompressedSize;
                 if (_sections.Count > 0)
                 {
                     foreach (var sec in _sections)
@@ -810,22 +832,17 @@ namespace StormSwitchBox.Core.NSZ
                             targetSection = sec;
                             break;
                         }
+                        if (sec.Offset > currentOffset && sec.Offset < nextGapEnd)
+                        {
+                            nextGapEnd = sec.Offset;
+                        }
                     }
 
-                    if (targetSection == null)
+                    if (targetSection == null && (_isSolid || _blockHeader == null))
                     {
-                        // Попали в "дыру" (uncompressed gap) - возвращаем нули
-                        long nextSectionOffset = _uncompressedSize;
-                        foreach (var sec in _sections)
-                        {
-                            if (sec.Offset > currentOffset && sec.Offset < nextSectionOffset)
-                            {
-                                nextSectionOffset = sec.Offset;
-                            }
-                        }
-                        int toReadZeroes = (int)Math.Min((long)remaining, nextSectionOffset - currentOffset);
-                        if (toReadZeroes <= 0) break; // EOF
-                        
+                        int toReadZeroes = (int)Math.Min((long)remaining, nextGapEnd - currentOffset);
+                        if (toReadZeroes <= 0) break;
+
                         destination.Slice(bytesRead, toReadZeroes).Fill(0);
                         bytesRead += toReadZeroes;
                         currentOffset += toReadZeroes;
@@ -835,12 +852,13 @@ namespace StormSwitchBox.Core.NSZ
                 }
 
                 long offsetInSection = targetSection != null ? currentOffset - targetSection.Offset : 0;
-                // Секции, начинающиеся до 0x4000 (например 0xC00 у PublicData/DLC), хранят
-                // байты [Offset..0x4000) в несжатом заголовке, а Zstd-поток начинается с 0x4000.
-                // Поэтому смещение в потоке считается от Max(Offset, 0x4000), как и bytesInZstd.
                 long streamOffsetInSection = targetSection != null ? currentOffset - Math.Max(targetSection.Offset, ncaHeaderSize) : 0;
-                long mappedDataOffset = targetSection != null ? targetSection.SolidStreamOffset + streamOffsetInSection : currentOffset;
-                long dataRemainingInSection = targetSection != null ? targetSection.Size - offsetInSection : _uncompressedSize - currentOffset;
+                long mappedDataOffset = (!_isSolid && _blockHeader != null)
+                    ? (currentOffset - ncaHeaderSize)
+                    : (targetSection != null ? targetSection.SolidStreamOffset + streamOffsetInSection : (currentOffset - (_ncaHeaderInSolidStream ? 0 : ncaHeaderSize)));
+                long dataRemainingInSection = targetSection != null
+                    ? targetSection.Size - offsetInSection
+                    : nextGapEnd - currentOffset;
 
                 // 2. Если Solid-архив (используем временный распакованный файл)
                 if (_isSolid)
@@ -855,7 +873,7 @@ namespace StormSwitchBox.Core.NSZ
                         _tempSolidStream.ReadExactly(buf, 0, toReadSolid);
 
                         // Восстановление оригинального шифрования NCA (Re-encryption)
-                        if (targetSection != null && (targetSection.CryptoType == 3 || targetSection.CryptoType == 4))
+                        if (targetSection != null && (targetSection.CryptoType == 3 || targetSection.CryptoType == 4 || targetSection.CryptoType == 5))
                         {
                             EncryptSectionRegion(buf, 0, toReadSolid, currentOffset, targetSection);
                         }
@@ -1014,7 +1032,7 @@ namespace StormSwitchBox.Core.NSZ
                 byte[] finalBuf = new byte[toReadFromBlock];
                 Array.Copy(decompressedBlock, (int)offsetInBlock, finalBuf, 0, toReadFromBlock);
 
-                if (targetSection != null && (targetSection.CryptoType == 3 || targetSection.CryptoType == 4))
+                if (targetSection != null && (targetSection.CryptoType == 3 || targetSection.CryptoType == 4 || targetSection.CryptoType == 5))
                 {
                     EncryptSectionRegion(finalBuf, 0, toReadFromBlock, currentOffset, targetSection);
                 }
@@ -1398,29 +1416,28 @@ namespace StormSwitchBox.Core.NSZ
                     }
                 }
 
-                byte[]? plaintextKey = null;
+                byte[]? encryptedKey = null;
+                byte[]? rIdBytes = targetRightsIdHex.Length == 32 ? Convert.FromHexString(targetRightsIdHex) : null;
                 var effectiveKeySet = keyset ?? App.Keys?.CurrentKeyset;
 
-                // LibHac ExternalKeySet already stores decrypted (plaintext) 16-byte TitleKeys
-                if (effectiveKeySet?.ExternalKeySet != null && targetRightsIdHex.Length == 32)
+                // ExternalKeySet и title.keys хранят TitleKeyBlock (зашифрованный TitleKek), поэтому расшифровываем через TitleKek
+                if (effectiveKeySet?.ExternalKeySet != null && rIdBytes != null)
                 {
                     try
                     {
-                        byte[] rIdBytes = Convert.FromHexString(targetRightsIdHex);
                         var rId = new RightsId(rIdBytes);
                         if (effectiveKeySet.ExternalKeySet.Get(rId, out var accKey).IsSuccess())
                         {
-                            plaintextKey = accKey.Value.ToArray();
+                            encryptedKey = accKey.Value.ToArray();
                         }
                     }
                     catch { }
                 }
 
-                // title.keys files also store decrypted (plaintext) 16-byte TitleKeys
-                if (plaintextKey == null)
+                if (encryptedKey == null)
                 {
                     string titleKeysPath1 = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".switch", "title.keys");
-                    string titleKeysPath2 = "title.keys"; // Current directory fallback
+                    string titleKeysPath2 = "title.keys";
                     string? titleKeysPath3 = null;
                     try
                     {
@@ -1453,15 +1470,19 @@ namespace StormSwitchBox.Core.NSZ
 
                                     if (rightsIdStr == targetRightsIdHex && keyStr.Length >= 32)
                                     {
-                                        plaintextKey = Convert.FromHexString(keyStr.Substring(0, 32));
+                                        encryptedKey = Convert.FromHexString(keyStr.Substring(0, 32));
                                         break;
                                     }
                                 }
                             }
                         }
-                        if (plaintextKey != null) break;
+                        if (encryptedKey != null) break;
                     }
                 }
+
+                byte[]? plaintextKey = (encryptedKey != null && rIdBytes != null)
+                    ? StormNczCompressor.DecryptTitleKeyWithKeyset(encryptedKey, rIdBytes, effectiveKeySet, keyGen)
+                    : null;
 
                 if (plaintextKey == null || plaintextKey.Length < 16 || StormNczCompressor.IsAllZero(plaintextKey.AsSpan(0, 16)))
                 {

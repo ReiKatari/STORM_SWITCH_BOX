@@ -133,9 +133,119 @@ namespace StormSwitchBox.Services
                 if (!string.IsNullOrEmpty(targetDir) && !System.IO.Directory.Exists(targetDir))
                     System.IO.Directory.CreateDirectory(targetDir);
 
-                // Параллельная декомпрессия NSZ/XCZ (Pipeline Parallelism)
-                App.RunOnUI(() => task.LogDetails += "\n🟣 [Декомпрессия] Распаковка NSZ/XCZ...");
-                
+                bool hasMods = (task.HasRomFs == "1" || task.HasRomFs == "Да" || task.HasExeFs == "1" || task.HasExeFs == "Да") ||
+                    inputFiles.Any(d =>
+                        (Directory.Exists(d) &&
+                            (System.IO.Path.GetFileName(d).Equals("romfs", StringComparison.OrdinalIgnoreCase) ||
+                             System.IO.Path.GetFileName(d).Equals("exefs", StringComparison.OrdinalIgnoreCase) ||
+                             System.IO.Path.GetFileName(d).Equals("exefs_patches", StringComparison.OrdinalIgnoreCase) ||
+                             System.IO.Path.GetFileName(d).Equals("cheats", StringComparison.OrdinalIgnoreCase) ||
+                             d.Contains("romfs", StringComparison.OrdinalIgnoreCase) ||
+                             d.Contains("exefs", StringComparison.OrdinalIgnoreCase) ||
+                             d.Contains("cheat", StringComparison.OrdinalIgnoreCase) ||
+                             d.Contains("чит", StringComparison.OrdinalIgnoreCase) ||
+                             d.Contains("mod", StringComparison.OrdinalIgnoreCase) ||
+                             d.Contains("мод", StringComparison.OrdinalIgnoreCase)))
+                        ||
+                        (File.Exists(d) &&
+                            (d.EndsWith(".pak", StringComparison.OrdinalIgnoreCase) ||
+                             d.EndsWith(".sarc.zs", StringComparison.OrdinalIgnoreCase) ||
+                             d.EndsWith(".sarc", StringComparison.OrdinalIgnoreCase) ||
+                             d.EndsWith(".zs", StringComparison.OrdinalIgnoreCase) ||
+                             d.EndsWith(".ips", StringComparison.OrdinalIgnoreCase) ||
+                             d.EndsWith(".pchtxt", StringComparison.OrdinalIgnoreCase) ||
+                             d.EndsWith(".bps", StringComparison.OrdinalIgnoreCase)))
+                    );
+
+                int effectiveBuildMode = task.BuildMode != 0 ? task.BuildMode : App.Settings.Current.MultiContentBuildMode;
+                bool skipHardPatch = (effectiveBuildMode == 2) || task.IsMultiProgramTitle;
+                bool canPreserveBlockNsz = isCompressedFormat && !keepUncompressed && !isTargetXci && task.CustomMetadata == null;
+
+                var mustDecompressNsz = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                if (!canPreserveBlockNsz)
+                {
+                    foreach (var f in inputFiles)
+                    {
+                        if (f.EndsWith(".nsz", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase))
+                            mustDecompressNsz.Add(f);
+                    }
+                }
+                else
+                {
+                    string? preBase = null;
+                    string? preUpdate = null;
+                    var prePatchCandidates = new List<(string Path, string BaseTid, uint Version)>();
+
+                    foreach (var f in inputFiles)
+                    {
+                        if (Directory.Exists(f) || f.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase)) continue;
+                        string tidPre = "";
+                        uint verPre = 0;
+                        string ctPre = "";
+                        try
+                        {
+                            var info = App.SwitchFormat.ParseNsp(f);
+                            ctPre = info.ContentType ?? "";
+                            if (!string.IsNullOrEmpty(info.Version))
+                                uint.TryParse(info.Version.TrimStart('v', 'V'), out verPre);
+                            if (ctPre == "Application") preBase = f;
+                            else if (ctPre == "Patch") preUpdate = f;
+                            tidPre = (info.TitleId ?? "").Trim().ToUpperInvariant();
+                        }
+                        catch { }
+
+                        if (string.IsNullOrEmpty(tidPre))
+                        {
+                            var tmPre = System.Text.RegularExpressions.Regex.Match(f, @"\[([0-9A-Fa-f]{16})\]");
+                            if (tmPre.Success) tidPre = tmPre.Groups[1].Value.ToUpperInvariant();
+                        }
+                        if (verPre == 0)
+                        {
+                            var vmPre = System.Text.RegularExpressions.Regex.Match(f, @"\[v(\d+)\]", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                            if (vmPre.Success) uint.TryParse(vmPre.Groups[1].Value, out verPre);
+                        }
+                        if (tidPre.Length == 16)
+                        {
+                            if (tidPre.EndsWith("000") && string.IsNullOrEmpty(preBase))
+                                preBase = f;
+                            else if (tidPre.EndsWith("800") || ctPre == "Patch")
+                                prePatchCandidates.Add((f, tidPre.Substring(0, 13) + "000", verPre));
+                        }
+                    }
+
+                    if (prePatchCandidates.Count > 0)
+                    {
+                        preUpdate = prePatchCandidates.OrderByDescending(p => p.Version).First().Path;
+                    }
+                    if (string.IsNullOrEmpty(preBase))
+                        preBase = inputFiles.FirstOrDefault(f => !Directory.Exists(f) && !f.Contains("DLC", StringComparison.OrdinalIgnoreCase) && (f.Contains("[v0]") || f.Contains("v0"))) ?? string.Empty;
+
+                    bool willHardPatch = !skipHardPatch && !string.IsNullOrEmpty(preBase) && (!string.IsNullOrEmpty(preUpdate) || hasMods);
+                    foreach (var f in inputFiles)
+                    {
+                        if (f.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase))
+                        {
+                            mustDecompressNsz.Add(f);
+                        }
+                        else if (f.EndsWith(".nsz", StringComparison.OrdinalIgnoreCase))
+                        {
+                            bool isBaseOrUpdForHardPatch = willHardPatch &&
+                                (string.Equals(f, preBase, StringComparison.OrdinalIgnoreCase) ||
+                                 (!string.IsNullOrEmpty(preUpdate) && string.Equals(f, preUpdate, StringComparison.OrdinalIgnoreCase)));
+                            bool isSolidSource = false;
+                            try { isSolidSource = Core.NSZ.StormNczStorage.ContainsSolidNcz(f, _keysService.CurrentKeyset); } catch { }
+                            if (isBaseOrUpdForHardPatch || isSolidSource)
+                                mustDecompressNsz.Add(f);
+                        }
+                    }
+                }
+
+                // Селективная декомпрессия NSZ/XCZ (Block NSZ сохраняется без повторного сжатия там, где возможно)
+                if (mustDecompressNsz.Count > 0)
+                    App.RunOnUI(() => task.LogDetails += $"\n🟣 [Декомпрессия] Распаковка необходимых контейнеров ({mustDecompressNsz.Count} из {inputFiles.Count})...");
+                else if (inputFiles.Any(f => f.EndsWith(".nsz", StringComparison.OrdinalIgnoreCase)))
+                    App.RunOnUI(() => task.LogDetails += "\n⚡ [FastPassthrough] Block NSZ обнаружены: прямая обработка без распаковки и повторного сжатия.");
+
                 var finalInputFiles = new System.Collections.Concurrent.ConcurrentBag<string>();
                 string targetDrive = System.IO.Path.GetPathRoot(targetDir) ?? "C:\\";
                 // Всегда размещаем временный каталог близко к корню целевого диска для гарантированной защиты от лимита MAX_PATH (260 символов)
@@ -145,10 +255,10 @@ namespace StormSwitchBox.Services
 
                 var decompTasks = inputFiles.Select(async f =>
                 {
-                    if (f.EndsWith(".nsz", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase))
+                    if (mustDecompressNsz.Contains(f))
                     {
                         string? decompResult = await App.NszCompression.DecompressNszAsync(task, f, tempDecompDir, cancellationToken);
-                        
+
                         if (!string.IsNullOrEmpty(decompResult) && File.Exists(decompResult))
                         {
                             finalInputFiles.Add(PrepareSafeFileForTemp(decompResult, tempDecompDir));
@@ -191,29 +301,6 @@ namespace StormSwitchBox.Services
                     intermediatePath = System.IO.Path.Combine(tempDecompDir, "inter_" + Guid.NewGuid().ToString("N").Substring(0, 6) + uncompressedExt);
                 }
 
-                bool hasMods = (task.HasRomFs == "1" || task.HasRomFs == "Да" || task.HasExeFs == "1" || task.HasExeFs == "Да") ||
-                    finalInputFilesList.Any(d =>
-                        (Directory.Exists(d) && 
-                            (System.IO.Path.GetFileName(d).Equals("romfs", StringComparison.OrdinalIgnoreCase) || 
-                             System.IO.Path.GetFileName(d).Equals("exefs", StringComparison.OrdinalIgnoreCase) ||
-                             System.IO.Path.GetFileName(d).Equals("exefs_patches", StringComparison.OrdinalIgnoreCase) ||
-                             System.IO.Path.GetFileName(d).Equals("cheats", StringComparison.OrdinalIgnoreCase) ||
-                             d.Contains("romfs", StringComparison.OrdinalIgnoreCase) || 
-                             d.Contains("exefs", StringComparison.OrdinalIgnoreCase) ||
-                             d.Contains("cheat", StringComparison.OrdinalIgnoreCase) ||
-                             d.Contains("чит", StringComparison.OrdinalIgnoreCase) ||
-                             d.Contains("mod", StringComparison.OrdinalIgnoreCase) ||
-                             d.Contains("мод", StringComparison.OrdinalIgnoreCase)))
-                        ||
-                        (File.Exists(d) &&
-                            (d.EndsWith(".pak", StringComparison.OrdinalIgnoreCase) ||
-                             d.EndsWith(".sarc.zs", StringComparison.OrdinalIgnoreCase) ||
-                             d.EndsWith(".sarc", StringComparison.OrdinalIgnoreCase) ||
-                             d.EndsWith(".zs", StringComparison.OrdinalIgnoreCase) ||
-                             d.EndsWith(".ips", StringComparison.OrdinalIgnoreCase) ||
-                             d.EndsWith(".pchtxt", StringComparison.OrdinalIgnoreCase) ||
-                             d.EndsWith(".bps", StringComparison.OrdinalIgnoreCase)))
-                    );
 
                 string? savedBaseFile = null;
                 string? savedUpdateFile = null;
@@ -302,9 +389,7 @@ namespace StormSwitchBox.Services
                 long baseSize = (!string.IsNullOrEmpty(baseFile) && File.Exists(baseFile)) ? new FileInfo(baseFile).Length : 0;
                 long updateSize = (!string.IsNullOrEmpty(updateFile) && File.Exists(updateFile)) ? new FileInfo(updateFile).Length : 0;
 
-                int effectiveBuildMode = task.BuildMode != 0 ? task.BuildMode : App.Settings.Current.MultiContentBuildMode;
                 bool forceHardPatch = (effectiveBuildMode == 1);
-                bool skipHardPatch = (effectiveBuildMode == 2) || task.IsMultiProgramTitle;
 
                 if (!skipHardPatch)
                 {
@@ -555,62 +640,88 @@ namespace StormSwitchBox.Services
                 if (finalInputFilesList.Count == 1 && !hasPatchedBase && !isTargetXci && !singleFileNeedsCleanRebuild)
                 {
                     string singleFile = finalInputFilesList[0];
-                    bool isDecompressedTemp = !string.IsNullOrEmpty(tempDecompDir) && singleFile.StartsWith(tempDecompDir, StringComparison.OrdinalIgnoreCase);
-                    bool isSamePath = string.Equals(System.IO.Path.GetFullPath(singleFile), System.IO.Path.GetFullPath(intermediatePath), StringComparison.OrdinalIgnoreCase);
-
-                    if (!isSamePath)
+                    if (singleFile.EndsWith(".nsz", StringComparison.OrdinalIgnoreCase) &&
+                        isCompressedFormat && !keepUncompressed && task.CustomMetadata == null)
                     {
-                        if (isDecompressedTemp)
+                        bool isDecompressedTempNsz = !string.IsNullOrEmpty(tempDecompDir) && singleFile.StartsWith(tempDecompDir, StringComparison.OrdinalIgnoreCase);
+                        bool sameDestNsz = string.Equals(System.IO.Path.GetFullPath(singleFile), System.IO.Path.GetFullPath(finalCompressedPath), StringComparison.OrdinalIgnoreCase);
+                        if (!sameDestNsz)
                         {
-                            intermediatePath = await SafeFileOperations.SafeMoveOrReplaceFileAsync(singleFile, intermediatePath, task, cancellationToken);
-                        }
-                        else
-                        {
-                            SafeFileOperations.ResetFileAttributesSafe(singleFile);
-                            if (System.IO.File.Exists(intermediatePath))
+                            if (isDecompressedTempNsz)
                             {
-                                SafeFileOperations.ResetFileAttributesSafe(intermediatePath);
+                                finalCompressedPath = await SafeFileOperations.SafeMoveOrReplaceFileAsync(singleFile, finalCompressedPath, task, cancellationToken);
                             }
-                            System.IO.File.Copy(singleFile, intermediatePath, overwrite: true);
+                            else
+                            {
+                                SafeFileOperations.ResetFileAttributesSafe(singleFile);
+                                System.IO.File.Copy(singleFile, finalCompressedPath, overwrite: true);
+                            }
                         }
-                    }
-
-                    if (task.CustomMetadata != null && System.IO.File.Exists(intermediatePath))
-                    {
-                        await App.ControlEditor.ApplyCustomMetadataAsync(task.CustomMetadata, intermediatePath, task, cancellationToken);
-                    }
-
-                    if (isCompressedFormat)
-                    {
+                        compressionSuccess = File.Exists(finalCompressedPath) && new FileInfo(finalCompressedPath).Length > 0;
                         App.RunOnUI(() =>
                         {
-                            task.LogDetails += $"\n🟡 [Сжатие] Zstandard в формат {(isDualFormat ? "NSZ" : task.TargetFormat)}...";
-                            App.RunOnUI(() => { task.Status = "Сжатие..."; });
+                            task.LogDetails += "\n⚡ [FastPassthrough] Файл уже в формате Block NSZ - перенос без повторной распаковки и сжатия.";
                         });
+                    }
+                    else
+                    {
+                        bool isDecompressedTemp = !string.IsNullOrEmpty(tempDecompDir) && singleFile.StartsWith(tempDecompDir, StringComparison.OrdinalIgnoreCase);
+                        bool isSamePath = string.Equals(System.IO.Path.GetFullPath(singleFile), System.IO.Path.GetFullPath(intermediatePath), StringComparison.OrdinalIgnoreCase);
 
-                        await App.NszCompression.CompressToNszAsync(task, intermediatePath, targetDir, cancellationToken);
-
-                        string expectedNsz = System.IO.Path.ChangeExtension(intermediatePath, compressedExt);
-                        if (!System.IO.File.Exists(expectedNsz))
+                        if (!isSamePath)
                         {
-                            string altNsz = System.IO.Path.Combine(targetDir, System.IO.Path.GetFileNameWithoutExtension(intermediatePath) + compressedExt);
-                            if (System.IO.File.Exists(altNsz)) expectedNsz = altNsz;
-                        }
-
-                        if (System.IO.File.Exists(expectedNsz))
-                        {
-                            if (!expectedNsz.Equals(finalCompressedPath, StringComparison.OrdinalIgnoreCase))
+                            if (isDecompressedTemp)
                             {
-                                finalCompressedPath = await SafeFileOperations.SafeMoveOrReplaceFileAsync(expectedNsz, finalCompressedPath, task, cancellationToken);
+                                intermediatePath = await SafeFileOperations.SafeMoveOrReplaceFileAsync(singleFile, intermediatePath, task, cancellationToken);
                             }
-                            compressionSuccess = true;
+                            else
+                            {
+                                SafeFileOperations.ResetFileAttributesSafe(singleFile);
+                                if (System.IO.File.Exists(intermediatePath))
+                                {
+                                    SafeFileOperations.ResetFileAttributesSafe(intermediatePath);
+                                }
+                                System.IO.File.Copy(singleFile, intermediatePath, overwrite: true);
+                            }
                         }
 
-                        if (!keepUncompressed)
+                        if (task.CustomMetadata != null && System.IO.File.Exists(intermediatePath))
                         {
-                            if (!isSamePath || isDecompressedTemp)
+                            await App.ControlEditor.ApplyCustomMetadataAsync(task.CustomMetadata, intermediatePath, task, cancellationToken);
+                        }
+
+                        if (isCompressedFormat)
+                        {
+                            App.RunOnUI(() =>
                             {
-                                SafeFileOperations.SafeDeleteFile(intermediatePath);
+                                task.LogDetails += $"\n🟡 [Сжатие] Zstandard в формат {(isDualFormat ? "NSZ" : task.TargetFormat)}...";
+                                App.RunOnUI(() => { task.Status = "Сжатие..."; });
+                            });
+
+                            await App.NszCompression.CompressToNszAsync(task, intermediatePath, targetDir, cancellationToken);
+
+                            string expectedNsz = System.IO.Path.ChangeExtension(intermediatePath, compressedExt);
+                            if (!System.IO.File.Exists(expectedNsz))
+                            {
+                                string altNsz = System.IO.Path.Combine(targetDir, System.IO.Path.GetFileNameWithoutExtension(intermediatePath) + compressedExt);
+                                if (System.IO.File.Exists(altNsz)) expectedNsz = altNsz;
+                            }
+
+                            if (System.IO.File.Exists(expectedNsz))
+                            {
+                                if (!expectedNsz.Equals(finalCompressedPath, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    finalCompressedPath = await SafeFileOperations.SafeMoveOrReplaceFileAsync(expectedNsz, finalCompressedPath, task, cancellationToken);
+                                }
+                                compressionSuccess = true;
+                            }
+
+                            if (!keepUncompressed)
+                            {
+                                if (!isSamePath || isDecompressedTemp)
+                                {
+                                    SafeFileOperations.SafeDeleteFile(intermediatePath);
+                                }
                             }
                         }
                     }
@@ -918,9 +1029,12 @@ namespace StormSwitchBox.Services
                                 if (entry.Type == LibHac.Fs.DirectoryEntryType.Directory) continue;
                                 string name = entry.Name;
                                 
+                                string altNcaName = name.EndsWith(".ncz", StringComparison.OrdinalIgnoreCase)
+                                    ? System.IO.Path.ChangeExtension(name, ".nca")
+                                    : name;
                                 if (isMainGame)
                                 {
-                                    if (supersededFromBase.Contains(name))
+                                    if (supersededFromBase.Contains(name) || supersededFromBase.Contains(altNcaName))
                                     {
                                         App.Logger.Log($"[SmartShrink] Пропущен устаревший компонент из базы: {name}", Models.LogLevel.Info);
                                         App.RunOnUI(() => task.LogDetails += $"\n🧹 [SmartShrink] Исключен устаревший компонент из базы: {name}");
@@ -933,7 +1047,7 @@ namespace StormSwitchBox.Services
                                     updateEntries.Add(name);
                                 }
 
-                                if (App.Settings.Current.RemoveDeltaNca && deltaNcaNamesToExclude.Contains(name))
+                                if (App.Settings.Current.RemoveDeltaNca && (deltaNcaNamesToExclude.Contains(name) || deltaNcaNamesToExclude.Contains(altNcaName)))
                                 {
                                     App.Logger.Log($"[Delta Cleaner] Пропущен мусорный Delta NCA: {name} (экономия места)", Models.LogLevel.Info);
                                     App.RunOnUI(() => task.LogDetails += $"\n🗑️ [Delta Cleaner] Удален мусорный Delta NCA: {name}");
@@ -1458,8 +1572,12 @@ namespace StormSwitchBox.Services
         {
             if (Directory.Exists(sourcePath)) return sourcePath;
 
-            // Если это уже NSP файл и его путь безопасный (< 240 символов) - используем его напрямую без копирования
-            if (sourcePath.EndsWith(".nsp", StringComparison.OrdinalIgnoreCase) && sourcePath.Length < 240 && File.Exists(sourcePath))
+            // Если это уже контейнер Switch и его путь безопасный (< 240 символов) - используем напрямую без копирования
+            if ((sourcePath.EndsWith(".nsp", StringComparison.OrdinalIgnoreCase) ||
+                 sourcePath.EndsWith(".nsz", StringComparison.OrdinalIgnoreCase) ||
+                 sourcePath.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) ||
+                 sourcePath.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase)) &&
+                sourcePath.Length < 240 && File.Exists(sourcePath))
             {
                 return sourcePath;
             }

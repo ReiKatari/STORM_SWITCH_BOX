@@ -308,11 +308,14 @@ namespace StormSwitchBox.Services
                 OnPropertyChanged(nameof(PauseResumeToolTip));
                 OnPropertyChanged(nameof(PauseResumeTooltip));
             }
-            if (_stageBrush == null || _stageBrush.Color != RawStageColor)
-                StageBrush = new SolidColorBrush(RawStageColor);
-            var targetSpeedColor = ResolveSpeedColor(EffectiveStage);
-            if (_speedBrush == null || _speedBrush.Color != targetSpeedColor)
-                SpeedBrush = new SolidColorBrush(targetSpeedColor);
+            if (dq != null)
+            {
+                if (_stageBrush == null || _stageBrush.Color != RawStageColor)
+                    StageBrush = new SolidColorBrush(RawStageColor);
+                var targetSpeedColor = ResolveSpeedColor(EffectiveStage);
+                if (_speedBrush == null || _speedBrush.Color != targetSpeedColor)
+                    SpeedBrush = new SolidColorBrush(targetSpeedColor);
+            }
             bool metricsChanged = Math.Abs(CurrentSpeedBps - RawSpeedBps) > 256.0 ||
                                   CurrentSeeds != RawSeeds ||
                                   CurrentPeers != RawPeers ||
@@ -384,17 +387,20 @@ namespace StormSwitchBox.Services
     {
         public static RuTrackerDownloadQueueService Instance { get; } = new();
 
-        public const int MaxConcurrentDownloads = 4;
-        public const double LowSpeedExemptThresholdBps = 64.0 * 1024.0; // Только 0-сид < 64 КБ/с вне основных 4 слотов (макс. 5 всего)
+        public static int MaxConcurrentDownloads => Math.Clamp(App.Settings?.Current?.RuTrackerMaxConcurrentDownloads ?? 4, 1, 10);
+        public const double LowSpeedExemptThresholdBps = 64.0 * 1024.0; // Только 0-сид < 64 КБ/с вне основных слотов (макс. N+1 всего)
         public const double StartupWarmupSeconds = 20.0;
-        public const int MaxTotalConcurrentDownloads = 5;
+        public static int MaxTotalConcurrentDownloads => MaxConcurrentDownloads + 1;
+        public static int MaxConcurrentBuilds => Math.Clamp(App.Settings?.Current?.ConcurrentTasks ?? 3, 1, 8);
         public ObservableCollection<RuTrackerActiveDownloadItem> Items { get; } = new();
         public ObservableCollection<RuTrackerActiveDownloadItem> BottomDockItems { get; } = new();
         public ObservableCollection<RuTrackerSeedingItem> SeedingItems => RuTrackerSeedingService.Instance.Items;
         public RuTrackerSeedingService Seeding => RuTrackerSeedingService.Instance;
         private readonly List<RuTrackerActiveDownloadItem> _backingItems = new();
         private readonly HashSet<string> _completedIdentityKeys = new(StringComparer.OrdinalIgnoreCase);
-        private readonly SemaphoreSlim _buildSemaphore = new(1, 1);
+        private readonly object _buildGateLock = new();
+        private int _activeBuildCount = 0;
+        private readonly LinkedList<TaskCompletionSource<bool>> _buildWaiters = new();
 
         private readonly object _syncLock = new();
         private readonly System.Threading.Timer _uiTimer;
@@ -416,6 +422,105 @@ namespace StormSwitchBox.Services
         private readonly object _limitCalcLock = new();
 
         public void EnsureInitialized() { }
+
+        private Task AcquireBuildSlotAsync(CancellationToken ct)
+        {
+            ct.ThrowIfCancellationRequested();
+            LinkedListNode<TaskCompletionSource<bool>> node;
+            TaskCompletionSource<bool> tcs;
+            lock (_buildGateLock)
+            {
+                if (_activeBuildCount < MaxConcurrentBuilds)
+                {
+                    _activeBuildCount++;
+                    return Task.CompletedTask;
+                }
+                tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                node = _buildWaiters.AddLast(tcs);
+            }
+
+            if (ct.CanBeCanceled)
+            {
+                CancellationTokenRegistration reg = ct.Register(() =>
+                {
+                    bool removed = false;
+                    lock (_buildGateLock)
+                    {
+                        if (node.List == _buildWaiters)
+                        {
+                            _buildWaiters.Remove(node);
+                            removed = true;
+                        }
+                    }
+                    if (removed)
+                        tcs.TrySetCanceled(ct);
+                });
+
+                return tcs.Task.ContinueWith(
+                    t =>
+                    {
+                        reg.Dispose();
+                        return t;
+                    },
+                    CancellationToken.None,
+                    TaskContinuationOptions.ExecuteSynchronously,
+                    TaskScheduler.Default).Unwrap();
+            }
+
+            return tcs.Task;
+        }
+
+        private void ReleaseBuildSlot()
+        {
+            List<TaskCompletionSource<bool>>? toWake = null;
+            lock (_buildGateLock)
+            {
+                if (_activeBuildCount > 0)
+                    _activeBuildCount--;
+                int limit = MaxConcurrentBuilds;
+                while (_activeBuildCount < limit && _buildWaiters.First != null)
+                {
+                    var node = _buildWaiters.First;
+                    _buildWaiters.RemoveFirst();
+                    _activeBuildCount++;
+                    toWake ??= new List<TaskCompletionSource<bool>>();
+                    toWake.Add(node.Value);
+                }
+            }
+            if (toWake != null)
+            {
+                foreach (var waiter in toWake)
+                    waiter.TrySetResult(true);
+            }
+        }
+
+        private void NotifyBuildConcurrencyChanged()
+        {
+            List<TaskCompletionSource<bool>>? toWake = null;
+            lock (_buildGateLock)
+            {
+                int limit = MaxConcurrentBuilds;
+                while (_activeBuildCount < limit && _buildWaiters.First != null)
+                {
+                    var node = _buildWaiters.First;
+                    _buildWaiters.RemoveFirst();
+                    _activeBuildCount++;
+                    toWake ??= new List<TaskCompletionSource<bool>>();
+                    toWake.Add(node.Value);
+                }
+            }
+            if (toWake != null)
+            {
+                foreach (var waiter in toWake)
+                    waiter.TrySetResult(true);
+            }
+        }
+
+        public void NotifyConcurrencySettingsChanged()
+        {
+            NotifyBuildConcurrencyChanged();
+            EvaluateQueuePriorities(allowPreemptionForReorder: true);
+        }
 
         private RuTrackerDownloadQueueService()
         {
@@ -622,17 +727,22 @@ namespace StormSwitchBox.Services
                 // освобождаем место за счёт самой нижней быстрой задачи (медленные < 200 КБ/с никогда не останавливаем).
                 if (allowPreemptionForReorder)
                 {
-                    var topRequested = candidates.Take(MaxConcurrentDownloads)
+                    int maxDl = MaxConcurrentDownloads;
+                    var topRequested = candidates.Take(maxDl)
                         .Where(i => !i.IsPipelineStarted || i.IsPreemptedByQueue)
                         .ToList();
 
                     int currentCounted = candidates.Count(i => i.CountsTowardConcurrencyLimit(nowUtc));
-                    if (topRequested.Count > 0 && currentCounted >= MaxConcurrentDownloads)
+                    int excessCount = Math.Max(0, currentCounted - maxDl);
+                    int needToFree = (topRequested.Count > 0 && currentCounted >= maxDl)
+                        ? Math.Min(topRequested.Count + excessCount, currentCounted)
+                        : excessCount;
+
+                    if (needToFree > 0)
                     {
-                        int needToFree = Math.Min(topRequested.Count, currentCounted - MaxConcurrentDownloads + topRequested.Count);
                         var demotableFast = candidates
-                            .Skip(MaxConcurrentDownloads)
                             .Where(i => i.CountsTowardConcurrencyLimit(nowUtc))
+                            .Skip(Math.Max(0, maxDl - topRequested.Count))
                             .Reverse()
                             .Take(needToFree)
                             .ToList();
@@ -1200,7 +1310,7 @@ namespace StormSwitchBox.Services
             });
             await bindTcs.Task.ConfigureAwait(false);
 
-            // 5. Автоматическая сборка мульти-контента (строго 1 сборка одновременно во избежание троттлинга диска Q:)
+            // 5. Автоматическая сборка мульти-контента (параллельно до MaxConcurrentBuilds)
             if (payload.AutoBuild && task.InputFiles.Count > 0)
             {
                 item.RawStageBadge = "СБОРКА";
@@ -1222,7 +1332,7 @@ namespace StormSwitchBox.Services
                     task.Speed = string.Empty;
                 });
 
-                await _buildSemaphore.WaitAsync(ct).ConfigureAwait(false);
+                await AcquireBuildSlotAsync(ct).ConfigureAwait(false);
                 try
                 {
                     item.RawDetails = payload.TotalSlots > 1
@@ -1248,7 +1358,7 @@ namespace StormSwitchBox.Services
                 }
                 finally
                 {
-                    _buildSemaphore.Release();
+                    ReleaseBuildSlot();
                 }
 
                 if (App.MainDispatcher != null && !App.MainDispatcher.HasThreadAccess)

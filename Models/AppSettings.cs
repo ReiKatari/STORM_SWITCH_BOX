@@ -265,6 +265,7 @@ namespace StormSwitchBox.Models
         public string RuTrackerCfClearance { get; set; } = "";
         public string RuTrackerUserAgent { get; set; } = "";
         public string RuTrackerSpeedLimitMode { get; set; } = "AutoHeadroom"; // AutoHeadroom, Custom, Unlimited
+        public int RuTrackerMaxConcurrentDownloads { get; set; } = 4;
         public double RuTrackerGlobalSpeedLimitMbPerSec { get; set; } = 0.0;
         public double RuTrackerAutoHeadroomReserveMbPerSec { get; set; } = 2.0;
         public double RuTrackerObservedPeakBandwidthMbPerSec { get; set; } = 0.0;

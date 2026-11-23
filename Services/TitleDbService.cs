@@ -142,7 +142,7 @@ namespace StormSwitchBox.Services
         private int _observedVersionsSaveScheduled = 0;
         private readonly ConcurrentDictionary<string, byte> _stormOnlineLookupAttempted = new(StringComparer.OrdinalIgnoreCase);
         private static readonly Regex StormTitleTripleRegex = new(
-            @"\(\s*(?<dv>\d{1,3}\.\d{1,4}(?:\.\d{1,4}){0,2})\s*-\s*(?<iv>\d{5,10})\s*-\s*(?<tid>[0-9A-Fa-f]{16})\s*\)",
+            @"\(\s*[vV]?\.?\s*(?<dv>\d{1,3}\.\d{1,4}(?:\.\d{1,6}){0,2})\s*-\s*(?<iv>\d{5,10})\s*-\s*(?<tid>[0-9A-Fa-f]{16})\s*\)",
             RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
         public TitleDbService()
@@ -845,11 +845,11 @@ namespace StormSwitchBox.Services
         public static bool IsValidSemanticVersion(string? version)
         {
             if (string.IsNullOrWhiteSpace(version)) return false;
-            string v = version.Trim().TrimStart('v', 'V');
-            var m = Regex.Match(v, @"^(?<maj>\d{1,3})\.(?<min>\d{1,4})(?:\.(?<pat>\d{1,4}))?(?:\.(?<bld>\d{1,4}))?$");
+            string v = Regex.Replace(version.Trim(), @"^[vV]+\.?\s*", "");
+            var m = Regex.Match(v, @"^(?<maj>\d{1,3})\.(?<min>\d{1,4})(?:\.(?<pat>\d{1,6}))?(?:\.(?<bld>\d{1,6}))?$");
             if (!m.Success) return false;
             if (!int.TryParse(m.Groups["maj"].Value, out int maj) || maj >= 100) return false;
-            if (m.Groups["pat"].Success && m.Groups["pat"].Value.Length == 4 &&
+            if (!m.Groups["bld"].Success && m.Groups["pat"].Success && m.Groups["pat"].Value.Length == 4 &&
                 int.TryParse(m.Groups["pat"].Value, out int y) && y >= 2015 && y <= 2099)
                 return false;
             return true;
@@ -857,8 +857,8 @@ namespace StormSwitchBox.Services
 
         public static int CompareSemanticVersions(string? a, string? b)
         {
-            string va = (a ?? string.Empty).Trim().TrimStart('v', 'V');
-            string vb = (b ?? string.Empty).Trim().TrimStart('v', 'V');
+            string va = Regex.Replace((a ?? string.Empty).Trim(), @"^[vV]+\.?\s*", "");
+            string vb = Regex.Replace((b ?? string.Empty).Trim(), @"^[vV]+\.?\s*", "");
             if (string.IsNullOrEmpty(va) && string.IsNullOrEmpty(vb)) return 0;
             if (string.IsNullOrEmpty(va)) return -1;
             if (string.IsNullOrEmpty(vb)) return 1;
@@ -940,7 +940,7 @@ namespace StormSwitchBox.Services
                 if (baseTid.Length != 16) return;
                 if (!uint.TryParse(Regex.Replace(versionCode.Trim(), @"[^\d]", ""), out uint patchCode) || patchCode == 0)
                     return;
-                string cleanVer = displayVersion.Trim().TrimStart('v', 'V');
+                string cleanVer = Regex.Replace(displayVersion.Trim(), @"^[vV]+\.?\s*", "");
                 if (!IsValidSemanticVersion(cleanVer)) return;
 
                 string tidPrefix = baseTid + ":";

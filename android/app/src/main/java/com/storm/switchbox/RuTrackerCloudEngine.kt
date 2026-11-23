@@ -6316,8 +6316,8 @@ object RuTrackerCloudEngine {
     }
 
     private fun extractSemVerAndDlcCount(text: String): Pair<String, Int> {
-        val semverMatch = Regex("""(?:\(|\[v|\bv)(\d+\.\d+(?:\.\d+){0,2})""", RegexOption.IGNORE_CASE).find(text)
-            ?: Regex("""\b(\d+\.\d+\.\d+)\b""").find(text)
+        val semverMatch = Regex("""(?:[\[(]\s*(?:v\.?\s*)?|\bv\.?\s*)(\d{1,3}\.\d{1,4}(?:\.\d{1,6}){0,2})(?=[\])(\s,.;/+\-:]|$)""", RegexOption.IGNORE_CASE).find(text)
+            ?: Regex("""\b(\d{1,3}\.\d{1,4}\.\d{1,6}(?:\.\d{1,6})?)\b""").find(text)
         val ver = semverMatch?.groupValues?.get(1) ?: ""
         val dlcByD = Regex("""\+(\d+)\s*D\b""", RegexOption.IGNORE_CASE).find(text)?.groupValues?.get(1)?.toIntOrNull()
         val dlcByWord = Regex("""(?:\+\s*)?(\d+)\s*DLC\b""", RegexOption.IGNORE_CASE).find(text)?.groupValues?.get(1)?.toIntOrNull()

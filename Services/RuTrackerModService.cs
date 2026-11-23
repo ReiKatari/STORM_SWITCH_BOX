@@ -230,7 +230,7 @@ namespace StormSwitchBox.Services
                 }
                 if (raw != "?" && raw != "...")
                 {
-                    raw = Regex.Replace(raw, @"^[vV]+", "").Trim();
+                    raw = Regex.Replace(raw, @"^[vV]+\.?\s*", "").Trim();
                 }
                 if (string.IsNullOrWhiteSpace(raw))
                     raw = "1.0.0";
@@ -1259,7 +1259,7 @@ namespace StormSwitchBox.Services
                 unnamedIds = _indexTopics
                     .Where(t => string.IsNullOrWhiteSpace(t.TopicTitle) && string.IsNullOrWhiteSpace(t.TorrentName))
                     .Select(t => t.TopicId)
-                    .Take(40)
+                    .Take(8)
                     .ToList();
             }
             if (unnamedIds.Count == 0) return;
@@ -1292,6 +1292,7 @@ namespace StormSwitchBox.Services
                     }
                 }
                 catch { }
+                try { await Task.Delay(400, ct).ConfigureAwait(false); } catch { break; }
             }
             if (anyUpdated)
             {
@@ -2946,7 +2947,7 @@ namespace StormSwitchBox.Services
             void ConsiderMainVersion(string candidate)
             {
                 if (!TitleDbService.IsValidSemanticVersion(candidate)) return;
-                string clean = candidate.Trim().TrimStart('v', 'V');
+                string clean = Regex.Replace(candidate.Trim(), @"^[vV]+\.?\s*", "");
                 if (string.IsNullOrEmpty(bestMainVersion) || TitleDbService.CompareSemanticVersions(clean, bestMainVersion) > 0)
                 {
                     bestMainVersion = clean;
@@ -2962,7 +2963,7 @@ namespace StormSwitchBox.Services
                 // 1. Primary header lines/segments: "Версия: 1.1.6", "Год выпуска: 2021 | Версия: 1.1.6 | Версия прошивки: 13.1.0"
                 foreach (Match headerMatch in Regex.Matches(
                     line,
-                    @"(?:^|[|\u2022;/])\s*(?:[-*\u25AA\u25CF]\s*)?(?:актуальная\s+)?(?:(?!(?:версия\s+(?:прошивк|систем|перевод|русификатор|мод|эмулятор)))(?:версия(?:\s+(?:игры|обновления|патча|файла|сборки|релиза))?|(?:game\s+|current\s+|latest\s+)?version|update(?:\s+version)?))\s*[:\-=\u2013\u2014]\s*(?<val>[^|\r\n]+)",
+                    @"(?:^|[|\u2022;/])\s*(?:[-*\u25AA\u25CF]\s*)?(?:актуальная\s+)?(?:(?!(?:версия\s+(?:прошивк|систем|перевод|русификатор|мод|эмулятор)))(?:версия(?:\s+(?:игры|обновления|патча|файла|сборки|релиза))?|(?:game\s+|current\s+|latest\s+)?version|update(?:\s+version)?))(?:\s*[:\-=\u2013\u2014]\s*|\s+(?=[vV]?\.?\d))(?<val>[^|\r\n]+)",
                     RegexOptions.IgnoreCase))
                 {
                     string val = headerMatch.Groups["val"].Value;
@@ -2971,7 +2972,7 @@ namespace StormSwitchBox.Services
                     if (fwSplit.Success && fwSplit.Index > 0)
                         val = val.Substring(0, fwSplit.Index);
 
-                    foreach (Match vm in Regex.Matches(val, @"(?:^|[\s(\[/]|[vV]\.?)(?<ver>\d{1,2}\.\d{1,4}(?:\.\d{1,4}){0,2})(?=$|[\s)\]/,;|+\-:])"))
+                    foreach (Match vm in Regex.Matches(val, @"(?:^|[\s(\[/]|[vV]\.?\s*)(?<ver>\d{1,3}\.\d{1,4}(?:\.\d{1,6}){0,2})(?=$|[\s()\[\]/,;|+\-:.!])"))
                     {
                         string prefix = val.Substring(0, vm.Index);
                         int after = vm.Index + vm.Length;
@@ -2986,7 +2987,7 @@ namespace StormSwitchBox.Services
                 // 2. Explicit update lines in release notes / spoilers: "Обновлено до версии 1.1.6", "Updated to v1.2.0"
                 foreach (Match um in Regex.Matches(
                     line,
-                    @"(?:обновлено(?:\s+до)?(?:\s+версии)?|обновление(?:\s+до)?|updated?\s+to(?:\s+ver\.?)?|patch\s+to)\s*[vV]?\s*(?<ver>\d{1,2}\.\d{1,4}(?:\.\d{1,4}){0,2})(?=$|[\s)\]/,;|!])",
+                    @"(?:обновлено(?:\s+до)?(?:\s+версии)?|обновление(?:\s+до)?|updated?\s+to(?:\s+ver\.?)?|patch\s+to)\s*[vV]?\.?\s*(?<ver>\d{1,3}\.\d{1,4}(?:\.\d{1,6}){0,2})(?=$|[\s()\[\]/,;|+\-:.!])",
                     RegexOptions.IgnoreCase))
                 {
                     int after = um.Index + um.Length;
@@ -3006,7 +3007,7 @@ namespace StormSwitchBox.Services
                         string baseTid = NormalizeSwitchBaseApplicationTitleId(tidMatch.Groups[1].Value);
                         if (baseTid.Length == 16)
                         {
-                            foreach (Match vm in Regex.Matches(line, @"(?:^|[\s(\[/]|[vV]\.?)(?<ver>\d{1,2}\.\d{1,4}(?:\.\d{1,4}){0,2})(?=$|[\s)\]/,;|+\-:])"))
+                            foreach (Match vm in Regex.Matches(line, @"(?:^|[\s(\[/]|[vV]\.?\s*)(?<ver>\d{1,3}\.\d{1,4}(?:\.\d{1,6}){0,2})(?=$|[\s()\[\]/,;|+\-:.!])"))
                             {
                                 string prefix = line.Substring(0, vm.Index);
                                 int after = vm.Index + vm.Length;
@@ -3015,7 +3016,7 @@ namespace StormSwitchBox.Services
                                     continue;
                                 if (IsSemanticGameVerLocal(vm.Groups["ver"].Value, prefix))
                                 {
-                                    string cleanV = vm.Groups["ver"].Value.Trim().TrimStart('v', 'V');
+                                    string cleanV = Regex.Replace(vm.Groups["ver"].Value.Trim(), @"^[vV]+\.?\s*", "");
                                     if (!perTitleVersions.TryGetValue(baseTid, out var existingTidVer) ||
                                         TitleDbService.CompareSemanticVersions(cleanV, existingTidVer) > 0)
                                     {
@@ -3223,17 +3224,7 @@ namespace StormSwitchBox.Services
                 allOffsets.Add(off);
 
             var sorted = allOffsets.OrderBy(v => v).ToList();
-            if (sorted.Count <= 8)
-                return sorted;
-
-            var compact = new List<int>();
-            if (allOffsets.Contains(30)) compact.Add(30);
-            foreach (var o in sorted.TakeLast(6))
-            {
-                if (!compact.Contains(o))
-                    compact.Add(o);
-            }
-            return compact;
+            return sorted.TakeLast(2).ToList();
         }
 
         private static async Task<List<CloudModLinkItem>> FetchCommentOffsetsLinksInternalAsync(string tid, List<int> offsets, CancellationToken ct)
@@ -3242,7 +3233,7 @@ namespace StormSwitchBox.Services
             if (offsets == null || offsets.Count == 0)
                 return merged;
 
-            using var sem = new SemaphoreSlim(6);
+            using var sem = new SemaphoreSlim(2);
             var pageTasks = offsets.OrderBy(v => v).Select(async offset =>
             {
                 await sem.WaitAsync(ct).ConfigureAwait(false);
@@ -3306,10 +3297,12 @@ namespace StormSwitchBox.Services
                     ScheduleSaveTopicParsedCache();
                     return allLinks;
                 }
+
+                cached.CommentsScanned = true;
+                return cached.Links?.Select(CloneCloudModLink).ToList() ?? new List<CloudModLinkItem>();
             }
 
-            var full = await FetchTopicDetailsAsync(tid, ct, includeCommentPages: true).ConfigureAwait(false);
-            return full?.ExtractedModLinks ?? new List<CloudModLinkItem>();
+            return new List<CloudModLinkItem>();
         }
 
         public static string BuildMagnetUri(string infoHash, string displayName)
@@ -3518,6 +3511,20 @@ namespace StormSwitchBox.Services
                             {
                                 anchor = lastLine;
                             }
+                        }
+                    }
+
+                    if (provider is "GitHub" or "Telegraph" or "Google Docs/Drive" or "Git Repo" &&
+                        !rawUrl.Contains("raw.githubusercontent.com", StringComparison.OrdinalIgnoreCase))
+                    {
+                        string plainCtx = Regex.Replace(contextSnippet, "<.*?>", " ");
+                        string checkText = anchor + " " + plainCtx;
+                        if (!Regex.IsMatch(
+                            checkText,
+                            @"русификатор|перевод|локализ|патч|мод|обновлен|update|patch|dlc|unlocker|анлокер|mod|translation|rus|save|сейв|сохранен|чит|cheat|60fps|fps|unlock|fix|фикс|скачать|download|архив|romfs|exefs|nsp|nsz|xci|ips|pchtxt",
+                            RegexOptions.IgnoreCase))
+                        {
+                            continue;
                         }
                     }
 
@@ -4116,7 +4123,7 @@ namespace StormSwitchBox.Services
             // STEP 3 (~0.25s): Parallel race across .torrent cache mirrors + Direct HTTP viewtorrent.php + WebView2 handlers!
             using (var fastRaceCts = CancellationTokenSource.CreateLinkedTokenSource(ct))
             {
-                fastRaceCts.CancelAfter(TimeSpan.FromSeconds(2.6));
+                fastRaceCts.CancelAfter(TimeSpan.FromSeconds(3.6));
                 var rct = fastRaceCts.Token;
 
                 Task<byte[]?> mirrorTorrentTask = (hash.Length == 40 && !string.IsNullOrEmpty(cachedTorrentPath))
@@ -9803,7 +9810,7 @@ namespace StormSwitchBox.Services
                 : $"https://rutracker.org/forum/viewtopic.php?t={tid}";
 
             using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            linkedCts.CancelAfter(TimeSpan.FromSeconds(3.2));
+            linkedCts.CancelAfter(TimeSpan.FromSeconds(2.0));
             var lct = linkedCts.Token;
             long nowUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
 
@@ -9814,7 +9821,7 @@ namespace StormSwitchBox.Services
                 try
                 {
                     using var reqCts = CancellationTokenSource.CreateLinkedTokenSource(lct);
-                    reqCts.CancelAfter(TimeSpan.FromSeconds(3.2));
+                    reqCts.CancelAfter(TimeSpan.FromSeconds(2.0));
                     string? html = await fetchFunc(reqCts.Token).ConfigureAwait(false);
                     if (IsValidRuTrackerTopicHtml(html))
                     {
@@ -9824,7 +9831,7 @@ namespace StormSwitchBox.Services
                 }
                 catch { }
                 if (!lct.IsCancellationRequested)
-                    _cloudProxyCooldownUntilUnix[proxyKey] = DateTimeOffset.UtcNow.ToUnixTimeSeconds() + 60;
+                    _cloudProxyCooldownUntilUnix[proxyKey] = DateTimeOffset.UtcNow.ToUnixTimeSeconds() + 600;
                 return null;
             }
 

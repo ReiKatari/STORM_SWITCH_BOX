@@ -1,3 +1,52 @@
+## **8.1.2** (23.11.2026)
+
+> 💡 **Релиз 8.1.2** - *Ускорение сборки и многопоточного Zstd-сжатия (`FastPassthrough` без пересжатия Block NSZ и снятие лимита CPU/4), выбор лимита одновременных сборок и скачиваний в интерфейсе RuTracker, исправление обратной декомпрессии Block NSZ -> NSP (совместимость с Eden) и поддержка 4-сегментных версий игр (`1.0.6.1267`)*
+
+---
+
+### 🚀 Ключевые изменения и улучшения (STORM SWITCH BOX 8.1.2)
+
+- 🌟 **[Многократное ускорение сборки и сжатия NSZ/Z3DS (`MultiContentService.cs`, `NszCompressionService.cs`, `StormNczCompressor.cs`, `Z3dsService.cs`, `RuTrackerDownloadQueueService.cs`)]**:
+  - Снято жёсткое ограничение очереди RuTracker в `1` одновременную сборку (`SemaphoreSlim(1, 1)`): внедрён потокобезопасный динамический планировщик `AcquireBuildSlotAsync` / `ReleaseBuildSlot` с поддержкой до `8` параллельных сборок и мгновенным пробуждением задач из очереди при смене лимита.
+  - Снято жёсткое ограничение потоков сжатия в `25%` ядер ЦП (`ProcessorCount / 4`) во всех движках (`StormNczCompressor`, `NszCompressionService`, `Z3dsService`): добавлен динамический расчёт `GetOptimalCompressionThreads()` по бюджету `UsedCores` и активным задачам, а флаг `-L` (`--long`) при запуске `nsz.exe` теперь используется только в режиме Solid NSZ, исключая лишнее выделение 128 МБ на поток при 1 МБ Block NSZ.
+  - Реализован режим `FastPassthrough`: при сборке в `NSZ` контейнеры в формате Block NSZ больше не проходят через бесполезный цикл `распаковка -> повторное сжатие` (при `Fast Multi-Content` / одиночном файле / DLC в `MultiContentService`, а также при проверке `InspectPfsNczPassthrough` в `NszCompressionService`, где при смешанном составе сжимаются только несжатые NCA).
+- 🌟 **[Управление одновременными скачиваниями и сборками прямо в RuTracker (`RuTrackerModDownloaderDialog.xaml`, `RuTrackerModDownloaderDialog.xaml.cs`, `SettingsPage.xaml`, `AppSettings.cs`)]**:
+  - В заголовочную панель очереди закачек RuTracker добавлены переключатели лимита одновременных скачиваний (`Закачек: 1..10`) и сборок (`Сборок: 1..8`) с моментальным применением и сохранением в `AppSettings`.
+  - В общих параметрах приложения максимальный лимит одновременных сборок/задач увеличен с `5` до `8` с двусторонней живой синхронизацией с окном RuTracker.
+- 🌟 **[Исправление декомпрессии Block NSZ -> NSP (`Decompressor.py`, `Keys.py`, `StormNczStorage.cs`, `StormNczCompressor.cs`, `NszCompressionService.cs`, `TasksViewModel.cs`)]**:
+  - Устранено повреждение итоговых `.nsp` при обратной распаковке блочных `.nsz` (включая игры с DLC `firstSection = 0xC00` и обновлениями BKTR, из-за которого эмулятор Eden отклонял собранный `.nsp`): добавлена единая нормализация секций `_normalize_sections_for_ncz` с чтением `NCZBLOCK.decompressedSize`, исправлен расчёт смещений при `firstSection > 0x4000`, добавлена поддержка `CryptoType == 5`, сортировка секций с покрытием межсекционных и концевых зазоров и расшифровка `TitleKeyBlock` из `ExternalKeySet` / `title.keys` через `TitleKek` (`DecryptTitleKeyWithKeyset`).
+  - Устранена двойная XTS-дешифровка заголовка в `StormNczStorage.cs`, исправлена формула смещения бакетов BKTR в `StormNczCompressor.cs`, обновлён `Keys.py` для работы без новейших необязательных ревизий `master_key_XX`, а также добавлена автоматическая проверка целостности распакованного контейнера `ValidateDecompressedContainer` (`PFS0`, отсутствие остаточных `.ncz`, проверка `Nca.Header.NcaSize` с порогом `0xC00` для малых `.cnmt.nca`) и явная ошибка вместо молчаливого копирования `.nsz`.
+- 🌟 **[Исправление отображения 4-сегментных версий игр и быстрая загрузка файлов RuTracker (`TitleDbService.cs`, `RuTrackerModService.cs`, `RuTrackerCatalogUpdateService.cs`, `RuTrackerModDownloaderDialog.xaml.cs`, Android)]**:
+  - Поддержаны 4-компонентные версии до 6 цифр в номере сборки (например, *Dave the Diver* `v1.0.6.1267` -> `1.0.6.1267`), фильтр дат `2015..2099` ограничен 3-сегментными строками, исправлен парсинг `Версия v...` без двоеточия и добавлена синхронизация cookie WebView2 для `.rutracker.org` и `.rutracker.net`.
+  - В `LoadSelectedTopicAsync` загрузка списка файлов `.torrent` и фонового P2P `ResolveMagnetMetadataBackgroundAsync` отделена от ожидания HTML/прокси темы, опрос комментариев ограничен последними 2 страницами (`SemaphoreSlim(2)`), а немодовые информационные ссылки `GitHub`/`Telegraph`/`Google Docs` отфильтровываются без ключевых слов модификаций.
+- 🌟 **[Синхронизированное обновление Windows и Android 8.1.2]**:
+  - Версия обновлена до `8.1.2` (`versionCode = 8102` на Android) для всех сборок Windows x64 (`Setup.exe` и Portable ZIP) и Android (`Modern` и `Legacy`).
+
+<details>
+
+<summary><b>📋 Полный список изменений (нажмите, чтобы развернуть)</b></summary>
+
+- 🔹 **[Models/AppSettings.cs, Views/Dialogs/RuTrackerModDownloaderDialog.xaml(.cs), Views/SettingsPage.xaml(.cs), Services/RuTrackerDownloadQueueService.cs]**: Добавлена настройка `RuTrackerMaxConcurrentDownloads` (1..10), динамический FIFO-шлюз параллельных сборок `AcquireBuildSlotAsync`/`ReleaseBuildSlot` (1..8) вместо жёсткого `SemaphoreSlim(1, 1)`, селекторы одновременных скачиваний и сборок на панели очереди RuTracker, повышение потолка `ConcurrentTasks` до 8 в параметрах и живая синхронизация.
+- 🔹 **[Services/NszCompressionService.cs, MultiContentService.cs, Z3dsService.cs, Core/NSZ/StormNczCompressor.cs]**: Добавлен `GetOptimalCompressionThreads()`, удалён жёсткий лимит `ProcessorCount / 4`, флаг `-L` оставлен только для Solid NSZ, добавлены `InspectPfsNczPassthrough` и селективный `FastPassthrough` Block NSZ в `MultiContentService`.
+- 🔹 **[tools/nsz/Lib/site-packages/nsz/Decompressor.py, Keys.py]**: Добавлен `_normalize_sections_for_ncz`, расчёт размера по `NCZBLOCK.decompressedSize`, поддержка `cryptoType == 5` и устойчивый `Keys.load`.
+- 🔹 **[Core/NSZ/StormNczStorage.cs, StormNczCompressor.cs, Services/NszCompressionService.cs, ViewModels/TasksViewModel.cs]**: Устранена двойная XTS-дешифровка, добавлена сортировка секций с gap-заполнением, поддержка `CryptoType == 5`, фикс формулы бакетов BKTR, `DecryptTitleKeyWithKeyset` и валидация `ValidateDecompressedContainer`.
+- 🔹 **[Services/TitleDbService.cs, RuTrackerModService.cs, RuTrackerCatalogUpdateService.cs, Views/Dialogs/RuTrackerModDownloaderDialog.xaml.cs]**: Поддержка 4-сегментных версий и очистки `v.`, кросс-доменные WebView2-cookie, развязка загрузки файлов от HTML темы, ограничение комментариев до 2 страниц и фильтр немодовых ссылок.
+- 🔹 **[android/.../MainActivity.kt, RuTrackerCloudEngine.kt, StormNczEngine.kt, build.gradle.kts]**: Обновлены регулярные выражения 4-сегментных версий и версия приложения до `8.1.2` (`versionCode = 8102`).
+
+</details>
+
+<details>
+
+<summary><b>🌐 English Changelog (click to expand)</b></summary>
+
+- 🔸 Accelerated container builds and compression: replaced the hardcoded 1-build RuTracker gate with a dynamic FIFO gate (up to 8 parallel builds), replaced the 25% CPU cap (`ProcessorCount / 4`) with `GetOptimalCompressionThreads()`, dropped redundant `--long` allocation on 1 MB Block NSZ, and added zero-recompress Block NSZ `FastPassthrough`.
+- 🔸 Added live simultaneous download (`1..10`) and build (`1..8`) selectors directly to the RuTracker downloader toolbar, synced two-way with Settings (raised from 5 to 8).
+- 🔸 Fixed Block NSZ to NSP decompression corruption (affecting DLC `firstSection = 0xC00` NCAs, BKTR updates, `CryptoType == 5`, gap sections, double-XTS header decryption, and encrypted `TitleKeyBlock` lookup) plus added `ValidateDecompressedContainer`.
+- 🔸 Fixed 4-part game version parsing (`v1.0.6.1267` -> `1.0.6.1267`), cross-domain WebView2 cookies, decoupled `.torrent`/magnet loading, comment-page throttling, and generic link filtering.
+- 🔸 Updated unified Windows x64 and Android Modern/Legacy releases to version `8.1.2` (`versionCode 8102`).
+
+</details>
+
 ## **8.1.1** (23.11.2026)
 
 > 💡 **Релиз 8.1.1** - *Исправление отображения версий игр в загрузчике RuTracker (устранение индикатора `"?"` вместо реальной версии патча, поддержка 3-компонентных названий STORM, автообновление версии при правке названия слота и точный онлайн-резерв через `stormgamesworld.ru`)*

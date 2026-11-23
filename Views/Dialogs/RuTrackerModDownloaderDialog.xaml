@@ -1157,6 +1157,37 @@
                                  TextChanged="CustomSpeedLimitBox_TextChanged"
                                  LostFocus="CustomSpeedLimitBox_LostFocus"
                                  ToolTipService.ToolTip="Введите ограничение скорости в МБ/с (например, 25)"/>
+
+                        <Border Width="1" Height="16" Background="#25354F" Margin="3,0"/>
+
+                        <FontIcon Glyph="&#xE896;" FontSize="11" Foreground="#22C55E" VerticalAlignment="Center"/>
+                        <ComboBox x:Name="MaxConcurrentDownloadsComboBox"
+                                  Height="24" MinHeight="24" MinWidth="104" Padding="7,0,6,0" FontSize="10.5" VerticalAlignment="Center"
+                                  SelectionChanged="MaxConcurrentDownloadsCombo_SelectionChanged"
+                                  ToolTipService.ToolTip="Максимум одновременных скачиваний RuTracker">
+                            <ComboBoxItem Content="Закачек: 1" Tag="1"/>
+                            <ComboBoxItem Content="Закачек: 2" Tag="2"/>
+                            <ComboBoxItem Content="Закачек: 3" Tag="3"/>
+                            <ComboBoxItem Content="Закачек: 4" Tag="4"/>
+                            <ComboBoxItem Content="Закачек: 5" Tag="5"/>
+                            <ComboBoxItem Content="Закачек: 6" Tag="6"/>
+                            <ComboBoxItem Content="Закачек: 8" Tag="8"/>
+                            <ComboBoxItem Content="Закачек: 10" Tag="10"/>
+                        </ComboBox>
+
+                        <FontIcon Glyph="&#xE90F;" FontSize="11" Foreground="#C084FC" VerticalAlignment="Center"/>
+                        <ComboBox x:Name="MaxConcurrentBuildsComboBox"
+                                  Height="24" MinHeight="24" MinWidth="98" Padding="7,0,6,0" FontSize="10.5" VerticalAlignment="Center"
+                                  SelectionChanged="MaxConcurrentBuildsCombo_SelectionChanged"
+                                  ToolTipService.ToolTip="Максимум одновременных сборок контейнеров">
+                            <ComboBoxItem Content="Сборок: 1" Tag="1"/>
+                            <ComboBoxItem Content="Сборок: 2" Tag="2"/>
+                            <ComboBoxItem Content="Сборок: 3" Tag="3"/>
+                            <ComboBoxItem Content="Сборок: 4" Tag="4"/>
+                            <ComboBoxItem Content="Сборок: 5" Tag="5"/>
+                            <ComboBoxItem Content="Сборок: 6" Tag="6"/>
+                            <ComboBoxItem Content="Сборок: 8" Tag="8"/>
+                        </ComboBox>
                     </StackPanel>
 
                     <Border Grid.Column="4"/>

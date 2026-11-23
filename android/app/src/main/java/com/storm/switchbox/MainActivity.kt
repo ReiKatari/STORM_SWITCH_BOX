@@ -4408,10 +4408,10 @@ class MainActivity : Activity() {
             append(item.title)
             releaseFiles.forEach { append(' ').append(it.fileName) }
         }
-        val semVerClean = Regex("(?:\\[|\\(|\\b(?:v|upd|update|patch)\\s*)(\\d+\\.\\d+(?:\\.\\d+){0,2})(?=\\]|\\)|\\b)", RegexOption.IGNORE_CASE)
+        val semVerClean = Regex("(?:[\\[(]\\s*(?:v\\.?\\s*)?|\\b(?:v\\.?|upd|update|patch)\\s*)(\\d{1,3}\\.\\d{1,4}(?:\\.\\d{1,6}){0,2})(?=[\\])(\\s,.;/+\\-:]|$)", RegexOption.IGNORE_CASE)
             .findAll(allTextForVer)
             .map { it.groupValues[1] }
-            .lastOrNull { v -> !(v.split('.').let { p -> p.size == 3 && p[2].length == 4 }) }
+            .lastOrNull { v -> !(v.split('.').let { p -> p.size == 3 && p[2].length == 4 && (p[2].toIntOrNull() ?: 0) in 2015..2099 }) }
         val maxIntVer = Regex("\\[v?(\\d{5,10})\\]", RegexOption.IGNORE_CASE)
             .findAll(allTextForVer)
             .mapNotNull { it.groupValues[1].toIntOrNull() }

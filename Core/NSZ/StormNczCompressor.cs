@@ -539,7 +539,7 @@ namespace StormSwitchBox.Core.NSZ
                                 bool bktrParseFailed = false;
                                 for (int b = 0; b < bucketCount; b++)
                                 {
-                                    long bOff = (subSize >= 0x4000L * (1 + bucketCount)) ? (0x4000L + b * 0x4000L) : currentBucketCursor;
+                                    long bOff = 0x4000L + b * 0x4000L;
                                     if (bOff + 16 > subBuf.Length) { bktrParseFailed = true; break; }
                                     int entryCount = BitConverter.ToInt32(subBuf, (int)bOff + 4);
                                     long bucketEnd = BitConverter.ToInt64(subBuf, (int)bOff + 8);
@@ -782,6 +782,52 @@ namespace StormSwitchBox.Core.NSZ
             sections.Sort((a, b) => a.PhysicalOffset.CompareTo(b.PhysicalOffset));
             decryptInfos.Sort((a, b) => a.PhysicalOffset.CompareTo(b.PhysicalOffset));
 
+            // Гарантируем непрерывное покрытие [0x4000 .. ncaSize) в NCZSECTN (CryptoType=1 для всех промежутков)
+            var contiguousSections = new List<NczSection>(sections.Count + 4);
+            long secCursor = NCA_HEADER_SIZE;
+            foreach (var sec in sections)
+            {
+                long secEnd = sec.Offset + sec.Size;
+                if (secEnd <= NCA_HEADER_SIZE) continue;
+                if (sec.Offset > secCursor)
+                {
+                    contiguousSections.Add(new NczSection
+                    {
+                        Offset = secCursor,
+                        Size = sec.Offset - secCursor,
+                        PhysicalOffset = secCursor,
+                        CryptoType = 1,
+                        CryptoKey = new byte[16],
+                        CryptoCounter = new byte[16]
+                    });
+                    secCursor = sec.Offset;
+                }
+                if (sec.Offset < secCursor && secEnd > secCursor)
+                {
+                    sec.Size = secEnd - secCursor;
+                    sec.Offset = secCursor;
+                    sec.PhysicalOffset = secCursor;
+                }
+                if (sec.Size > 0)
+                {
+                    contiguousSections.Add(sec);
+                    secCursor = Math.Max(secCursor, sec.Offset + sec.Size);
+                }
+            }
+            if (secCursor < ncaSize)
+            {
+                contiguousSections.Add(new NczSection
+                {
+                    Offset = secCursor,
+                    Size = ncaSize - secCursor,
+                    PhysicalOffset = secCursor,
+                    CryptoType = 1,
+                    CryptoKey = new byte[16],
+                    CryptoCounter = new byte[16]
+                });
+            }
+            sections = contiguousSections;
+
             byte[] sectnMagic = Encoding.ASCII.GetBytes("NCZSECTN");
             fsOut.Write(sectnMagic, 0, 8);
             fsOut.Write(BitConverter.GetBytes((long)sections.Count), 0, 8);
@@ -840,8 +886,7 @@ namespace StormSwitchBox.Core.NSZ
             }
             catch { }
 
-            int lowCpuCap = Math.Max(1, Environment.ProcessorCount / 4);
-            int maxParallelism = usedCores > 0 ? Math.Min(usedCores, lowCpuCap) : lowCpuCap;
+            int maxParallelism = Services.NszCompressionService.GetOptimalCompressionThreads(usedCores > 0 ? usedCores : null);
             int batchSize = Math.Min(blocksToCompress, Math.Max(4, maxParallelism * 4));
             int maxCompressedBound = Compressor.GetCompressBound(BLOCK_SIZE);
 
@@ -1216,6 +1261,53 @@ namespace StormSwitchBox.Core.NSZ
             public byte[] CryptoCounter { get; set; } = Array.Empty<byte>();
         }
 
+        internal static byte[]? DecryptTitleKeyWithKeyset(byte[] encryptedTitleKey, byte[] targetRightsIdBytes, KeySet? keyset, int keyGenHint = 0)
+        {
+            if (encryptedTitleKey == null || encryptedTitleKey.Length < 16 || IsAllZero(encryptedTitleKey.AsSpan(0, 16)))
+                return null;
+            if (keyset == null || targetRightsIdBytes == null || targetRightsIdBytes.Length < 16)
+                return null;
+
+            int masterKeyRev = Math.Max(0, (int)targetRightsIdBytes[15] - 1);
+            if (targetRightsIdBytes[15] == 0 && keyGenHint > 0)
+                masterKeyRev = Math.Max(0, keyGenHint - 1);
+
+            byte[]? titleKek = null;
+            if (keyset.TitleKeks != null && masterKeyRev < keyset.TitleKeks.Length && keyset.TitleKeks[masterKeyRev].DataRo.Length >= 16)
+            {
+                var cand = keyset.TitleKeks[masterKeyRev].DataRo.ToArray();
+                if (!IsAllZero(cand))
+                    titleKek = cand;
+            }
+
+            if (titleKek == null && keyset.MasterKeys != null && masterKeyRev < keyset.MasterKeys.Length && keyset.MasterKeys[masterKeyRev].DataRo.Length >= 16)
+            {
+                byte[] mKey = keyset.MasterKeys[masterKeyRev].DataRo.ToArray();
+                if (!IsAllZero(mKey))
+                {
+                    byte[] titleKekSource = Convert.FromHexString("1EDC7B3B60E6B4D878B81715985E629B");
+                    using var aesKek = Aes.Create();
+                    aesKek.Mode = CipherMode.ECB;
+                    aesKek.Padding = PaddingMode.None;
+                    aesKek.Key = mKey;
+                    using var decKek = aesKek.CreateDecryptor();
+                    titleKek = decKek.TransformFinalBlock(titleKekSource, 0, 16);
+                }
+            }
+
+            if (titleKek == null || titleKek.Length < 16 || IsAllZero(titleKek))
+                return null;
+
+            byte[] decryptedKey = new byte[16];
+            using var aes = Aes.Create();
+            aes.Mode = CipherMode.ECB;
+            aes.Padding = PaddingMode.None;
+            aes.Key = titleKek;
+            using var dec = aes.CreateDecryptor();
+            dec.TransformBlock(encryptedTitleKey, 0, 16, decryptedKey, 0);
+            return IsAllZero(decryptedKey) ? null : decryptedKey;
+        }
+
         private static byte[]? GetTitleKeyFromKeyset(KeySet? keyset, byte[] targetRightsIdBytes, Dictionary<string, byte[]>? externalTitleKeys = null)
         {
             try
@@ -1235,47 +1327,59 @@ namespace StormSwitchBox.Core.NSZ
                     }
                 }
 
+                byte[]? encryptedTitleKey = null;
                 if (keyset != null && keyset.ExternalKeySet != null)
                 {
                     var rId = new RightsId(targetRightsIdBytes);
                     if (keyset.ExternalKeySet.Get(rId, out var accessKey).IsSuccess())
                     {
-                        return accessKey.Value.ToArray();
+                        encryptedTitleKey = accessKey.Value.ToArray();
                     }
                 }
 
-                string titleKeysPath1 = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".switch", "title.keys");
-                string titleKeysPath2 = "title.keys";
-                string[] pathsToCheck = { titleKeysPath1, titleKeysPath2 };
-
-                foreach (var path in pathsToCheck)
+                if (encryptedTitleKey == null)
                 {
-                    if (File.Exists(path))
-                    {
-                        var lines = File.ReadAllLines(path);
-                        foreach (var line in lines)
-                        {
-                            var parts = line.Split('=');
-                            if (parts.Length == 2)
-                            {
-                                string rightsIdStr = parts[0].Trim().ToLowerInvariant();
-                                string keyStr = parts[1].Trim().ToLowerInvariant();
+                    string titleKeysPath1 = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".switch", "title.keys");
+                    string titleKeysPath2 = "title.keys";
+                    string[] pathsToCheck = { titleKeysPath1, titleKeysPath2 };
 
-                                if (rightsIdStr == targetRightsIdHex && keyStr.Length >= 32)
+                    foreach (var path in pathsToCheck)
+                    {
+                        if (File.Exists(path))
+                        {
+                            var lines = File.ReadAllLines(path);
+                            foreach (var line in lines)
+                            {
+                                var parts = line.Split('=');
+                                if (parts.Length == 2)
                                 {
-                                    byte[] keyBytes = new byte[16];
-                                    for (int i = 0; i < 16; i++)
+                                    string rightsIdStr = parts[0].Trim().ToLowerInvariant();
+                                    string keyStr = parts[1].Trim().ToLowerInvariant();
+
+                                    if (rightsIdStr == targetRightsIdHex && keyStr.Length >= 32)
                                     {
-                                        keyBytes[i] = Convert.ToByte(keyStr.Substring(i * 2, 2), 16);
+                                        encryptedTitleKey = Convert.FromHexString(keyStr.Substring(0, 32));
+                                        break;
                                     }
-                                    return keyBytes;
                                 }
                             }
                         }
+                        if (encryptedTitleKey != null) break;
                     }
                 }
 
-
+                if (encryptedTitleKey != null && !IsAllZero(encryptedTitleKey))
+                {
+                    byte[]? decrypted = DecryptTitleKeyWithKeyset(encryptedTitleKey, targetRightsIdBytes, keyset);
+                    if (decrypted != null)
+                    {
+                        lock (TitleKeysCache)
+                        {
+                            TitleKeysCache[targetRightsIdHex] = decrypted;
+                        }
+                        return decrypted;
+                    }
+                }
             }
             catch { }
             return null;

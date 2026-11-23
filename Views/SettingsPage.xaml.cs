@@ -2391,6 +2391,8 @@ namespace StormSwitchBox.Views
             try
             {
                 await App.Settings.SaveAsync();
+                RuTrackerDownloadQueueService.Instance.NotifyConcurrencySettingsChanged();
+                Dialogs.RuTrackerModDownloaderDialog.ActiveInstance?.SyncConcurrencyControlsFromSettings();
             }
             catch (Exception ex)
             {

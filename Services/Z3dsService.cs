@@ -626,7 +626,7 @@ namespace StormSwitchBox.Services
         public static Z3dsMetadata ExtractContainerMetadata(string plainPath, byte[] underlyingMagic, uint frameSize)
         {
             var meta = new Z3dsMetadata();
-            string ver = !string.IsNullOrWhiteSpace(App.AppVersionString) ? App.AppVersionString : "8.1.1";
+            string ver = !string.IsNullOrWhiteSpace(App.AppVersionString) ? App.AppVersionString : "8.1.2";
             meta.SetString("compressor", $"STORM SWITCH BOX {ver}");
             meta.SetString("date", DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ"));
             meta.SetString("maxframesize", frameSize.ToString());
@@ -826,9 +826,8 @@ namespace StormSwitchBox.Services
                 windowLog = Math.Clamp(windowLog, 10, 25);
 
                 int configuredCores = maxThreads > 0 ? maxThreads : (App.Settings?.Current?.UsedCores ?? 0);
-                int maxCpuCap = Math.Max(1, Environment.ProcessorCount / 4);
-                int workerLimit = frameSize >= 16 * 1024 * 1024 ? Math.Min(2, maxCpuCap) : Math.Max(2, maxCpuCap);
-                int parallelWorkers = configuredCores > 0 ? Math.Clamp(configuredCores, 1, workerLimit) : workerLimit;
+                int optimalWorkers = NszCompressionService.GetOptimalCompressionThreads(configuredCores > 0 ? configuredCores : null);
+                int parallelWorkers = frameSize >= 16 * 1024 * 1024 ? Math.Clamp(optimalWorkers, 1, 4) : optimalWorkers;
                 int batchSize = frameCount == 0 ? 1 : Math.Min(frameCount, frameSize >= 16 * 1024 * 1024 ? parallelWorkers : Math.Max(4, parallelWorkers * 4));
                 int maxCompBound = Compressor.GetCompressBound((int)frameSize);
 
