@@ -394,6 +394,354 @@ namespace StormSwitchBox.Services
             }
         }
 
+        private static bool HasValidOutputFile(string? path, long minBytes = 0x2000)
+        {
+            if (string.IsNullOrWhiteSpace(path)) return false;
+            try
+            {
+                var fi = new FileInfo(path);
+                return fi.Exists && fi.Length >= minBytes;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static void TryDeleteFileSilent(string? path)
+        {
+            if (string.IsNullOrWhiteSpace(path)) return;
+            try
+            {
+                if (File.Exists(path)) File.Delete(path);
+            }
+            catch { }
+        }
+
+        private static string CreateShortTempDirectory(string tag, long estimatedBytes = 0, params string?[] preferredHints)
+        {
+            string shortName = $"{tag}_{Guid.NewGuid().ToString("N")[..6]}";
+            long minNeededBytes = Math.Max(estimatedBytes, 2L * 1024 * 1024 * 1024);
+
+            var candidateRoots = new List<string>();
+            void AddRoot(string? p)
+            {
+                if (string.IsNullOrWhiteSpace(p)) return;
+                try
+                {
+                    string? root = Path.GetPathRoot(Path.GetFullPath(p));
+                    if (!string.IsNullOrWhiteSpace(root) && !candidateRoots.Contains(root, StringComparer.OrdinalIgnoreCase))
+                    {
+                        candidateRoots.Add(root);
+                    }
+                }
+                catch { }
+            }
+
+            foreach (var hint in preferredHints) AddRoot(hint);
+            AddRoot(AppDomain.CurrentDomain.BaseDirectory);
+            AddRoot(Path.GetTempPath());
+
+            var fixedDrives = new List<(string Root, long FreeBytes)>();
+            foreach (var root in candidateRoots)
+            {
+                try
+                {
+                    var di = new DriveInfo(root);
+                    if (di.IsReady && di.DriveType == DriveType.Fixed)
+                    {
+                        fixedDrives.Add((root, di.AvailableFreeSpace));
+                    }
+                }
+                catch { }
+            }
+
+            try
+            {
+                foreach (var di in DriveInfo.GetDrives())
+                {
+                    if (!di.IsReady || di.DriveType != DriveType.Fixed) continue;
+                    string root = di.Name;
+                    if (!fixedDrives.Any(x => string.Equals(x.Root, root, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        fixedDrives.Add((root, di.AvailableFreeSpace));
+                    }
+                }
+            }
+            catch { }
+
+            var orderedDrives = fixedDrives
+                .Where(d => d.FreeBytes >= minNeededBytes)
+                .Concat(fixedDrives.Where(d => d.FreeBytes < minNeededBytes).OrderByDescending(d => d.FreeBytes))
+                .ToList();
+
+            foreach (var (root, _) in orderedDrives)
+            {
+                try
+                {
+                    string candidate = Path.Combine(root, "STORM_TMP", shortName);
+                    Directory.CreateDirectory(candidate);
+                    TempCleanupService.RegisterActiveTempDirectory(candidate);
+                    return candidate;
+                }
+                catch { }
+            }
+
+            string fallback = Path.Combine(Path.GetTempPath(), $"S3D_{shortName}");
+            Directory.CreateDirectory(fallback);
+            TempCleanupService.RegisterActiveTempDirectory(fallback);
+            return fallback;
+        }
+
+        private static void CleanupShortTempDirectory(string? dirPath)
+        {
+            if (string.IsNullOrWhiteSpace(dirPath)) return;
+            TempCleanupService.ForceDeleteDirectory(dirPath);
+            try
+            {
+                string? parent = Path.GetDirectoryName(Path.GetFullPath(dirPath));
+                if (!string.IsNullOrWhiteSpace(parent) &&
+                    string.Equals(Path.GetFileName(parent), "STORM_TMP", StringComparison.OrdinalIgnoreCase) &&
+                    Directory.Exists(parent) &&
+                    !Directory.EnumerateFileSystemEntries(parent).Any())
+                {
+                    Directory.Delete(parent, false);
+                }
+            }
+            catch { }
+        }
+
+        private async Task<bool> ConvertCciToCiaReliableAsync(
+            string makerom,
+            string inputCciPath,
+            string outputCiaPath,
+            string workingDir,
+            ProcessingTask? task,
+            CancellationToken cancellationToken)
+        {
+            if (!string.Equals(Path.GetFullPath(inputCciPath), Path.GetFullPath(outputCiaPath), StringComparison.OrdinalIgnoreCase))
+            {
+                TryDeleteFileSilent(outputCiaPath);
+            }
+
+            long inputSize = File.Exists(inputCciPath) ? new FileInfo(inputCciPath).Length : 0;
+
+            // Fast direct path only for smaller images (< 1.875 GiB) with safe short paths;
+            // makerom -ccitocia crashes with 0xC0000005 on ~4 GiB NCSD dumps and fails without -ignoresign on decrypted dumps.
+            if (inputSize > 0 && inputSize < 0x78000000L && inputCciPath.Length < 220 && outputCiaPath.Length < 220)
+            {
+                try
+                {
+                    await RunProcessAsync(makerom, $"-ignoresign -ccitocia \"{inputCciPath}\" -o \"{outputCiaPath}\"", workingDir, cancellationToken);
+                    if (HasValidOutputFile(outputCiaPath))
+                    {
+                        return true;
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    TryDeleteFileSilent(outputCiaPath);
+                    throw;
+                }
+                catch { }
+                TryDeleteFileSilent(outputCiaPath);
+            }
+
+            if (!File.Exists(inputCciPath)) return false;
+
+            using var fs = new FileStream(inputCciPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 4 * 1024 * 1024, FileOptions.SequentialScan);
+            if (fs.Length < 0x200) return false;
+
+            byte[] hdr = new byte[0x200];
+            int hdrRead = await fs.ReadAsync(hdr, 0, hdr.Length, cancellationToken);
+            if (hdrRead < 0x200) return false;
+
+            string magic = Encoding.ASCII.GetString(hdr, 0x100, 4);
+            string sliceDir = CreateShortTempDirectory(
+                "SL",
+                inputSize + 512L * 1024 * 1024,
+                Path.GetDirectoryName(outputCiaPath),
+                Path.GetDirectoryName(inputCciPath),
+                workingDir);
+
+            try
+            {
+                bool stageOut = outputCiaPath.Length >= 220;
+                string effectiveOut = stageOut ? Path.Combine(sliceDir, "out.cia") : outputCiaPath;
+                TryDeleteFileSilent(effectiveOut);
+
+                if (magic == "NCCH")
+                {
+                    string cxiSource = inputCciPath;
+                    if (cxiSource.Length >= 220)
+                    {
+                        cxiSource = Path.Combine(sliceDir, "p0.cxi");
+                        await using var dst = new FileStream(cxiSource, FileMode.Create, FileAccess.Write, FileShare.None, 4 * 1024 * 1024, FileOptions.SequentialScan);
+                        fs.Position = 0;
+                        await fs.CopyToAsync(dst, 4 * 1024 * 1024, cancellationToken);
+                    }
+
+                    foreach (var targetFlag in new[] { "p", "t" })
+                    {
+                        try
+                        {
+                            await RunProcessAsync(makerom, $"-f cia -ignoresign -target {targetFlag} -content \"{cxiSource}:0:0\" -o \"{effectiveOut}\"", sliceDir, cancellationToken);
+                            if (HasValidOutputFile(effectiveOut)) break;
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            TryDeleteFileSilent(effectiveOut);
+                            throw;
+                        }
+                        catch { }
+                        TryDeleteFileSilent(effectiveOut);
+                    }
+                }
+                else if (magic == "NCSD")
+                {
+                    // Extract ONLY game partitions 0..2 (0 = Main App, 1 = Manual, 2 = DLP Child), skipping firmware update partitions 6..7.
+                    var validPartitions = new List<(int Index, long Offset, long Length)>();
+                    byte[] ncchSig = new byte[4];
+                    for (int idx = 0; idx <= 2; idx++)
+                    {
+                        long partOff = (long)BitConverter.ToUInt32(hdr, 0x120 + idx * 8) * 0x200L;
+                        long partLen = (long)BitConverter.ToUInt32(hdr, 0x120 + idx * 8 + 4) * 0x200L;
+                        if (partOff <= 0 || partLen < 0x200 || partOff >= fs.Length) continue;
+
+                        long actualLen = Math.Min(partLen, fs.Length - partOff);
+                        if (actualLen < 0x200 || partOff + 0x104 > fs.Length) continue;
+
+                        fs.Position = partOff + 0x100;
+                        int sigRead = await fs.ReadAsync(ncchSig, 0, 4, cancellationToken);
+                        if (sigRead == 4 && Encoding.ASCII.GetString(ncchSig) == "NCCH")
+                        {
+                            validPartitions.Add((idx, partOff, actualLen));
+                        }
+                    }
+
+                    if (!validPartitions.Any(p => p.Index == 0))
+                    {
+                        return false;
+                    }
+
+                    if (task != null)
+                    {
+                        App.RunOnUI(() =>
+                        {
+                            task.Status = "Извлечение разделов NCSD и сборка CIA...";
+                            task.LogDetails += $"\n🔧 [3DS NCSD -> CIA] Извлечение игровых разделов ({validPartitions.Count} шт.) и сборка CIA через makerom (-ignoresign)...";
+                        });
+                    }
+
+                    var contentParts = new List<string>();
+                    byte[] copyBuf = new byte[4 * 1024 * 1024];
+                    foreach (var (idx, partOff, actualLen) in validPartitions)
+                    {
+                        string partPath = Path.Combine(sliceDir, idx == 0 ? "p0.cxi" : $"p{idx}.cfa");
+                        fs.Position = partOff;
+                        long remaining = actualLen;
+                        await using (var dst = new FileStream(partPath, FileMode.Create, FileAccess.Write, FileShare.None, 4 * 1024 * 1024, FileOptions.SequentialScan))
+                        {
+                            while (remaining > 0)
+                            {
+                                int chunk = (int)Math.Min(copyBuf.Length, remaining);
+                                int got = await fs.ReadAsync(copyBuf, 0, chunk, cancellationToken);
+                                if (got <= 0) break;
+                                await dst.WriteAsync(copyBuf, 0, got, cancellationToken);
+                                remaining -= got;
+                            }
+                        }
+                        if (HasValidOutputFile(partPath, 0x200))
+                        {
+                            contentParts.Add($"-content \"{partPath}:{idx}:{idx}\"");
+                        }
+                    }
+
+                    if (contentParts.Count == 0) return false;
+                    string contentArgs = string.Join(" ", contentParts);
+
+                    foreach (var targetFlag in new[] { "p", "t" })
+                    {
+                        try
+                        {
+                            await RunProcessAsync(makerom, $"-f cia -ignoresign -target {targetFlag} {contentArgs} -o \"{effectiveOut}\"", sliceDir, cancellationToken);
+                            if (HasValidOutputFile(effectiveOut)) break;
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            TryDeleteFileSilent(effectiveOut);
+                            throw;
+                        }
+                        catch { }
+                        TryDeleteFileSilent(effectiveOut);
+                    }
+                }
+                else
+                {
+                    return false;
+                }
+
+                if (HasValidOutputFile(effectiveOut))
+                {
+                    if (stageOut)
+                    {
+                        string? outParent = Path.GetDirectoryName(outputCiaPath);
+                        if (!string.IsNullOrEmpty(outParent)) Directory.CreateDirectory(outParent);
+                        File.Move(effectiveOut, outputCiaPath, overwrite: true);
+                    }
+                    return HasValidOutputFile(outputCiaPath);
+                }
+
+                TryDeleteFileSilent(effectiveOut);
+                return false;
+            }
+            finally
+            {
+                CleanupShortTempDirectory(sliceDir);
+            }
+        }
+
+        private async Task<bool> ConvertCiaToCciReliableAsync(
+            string makerom,
+            string inputCiaPath,
+            string outputCciPath,
+            string workingDir,
+            CancellationToken cancellationToken)
+        {
+            if (!string.Equals(Path.GetFullPath(inputCiaPath), Path.GetFullPath(outputCciPath), StringComparison.OrdinalIgnoreCase))
+            {
+                TryDeleteFileSilent(outputCciPath);
+            }
+
+            string[] argVariants =
+            {
+                $"-ignoresign -ciatocci \"{inputCiaPath}\" -o \"{outputCciPath}\"",
+                $"-ciatocci \"{inputCiaPath}\" -o \"{outputCciPath}\"",
+                $"-ciatocci \"{inputCiaPath}\" \"{outputCciPath}\""
+            };
+
+            foreach (var args in argVariants)
+            {
+                try
+                {
+                    await RunProcessAsync(makerom, args, workingDir, cancellationToken);
+                    if (HasValidOutputFile(outputCciPath))
+                    {
+                        return true;
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    TryDeleteFileSilent(outputCciPath);
+                    throw;
+                }
+                catch { }
+                TryDeleteFileSilent(outputCciPath);
+            }
+
+            return false;
+        }
+
         public async Task Build3dsMultiContentAsync(
             ProcessingTask task,
             List<string> inputFiles,
@@ -410,9 +758,11 @@ namespace StormSwitchBox.Services
                 throw new FileNotFoundException($"Утилита makerom не найдена: {makerom}");
             }
 
-            string tempDir = Path.Combine(Path.GetTempPath(), $"Storm3DS_Multi_{Guid.NewGuid():N}");
-            Directory.CreateDirectory(tempDir);
-            TempCleanupService.RegisterActiveTempDirectory(tempDir);
+            string tempDir = CreateShortTempDirectory(
+                "MC",
+                4L * 1024 * 1024 * 1024,
+                Path.GetDirectoryName(outputFilePath),
+                inputFiles.FirstOrDefault());
 
             try
             {
@@ -516,7 +866,7 @@ namespace StormSwitchBox.Services
                     : Path.ChangeExtension(outputFilePath, "." + spec.PlainExt);
 
                 // Step 1: Extract Base Game (RomFS, ExeFS, ExHeader, Logo, PlainRgn + Secondary CFAs)
-                string extractedBaseDir = Path.Combine(tempDir, "base_extracted");
+                string extractedBaseDir = Path.Combine(tempDir, "b");
                 Directory.CreateDirectory(extractedBaseDir);
 
                 App.RunOnUI(() =>
@@ -550,7 +900,7 @@ namespace StormSwitchBox.Services
                         task.LogDetails += $"\n🔄 [3DS] Наложение обновления {Path.GetFileName(updateFile)}...";
                     });
 
-                    string updateExtractDir = Path.Combine(tempDir, $"update_extracted_{updIdx}");
+                    string updateExtractDir = Path.Combine(tempDir, $"u{updIdx}");
                     Directory.CreateDirectory(updateExtractDir);
 
                     await Extract3dsContainerToDirAsync(updateFile, updateExtractDir, tempDir, cancellationToken, extractSecondaryCfa: false);
@@ -581,7 +931,7 @@ namespace StormSwitchBox.Services
                         task.LogDetails += $"\n📦 [3DS] Интеграция дополнения {Path.GetFileName(dlcFile)}...";
                     });
 
-                    string dlcExtractDir = Path.Combine(tempDir, $"dlc_extracted_{dlcIdx}");
+                    string dlcExtractDir = Path.Combine(tempDir, $"d{dlcIdx}");
                     Directory.CreateDirectory(dlcExtractDir);
 
                     await Extract3dsContainerToDirAsync(dlcFile, dlcExtractDir, tempDir, cancellationToken, extractSecondaryCfa: true);
@@ -659,7 +1009,7 @@ namespace StormSwitchBox.Services
             }
             finally
             {
-                TempCleanupService.ForceDeleteDirectory(tempDir);
+                CleanupShortTempDirectory(tempDir);
             }
         }
 
@@ -694,7 +1044,7 @@ namespace StormSwitchBox.Services
 
             if (inExt == "cia")
             {
-                string contentsDir = Path.Combine(tempDir, $"cia_contents_{Guid.NewGuid():N}");
+                string contentsDir = Path.Combine(tempDir, $"c_{Guid.NewGuid().ToString("N")[..6]}");
                 Directory.CreateDirectory(contentsDir);
                 string prefix = Path.Combine(contentsDir, "contents");
 
@@ -1232,7 +1582,7 @@ namespace StormSwitchBox.Services
 
                 string contentArgs = contentBuilder.ToString();
                 string containerFormat = outExt == "3ds" ? "cci" : "cia";
-                await RunProcessAsync(makerom, $"-f {containerFormat} -target t -o \"{targetOutFile}\" {contentArgs}", tempDir, cancellationToken);
+                await RunProcessAsync(makerom, $"-f {containerFormat} -ignoresign -target t -o \"{targetOutFile}\" {contentArgs}", tempDir, cancellationToken);
             }
 
             if (File.Exists(targetOutFile))
@@ -1250,10 +1600,23 @@ namespace StormSwitchBox.Services
                         task.Status = "Сборка CIA...";
                         task.LogDetails += "\n🔄 [3DS Dual] Дополнительная генерация установочного пакета CIA...";
                     });
-                    await RunProcessAsync(makerom, $"-f cia -target t -o \"{targetCiaFile}\" -content \"{rebuiltCxi}:0:0\"", tempDir, cancellationToken);
-                    if (!File.Exists(targetCiaFile))
+                    try
                     {
-                        await RunProcessAsync(makerom, $"-ccitocia \"{targetOutFile}\" \"{targetCiaFile}\"", tempDir, cancellationToken);
+                        await RunProcessAsync(makerom, $"-f cia -ignoresign -target p -o \"{targetCiaFile}\" -content \"{rebuiltCxi}:0:0\"", tempDir, cancellationToken);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        TryDeleteFileSilent(targetCiaFile);
+                        throw;
+                    }
+                    catch { }
+                    if (!HasValidOutputFile(targetCiaFile))
+                    {
+                        bool converted = await ConvertCciToCiaReliableAsync(makerom, targetOutFile, targetCiaFile, tempDir, task, cancellationToken);
+                        if (!converted)
+                        {
+                            throw new InvalidOperationException("Не удалось собрать дополнительный файл CIA через makerom.");
+                        }
                     }
                 }
 
@@ -1387,9 +1750,8 @@ namespace StormSwitchBox.Services
                         return;
                     }
 
-                    decTemp = Path.Combine(Path.GetTempPath(), $"Storm3DS_Z3Decomp_{Guid.NewGuid():N}");
-                    Directory.CreateDirectory(decTemp);
-                    TempCleanupService.RegisterActiveTempDirectory(decTemp);
+                    long estInBytes = File.Exists(inputPath) ? new FileInfo(inputPath).Length * 2 : 0;
+                    decTemp = CreateShortTempDirectory("CV", estInBytes, outputFolder, inputPath);
                     string decompPlainPath = Path.Combine(decTemp, baseOutName + inZhdr.RecommendedPlainExtension);
                     await Z3dsService.DecompressZ3dsAsync(inputPath, decompPlainPath, task, cancellationToken);
                     inputPath = decompPlainPath;
@@ -1443,9 +1805,8 @@ namespace StormSwitchBox.Services
                     string workingPlain = inputPath;
                     if (Nintendo3dsCryptoService.Is3dsFileEncrypted(workingPlain))
                     {
-                        decTemp ??= Path.Combine(Path.GetTempPath(), $"Storm3DS_DecConv_{Guid.NewGuid():N}");
-                        Directory.CreateDirectory(decTemp);
-                        TempCleanupService.RegisterActiveTempDirectory(decTemp);
+                        long estInBytes = File.Exists(workingPlain) ? new FileInfo(workingPlain).Length : 0;
+                        decTemp ??= CreateShortTempDirectory("CV", estInBytes, outputFolder, workingPlain);
                         workingPlain = await Nintendo3dsCryptoService.EnsureDecrypted3dsFileAsync(workingPlain, decTemp, task, cancellationToken);
                     }
 
@@ -1479,9 +1840,8 @@ namespace StormSwitchBox.Services
 
                     if (hasSmdhEdit)
                     {
-                        decTemp ??= Path.Combine(Path.GetTempPath(), $"Storm3DS_DecConv_{Guid.NewGuid():N}");
-                        Directory.CreateDirectory(decTemp);
-                        TempCleanupService.RegisterActiveTempDirectory(decTemp);
+                        long estInBytes = File.Exists(workingPlain) ? new FileInfo(workingPlain).Length : 0;
+                        decTemp ??= CreateShortTempDirectory("CV", estInBytes, outputFolder, workingPlain);
                         string patchedCopy = Path.Combine(decTemp, "patched_" + Path.GetFileName(workingPlain));
                         File.Copy(workingPlain, patchedCopy, overwrite: true);
                         IconBadgeStudioService.Patch3dsSmdhInPlace(patchedCopy, task.CustomMetadata!);
@@ -1499,9 +1859,8 @@ namespace StormSwitchBox.Services
 
                 string outExt = spec.PlainExt;
                 string outFileName = baseOutName + "." + outExt;
-                string plainWorkOutPath = (spec.WantZ3ds && !spec.IsDualZcci)
-                    ? Path.Combine(Path.GetTempPath(), $"Storm3DS_ConvOut_{Guid.NewGuid():N}.{outExt}")
-                    : Path.Combine(outputFolder, outFileName);
+                string? convTemp = null;
+                string plainWorkOutPath = Path.Combine(outputFolder, outFileName);
 
                 if (hasBannerAudioEdit)
                 {
@@ -1511,9 +1870,8 @@ namespace StormSwitchBox.Services
 
                 if (Nintendo3dsCryptoService.Is3dsFileEncrypted(inputPath))
                 {
-                    decTemp ??= Path.Combine(Path.GetTempPath(), $"Storm3DS_DecConv_{Guid.NewGuid():N}");
-                    Directory.CreateDirectory(decTemp);
-                    TempCleanupService.RegisterActiveTempDirectory(decTemp);
+                    long estInBytes = File.Exists(inputPath) ? new FileInfo(inputPath).Length : 0;
+                    decTemp ??= CreateShortTempDirectory("CV", estInBytes, outputFolder, inputPath);
                     inputPath = await Nintendo3dsCryptoService.EnsureDecrypted3dsFileAsync(inputPath, decTemp, task, cancellationToken);
                 }
 
@@ -1536,11 +1894,7 @@ namespace StormSwitchBox.Services
                         {
                             File.Copy(inputPath, target3ds, overwrite: true);
                         }
-                        try { await RunProcessAsync(makerom, $"-ccitocia \"{target3ds}\" -o \"{targetCia}\"", outputFolder, cancellationToken); } catch { }
-                        if (!File.Exists(targetCia))
-                        {
-                            try { await RunProcessAsync(makerom, $"-ccitocia \"{target3ds}\" \"{targetCia}\"", outputFolder, cancellationToken); } catch { }
-                        }
+                        await ConvertCciToCiaReliableAsync(makerom, target3ds, targetCia, outputFolder, task, cancellationToken);
                     }
                     else if (inExt == "cia")
                     {
@@ -1548,14 +1902,10 @@ namespace StormSwitchBox.Services
                         {
                             File.Copy(inputPath, targetCia, overwrite: true);
                         }
-                        try { await RunProcessAsync(makerom, $"-ciatocci \"{targetCia}\" -o \"{target3ds}\"", outputFolder, cancellationToken); } catch { }
-                        if (!File.Exists(target3ds))
-                        {
-                            try { await RunProcessAsync(makerom, $"-ciatocci \"{targetCia}\" \"{target3ds}\"", outputFolder, cancellationToken); } catch { }
-                        }
+                        await ConvertCiaToCciReliableAsync(makerom, targetCia, target3ds, outputFolder, cancellationToken);
                     }
 
-                    if (!File.Exists(target3ds) || !File.Exists(targetCia))
+                    if (!HasValidOutputFile(target3ds) || !HasValidOutputFile(targetCia))
                     {
                         await Build3dsMultiContentAsync(task, new List<string> { inputPath }, target3ds, targetFormat, cancellationToken, forceRebuild: true);
                         return;
@@ -1579,6 +1929,13 @@ namespace StormSwitchBox.Services
                     return;
                 }
 
+                if (spec.WantZ3ds && !spec.IsDualZcci)
+                {
+                    long estOutBytes = File.Exists(inputPath) ? new FileInfo(inputPath).Length + 512L * 1024 * 1024 : 0;
+                    convTemp = CreateShortTempDirectory("CO", estOutBytes, outputFolder, inputPath);
+                    plainWorkOutPath = Path.Combine(convTemp, "out." + outExt);
+                }
+
                 try
                 {
                     bool isSameFormat = (inExt == outExt) || (inExt == "cci" && outExt == "3ds") || (inExt == "3ds" && outExt == "cci");
@@ -1591,22 +1948,14 @@ namespace StormSwitchBox.Services
                     }
                     else if ((inExt == "3ds" || inExt == "cci") && outExt == "cia")
                     {
-                        try { await RunProcessAsync(makerom, $"-ccitocia \"{inputPath}\" -o \"{plainWorkOutPath}\"", outputFolder, cancellationToken); } catch { }
-                        if (!File.Exists(plainWorkOutPath))
-                        {
-                            try { await RunProcessAsync(makerom, $"-ccitocia \"{inputPath}\" \"{plainWorkOutPath}\"", outputFolder, cancellationToken); } catch { }
-                        }
+                        await ConvertCciToCiaReliableAsync(makerom, inputPath, plainWorkOutPath, outputFolder, task, cancellationToken);
                     }
                     else if (inExt == "cia" && (outExt == "3ds" || outExt == "cci"))
                     {
-                        try { await RunProcessAsync(makerom, $"-ciatocci \"{inputPath}\" -o \"{plainWorkOutPath}\"", outputFolder, cancellationToken); } catch { }
-                        if (!File.Exists(plainWorkOutPath))
-                        {
-                            try { await RunProcessAsync(makerom, $"-ciatocci \"{inputPath}\" \"{plainWorkOutPath}\"", outputFolder, cancellationToken); } catch { }
-                        }
+                        await ConvertCiaToCciReliableAsync(makerom, inputPath, plainWorkOutPath, outputFolder, cancellationToken);
                     }
 
-                    if (!File.Exists(plainWorkOutPath))
+                    if (!HasValidOutputFile(plainWorkOutPath))
                     {
                         await Build3dsMultiContentAsync(task, new List<string> { inputPath }, Path.Combine(outputFolder, outFileName), targetFormat, cancellationToken, forceRebuild: true);
                         return;
@@ -1653,7 +2002,11 @@ namespace StormSwitchBox.Services
                 {
                     if (spec.WantZ3ds && !spec.IsDualZcci && File.Exists(plainWorkOutPath))
                     {
-                        try { File.Delete(plainWorkOutPath); } catch { }
+                        TryDeleteFileSilent(plainWorkOutPath);
+                    }
+                    if (!string.IsNullOrEmpty(convTemp))
+                    {
+                        CleanupShortTempDirectory(convTemp);
                     }
                 }
             }
@@ -1661,7 +2014,7 @@ namespace StormSwitchBox.Services
             {
                 if (!string.IsNullOrEmpty(decTemp))
                 {
-                    TempCleanupService.ForceDeleteDirectory(decTemp);
+                    CleanupShortTempDirectory(decTemp);
                 }
             }
         }
@@ -1688,9 +2041,8 @@ namespace StormSwitchBox.Services
             string outDir = Path.Combine(outputBaseFolder, $"{gameName}_extracted");
             if (!Directory.Exists(outDir)) Directory.CreateDirectory(outDir);
 
-            string tempDir = Path.Combine(Path.GetTempPath(), $"Storm3DS_Unpack_{Guid.NewGuid():N}");
-            Directory.CreateDirectory(tempDir);
-            TempCleanupService.RegisterActiveTempDirectory(tempDir);
+            long estInBytes = File.Exists(inputPath) ? new FileInfo(inputPath).Length : 0;
+            string tempDir = CreateShortTempDirectory("UN", estInBytes, outputBaseFolder, inputPath);
 
             try
             {
@@ -1714,7 +2066,7 @@ namespace StormSwitchBox.Services
             }
             finally
             {
-                TempCleanupService.ForceDeleteDirectory(tempDir);
+                CleanupShortTempDirectory(tempDir);
             }
         }
 
@@ -1740,9 +2092,7 @@ namespace StormSwitchBox.Services
             string outName = rawBase + "." + outExt;
             if (!Directory.Exists(outputBaseFolder)) Directory.CreateDirectory(outputBaseFolder);
 
-            string tempDir = Path.Combine(Path.GetTempPath(), $"Storm3DS_Pack_{Guid.NewGuid():N}");
-            Directory.CreateDirectory(tempDir);
-            TempCleanupService.RegisterActiveTempDirectory(tempDir);
+            string tempDir = CreateShortTempDirectory("PK", 4L * 1024 * 1024 * 1024, outputBaseFolder, inputFolder);
 
             string workOutPath = (spec.WantZ3ds && !spec.IsDualZcci)
                 ? Path.Combine(tempDir, "pack_intermediate." + outExt)
@@ -1797,7 +2147,7 @@ namespace StormSwitchBox.Services
             }
             finally
             {
-                TempCleanupService.ForceDeleteDirectory(tempDir);
+                CleanupShortTempDirectory(tempDir);
             }
         }
 

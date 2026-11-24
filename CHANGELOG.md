@@ -1,3 +1,42 @@
+## **8.1.3** (24.11.2026)
+
+> 💡 **Релиз 8.1.3** - *Надёжная прямая конвертация крупных образов 3DS/CCI (>= 2 ГБ и 4 ГБ) в CIA/ZCIA через нарезку игровых разделов NCSD, защита от сбоев по длине пути `MAX_PATH` во всех операциях 3DS и синхронизированное обновление версий*
+
+---
+
+### 🚀 Ключевые изменения и улучшения (STORM SWITCH BOX 8.1.3)
+
+- 🌟 **[Надёжная конвертация крупных образов 3DS/CCI -> CIA/ZCIA (`Nintendo3dsService.cs`)]**:
+  - Устранено падение `makerom.exe -ccitocia` (`Access Violation 0xC0000005`) на картриджных дампах Nintendo 3DS / New Nintendo 3DS объёмом `>= 1.875 ГБ` (включая 4 ГБ образы уровня *Xenoblade Chronicles 3D*), а также отказ `[NCCH ERROR] AccessDesc Sigcheck Failed` на расшифрованных No-Intro дампах без флага `-ignoresign`.
+  - Внедрён новый движок `ConvertCciToCiaReliableAsync`: для образов `< 1.875 ГБ` с коротким путём сначала пробуется быстрый `-ignoresign -ccitocia`, а для крупных образов (`>= 1.875 ГБ`) и при любом отказе/краше выполняется прямое чтение заголовка NCSD (`0x120`) и потоковое извлечение только игровых разделов `0..2` (`p0.cxi`, `p1.cfa`, `p2.cfa` без разделов обновления прошивки `6..7`) с прямой сборкой через `makerom -f cia -ignoresign -target p` (с резервом `-target t`).
+  - В `ConvertCiaToCciReliableAsync` добавлена многоступенчатая конвертация CIA -> CCI/3DS с приоритетом флага `-ignoresign`, а в `Build3dsFromExtractedDirAsync` флаг `-ignoresign` и резерв через `ConvertCciToCiaReliableAsync` защищают двойную сборку `3DS + CIA`.
+- 🌟 **[Короткие временные пути 3DS и защита от `MAX_PATH` (`Nintendo3dsService.cs`, `TempCleanupService.cs`)]**:
+  - Добавлены хелперы `CreateShortTempDirectory` и `CleanupShortTempDirectory`, создающие компактные рабочие каталоги формата `<диск>:\STORM_TMP\<tag>_<6hex>` на быстром фиксированном диске с достаточным свободным местом (с безопасным резервом `%TEMP%\S3D_<tag>_<6hex>` и автоудалением пустого `STORM_TMP` и паттерна `S3D_*` в `TempCleanupService`).
+  - Короткие пути и сокращённые имена подпапок (`b`, `u1`, `d1`, `c_...`) внедрены в `Build3dsMultiContentAsync`, `Extract3dsContainerToDirAsync`, `Convert3dsContainerAsync`, `Unpack3dsContainerAsync` и `Pack3dsContainerAsync`, исключая ошибку `ctrtool.exe` `[tc::io::VirtualFileSystem::openFile() ERROR] File does not exist.` на глубоких деревьях RomFS.
+- 🌟 **[Синхронизированное обновление Windows и Android 8.1.3]**:
+  - Версия обновлена до `8.1.3` (`versionCode = 8103` на Android) для всех сборок Windows x64 (`Setup.exe` и Portable ZIP) и Android (`Modern` и `Legacy`).
+
+<details>
+
+<summary><b>📋 Полный список изменений (нажмите, чтобы развернуть)</b></summary>
+
+- 🔹 **[Services/Nintendo3dsService.cs]**: Добавлены `HasValidOutputFile`, `TryDeleteFileSilent`, `CreateShortTempDirectory`, `CleanupShortTempDirectory`, `ConvertCciToCiaReliableAsync` и `ConvertCiaToCciReliableAsync`; все прямые вызовы `-ccitocia` и `-ciatocci` в `Convert3dsContainerAsync` и `Build3dsFromExtractedDirAsync` переведены на надёжную логику с разбором NCSD (`0..2`) и `-ignoresign`; временные каталоги `Build3dsMultiContentAsync`, `Convert3dsContainerAsync`, `Unpack3dsContainerAsync` и `Pack3dsContainerAsync` переведены на короткие пути `STORM_TMP`.
+- 🔹 **[Services/TempCleanupService.cs]**: В `tempDirPatterns` добавлен шаблон `"S3D_*"` для автоматической очистки резервных временных папок 3DS.
+- 🔹 **[StormSwitchBox.csproj, App.xaml.cs, Build_Release.ps1, Services/Z3dsService.cs, app.manifest, installer/StormInstaller/*, android/app/build.gradle.kts, StormNczEngine.kt, README.md]**: Версия продукта обновлена до `8.1.3` (`versionCode = 8103`).
+
+</details>
+
+<details>
+
+<summary><b>🌐 English Changelog (click to expand)</b></summary>
+
+- 🔸 Fixed `makerom -ccitocia` crashes (`0xC0000005` on `>= 1.875 GB` / 4 GB NCSD images such as *Xenoblade Chronicles 3D*) and `AccessDesc Sigcheck Failed` errors on decrypted No-Intro dumps by introducing `ConvertCciToCiaReliableAsync`: extracts game NCSD partitions `0..2` (`NCCH`) directly from `0x120` (skipping firmware update partitions `6..7`) and packages via `makerom -f cia -ignoresign -target p`.
+- 🔸 Added `ConvertCiaToCciReliableAsync` and `-ignoresign` handling for `CIA -> CCI/3DS` and dual `3DS + CIA` builds in `Build3dsFromExtractedDirAsync`.
+- 🔸 Added `CreateShortTempDirectory` (`<drive>:\STORM_TMP\<tag>_<6hex>` with `%TEMP%\S3D_*` fallback) and shortened 3DS extraction folder names across all 3DS multi-content, convert, unpack, and pack pipelines to eliminate Windows `MAX_PATH` failures in `ctrtool.exe`.
+- 🔸 Updated unified Windows x64 and Android Modern/Legacy releases to version `8.1.3` (`versionCode 8103`).
+
+</details>
+
 ## **8.1.2** (23.11.2026)
 
 > 💡 **Релиз 8.1.2** - *Ускорение сборки и многопоточного Zstd-сжатия (`FastPassthrough` без пересжатия Block NSZ и снятие лимита CPU/4), выбор лимита одновременных сборок и скачиваний в интерфейсе RuTracker, исправление обратной декомпрессии Block NSZ -> NSP (совместимость с Eden) и поддержка 4-сегментных версий игр (`1.0.6.1267`)*

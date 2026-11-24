@@ -219,6 +219,7 @@ namespace StormSwitchBox.Services
                     string[] tempDirPatterns = new[]
                     {
                         "STORM_TMP_*",
+                        "S3D_*",
                         "StormDecomp_*",
                         "Storm3DS_*",
                         "StormControl_*",
