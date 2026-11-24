@@ -67,6 +67,8 @@ namespace StormSwitchBox.Views
             if (!string.IsNullOrWhiteSpace(query))
             {
                 bool hit = (item.TitleName != null && item.TitleName.Contains(query, StringComparison.OrdinalIgnoreCase)) ||
+                           (!string.IsNullOrEmpty(item.InternalTitleRussian) && item.InternalTitleRussian.Contains(query, StringComparison.OrdinalIgnoreCase)) ||
+                           (!string.IsNullOrEmpty(item.InternalTitleEnglish) && item.InternalTitleEnglish.Contains(query, StringComparison.OrdinalIgnoreCase)) ||
                            (item.TitleId != null && item.TitleId.Contains(query, StringComparison.OrdinalIgnoreCase)) ||
                            (item.Publisher != null && item.Publisher.Contains(query, StringComparison.OrdinalIgnoreCase));
                 if (!hit) return false;
@@ -638,7 +640,9 @@ namespace StormSwitchBox.Views
                     }
 
                     var local = itemsCopy.Where(i => 
-                        (i.TitleName != null && i.TitleName.Contains(query, StringComparison.OrdinalIgnoreCase)) || 
+                        (i.TitleName != null && i.TitleName.Contains(query, StringComparison.OrdinalIgnoreCase)) ||
+                        (!string.IsNullOrEmpty(i.InternalTitleRussian) && i.InternalTitleRussian.Contains(query, StringComparison.OrdinalIgnoreCase)) ||
+                        (!string.IsNullOrEmpty(i.InternalTitleEnglish) && i.InternalTitleEnglish.Contains(query, StringComparison.OrdinalIgnoreCase)) ||
                         (i.TitleId != null && i.TitleId.Contains(query, StringComparison.OrdinalIgnoreCase)) ||
                         (i.Publisher != null && i.Publisher.Contains(query, StringComparison.OrdinalIgnoreCase))).ToList();
 
@@ -755,7 +759,7 @@ namespace StormSwitchBox.Views
             if (e.ClickedItem is CatalogItem item)
             {
                 _selectedCatalogItem = item;
-                DetailTitle.Text = item.TitleName ?? "Unknown";
+                UpdateDetailHeaderTitles(item);
                 DetailPublisher.Text = item.Publisher ?? "Unknown";
                 DetailDeveloper.Text = !string.IsNullOrEmpty(item.Developer) ? item.Developer : "Unknown";
                 DetailCategory.Text = !string.IsNullOrEmpty(item.Category) ? item.Category : "N/A";
@@ -829,14 +833,19 @@ namespace StormSwitchBox.Views
                 
                 DetailsOverlay.Visibility = Visibility.Visible;
 
-                // Если eShop данные ещё не загружены — подгружаем при открытии деталей
+                // Если eShop данные ещё не загружены - подгружаем при открытии деталей
                 if (!item.HasScreenshots || string.IsNullOrEmpty(item.Category) || item.Category == "N/A" 
                     || item.Description == "Описание не найдено." || string.IsNullOrEmpty(item.ReleaseDate) || item.ReleaseDate == "N/A")
                 {
                     try
                     {
                         var eShopService = new Services.NintendoEShopService();
-                        var eshopData = await eShopService.SearchGameInfoAsync(item.TitleName ?? string.Empty);
+                        string detailQuery = !string.IsNullOrWhiteSpace(item.InternalTitleEnglish) ? item.InternalTitleEnglish : (item.TitleName ?? string.Empty);
+                        var eshopData = await eShopService.SearchGameInfoAsync(detailQuery);
+                        if (eshopData == null && !string.IsNullOrWhiteSpace(item.TitleName) && !string.Equals(detailQuery, item.TitleName, StringComparison.OrdinalIgnoreCase))
+                        {
+                            eshopData = await eShopService.SearchGameInfoAsync(item.TitleName);
+                        }
                         if (eshopData != null)
                         {
                             // Описание
@@ -1296,6 +1305,27 @@ namespace StormSwitchBox.Views
             }
         }
 
+        private void UpdateDetailHeaderTitles(CatalogItem item)
+        {
+            DetailTitle.Text = item.TitleName ?? "Unknown";
+            if (DetailAltTitle != null)
+            {
+                string altTitle = item.AlternateInternalTitle;
+                if (!string.IsNullOrWhiteSpace(altTitle))
+                {
+                    bool isAltEnglish = string.Equals(altTitle, item.InternalTitleEnglish, StringComparison.OrdinalIgnoreCase);
+                    string altPrefix = App.Localization.TranslateText(isAltEnglish ? "Внутреннее английское название:" : "Внутреннее русское название:");
+                    DetailAltTitle.Text = $"{altPrefix} {altTitle}";
+                    DetailAltTitle.Visibility = Visibility.Visible;
+                }
+                else
+                {
+                    DetailAltTitle.Text = string.Empty;
+                    DetailAltTitle.Visibility = Visibility.Collapsed;
+                }
+            }
+        }
+
         public void ApplyLocalization()
         {
             var loc = App.Localization;
@@ -1307,70 +1337,30 @@ namespace StormSwitchBox.Views
             if (ThreeDsPlatformButton != null) ThreeDsPlatformButton.Content = loc["Catalog_Filter_3ds"];
             if (SearchBox != null) SearchBox.PlaceholderText = loc["Catalog_Search_Placeholder"];
             if (UpdateDbTextBlock != null) UpdateDbTextBlock.Text = loc["Catalog_UpdateDb"];
+
+            foreach (var item in _allCatalogItems)
+            {
+                if (item.HasEmbeddedInternalTitle)
+                {
+                    string preferred = item.ResolvePreferredInternalTitle(loc.CurrentLanguage);
+                    if (!string.IsNullOrWhiteSpace(preferred) && !string.Equals(item.TitleName, preferred, StringComparison.Ordinal))
+                    {
+                        item.TitleName = preferred;
+                    }
+                }
+            }
+
+            if (_selectedCatalogItem != null && DetailsOverlay != null && DetailsOverlay.Visibility == Visibility.Visible)
+            {
+                UpdateDetailHeaderTitles(_selectedCatalogItem);
+            }
+
             App.Localization.TranslateRoot(this);
         }
     
         private async void ErrorCodesLookupButton_Click(object sender, RoutedEventArgs e)
         {
-            var errors = new (string Code, string Module, string Title, string Cause, string Solution)[]
-            {
-                ("2002-4153 / 2002-4000..4999", "Модуль 2002 (FS — Файловая система)", "Ошибка чтения NCA или повреждённый контейнер NSP/NSZ", "Повреждённый сектор на microSD (особенно на exFAT) или устаревшие sigpatches / sys-patch.", "Проверьте целостность контейнера (Verify NSP), отформатируйте SD-карту в FAT32 и обновите sys-patch."),
-                ("2168-0002 (0x4a8)", "Модуль 2168 (Userland Crash / Data Abort)", "Аварийное завершение игры или хоумбрю (Нехватка ОЗУ / Конфликт мода)", "Запуск хоумбрю в Applet Mode (через Альбом) или несовместимый мод LayeredFS в atmosphere/contents/<TitleID>/.", "Запускайте хоумбрю через созданный NSP-форвардер (вкладка Homebrew) или с зажатой кнопкой R при старте игры."),
-                ("2016-0641 / 2002-0001", "Модуль 2016 (NS — Менеджер контента)", "Невозможно запустить ПО (Отсутствуют Sigpatches / Sys-Patch)", "Система Horizon OS блокирует запуск сшитого мульти-контента или конвертированного NSP без патчей подписи.", "Установите модуль sys-patch для HOS 17.0.0 — 21.0.0+ в папку /atmosphere/contents/0100000000000BEE/."),
-                ("2162-0002 (0x4a2)", "Модуль 2162 (General System / Sysmodule)", "Сбой системного демона Atmosphère", "Устаревшая кастомная тема (0100000000001000) или фоновый плагин после обновления прошивки.", "Удалите папку /atmosphere/contents/0100000000001000 и обновите системные модули."),
-                ("2155-8007 / 2124-4007", "Модуль 2155 (NPNS / Сеть Nintendo)", "Доступ к серверам Nintendo заблокирован (Exosphere / 90DNS)", "Сработала защита от бана консоли при попытке игры обратиться к серверам Nintendo.", "Используйте Linkalho для привязки оффлайн-аккаунта."),
-                ("2005-0003 / 2160-8006", "Модуль 2005 (Кэш установки)", "Недостаточно места или зависший PlaceHolder", "Остались временные файлы в /Nintendo/Contents/placehld/.", "Выполните «Cleanup orphaned files» в DBI.")
-            };
-
-            var rootSp = new StackPanel { Spacing = 10, Width = 580 };
-            var searchBox = new TextBox { PlaceholderText = "Введите код ошибки (напр. 2002-4153, 2168-0002, 2016-0641) или симптом..." };
-            var listSp = new StackPanel { Spacing = 8 };
-            var scroll = new ScrollViewer { MaxHeight = 420, Content = listSp };
-
-            void RenderErrors(string q)
-            {
-                listSp.Children.Clear();
-                string clean = (q ?? "").Trim();
-                foreach (var err in errors)
-                {
-                    if (!string.IsNullOrEmpty(clean) &&
-                        !err.Code.Contains(clean, StringComparison.OrdinalIgnoreCase) &&
-                        !err.Title.Contains(clean, StringComparison.OrdinalIgnoreCase) &&
-                        !err.Module.Contains(clean, StringComparison.OrdinalIgnoreCase) &&
-                        !err.Cause.Contains(clean, StringComparison.OrdinalIgnoreCase))
-                        continue;
-
-                    var card = new Border
-                    {
-                        CornerRadius = new CornerRadius(8),
-                        Padding = new Thickness(12),
-                        BorderThickness = new Thickness(1),
-                        Background = Application.Current.Resources["CardBackgroundFillColorDefaultBrush"] as Microsoft.UI.Xaml.Media.Brush,
-                        BorderBrush = Application.Current.Resources["CardStrokeColorDefaultBrush"] as Microsoft.UI.Xaml.Media.Brush
-                    };
-                    var sp = new StackPanel { Spacing = 4 };
-                    sp.Children.Add(new TextBlock { Text = $"⚠️ {err.Code}  •  {err.Module}", FontWeight = Microsoft.UI.Text.FontWeights.Bold, Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Orange) });
-                    sp.Children.Add(new TextBlock { Text = err.Title, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
-                    sp.Children.Add(new TextBlock { Text = $"Причина: {err.Cause}", FontSize = 12, Opacity = 0.85, TextWrapping = TextWrapping.Wrap });
-                    sp.Children.Add(new TextBlock { Text = $"🛠 Решение: {err.Solution}", FontSize = 12, Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.DeepSkyBlue), TextWrapping = TextWrapping.Wrap });
-                    card.Child = sp;
-                    listSp.Children.Add(card);
-                }
-            }
-
-            searchBox.TextChanged += (s, args) => RenderErrors(searchBox.Text);
-            RenderErrors("");
-
-            rootSp.Children.Add(searchBox);
-            rootSp.Children.Add(scroll);
-
-            var dlg = new ContentDialog
-            {
-                Title = "⚠️ Справочник системных кодов ошибок Switch и Atmosphère (2xxx-xxxx)",
-                Content = rootSp,
-                CloseButtonText = "Закрыть",
-                XamlRoot = this.XamlRoot
-            };
+            var dlg = new Dialogs.ErrorCodesDialog { XamlRoot = this.XamlRoot };
             await dlg.ShowAsync();
         }
 

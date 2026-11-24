@@ -3328,22 +3328,34 @@ object StormNczEngine {
                         if (tidVal != 0L) resolvedTid = "%016X".format(tidVal)
                         if (verVal > 0) resolvedVer = "v$verVal"
                     }
+                    fun extractSmdhMeta(buf: ByteArray, smdhOffset: Int): Pair<String, String>? {
+                        if (smdhOffset < 0 || smdhOffset + 0x2008 > buf.size) return null
+                        if (buf[smdhOffset] != 'S'.code.toByte() || buf[smdhOffset + 1] != 'M'.code.toByte() ||
+                            buf[smdhOffset + 2] != 'D'.code.toByte() || buf[smdhOffset + 3] != 'H'.code.toByte()) return null
+                        val slotOrder = intArrayOf(11, 1, 0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14, 15)
+                        for (slot in slotOrder) {
+                            val slotOff = smdhOffset + 8 + slot * 0x200
+                            if (slotOff + 0x200 > buf.size) continue
+                            val shortTitle = String(buf, slotOff, 0x80, Charsets.UTF_16LE).trimEnd('\u0000').replace("\r", " ").replace("\n", " ").trim()
+                            val longTitle = String(buf, slotOff + 0x80, 0x100, Charsets.UTF_16LE).trimEnd('\u0000').replace("\r", " ").replace("\n", " ").trim()
+                            val pub = String(buf, slotOff + 0x180, 0x80, Charsets.UTF_16LE).trimEnd('\u0000').trim()
+                            val best = shortTitle.ifBlank { longTitle }
+                            if (best.isNotBlank()) return Pair(best, pub)
+                        }
+                        return null
+                    }
                     val smdhMeta = zhandle.getMetadataBytes("smdh")
-                    if (smdhMeta != null && smdhMeta.size >= 0x36C0 && String(smdhMeta, 0, 4, StandardCharsets.US_ASCII) == "SMDH") {
-                        val shortTitle = String(smdhMeta, 8 + 0x80, 0x80, Charsets.UTF_16LE).trimEnd('\u0000').trim()
-                        val pub = String(smdhMeta, 8 + 0x180, 0x80, Charsets.UTF_16LE).trimEnd('\u0000').trim()
-                        if (shortTitle.isNotBlank()) {
-                            return ContainerMetadataInfo(shortTitle, pub.ifBlank { "Nintendo 3DS" }, resolvedVer, resolvedTid, "3DS", null)
+                    if (smdhMeta != null && smdhMeta.size >= 0x36C0) {
+                        extractSmdhMeta(smdhMeta, 0)?.let { (title, pub) ->
+                            return ContainerMetadataInfo(title, pub.ifBlank { "Nintendo 3DS" }, resolvedVer, resolvedTid, "3DS", null)
                         }
                     }
                     val scanSize = min(zhandle.header.uncompressedSize, 8L * 1024L * 1024L).toInt()
                     val buf = zhandle.readAt(0L, scanSize)
-                    for (i in 0 until buf.size - 0x200) {
+                    for (i in 0 until buf.size - 0x2008) {
                         if (buf[i] == 'S'.code.toByte() && buf[i + 1] == 'M'.code.toByte() && buf[i + 2] == 'D'.code.toByte() && buf[i + 3] == 'H'.code.toByte()) {
-                            val shortTitle = String(buf, i + 8 + 0x80, 0x80, Charsets.UTF_16LE).trimEnd('\u0000').trim()
-                            val pub = String(buf, i + 8 + 0x180, 0x80, Charsets.UTF_16LE).trimEnd('\u0000').trim()
-                            if (shortTitle.isNotBlank()) {
-                                return ContainerMetadataInfo(shortTitle, pub.ifBlank { "Nintendo 3DS" }, resolvedVer, resolvedTid, "3DS", null)
+                            extractSmdhMeta(buf, i)?.let { (title, pub) ->
+                                return ContainerMetadataInfo(title, pub.ifBlank { "Nintendo 3DS" }, resolvedVer, resolvedTid, "3DS", null)
                             }
                         }
                     }
@@ -4971,7 +4983,7 @@ object StormNczEngine {
 
     private fun extractZ3dsContainerMetadata(plainFile: File, underlyingMagic: ByteArray, frameSize: Int): LinkedHashMap<String, ByteArray> {
         val meta = LinkedHashMap<String, ByteArray>()
-        meta["compressor"] = "STORM SWITCH BOX 8.2.0".toByteArray(StandardCharsets.UTF_8)
+        meta["compressor"] = "STORM SWITCH BOX 8.2.1".toByteArray(StandardCharsets.UTF_8)
         val df = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US).apply {
             timeZone = java.util.TimeZone.getTimeZone("UTC")
         }
@@ -5799,7 +5811,7 @@ object StormNczEngine {
                 bundleMeta[k] = v
             }
         }
-        bundleMeta["bundler"] = "STORM SWITCH BOX 8.2.0".toByteArray(StandardCharsets.UTF_8)
+        bundleMeta["bundler"] = "STORM SWITCH BOX 8.2.1".toByteArray(StandardCharsets.UTF_8)
         val df = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US).apply {
             timeZone = java.util.TimeZone.getTimeZone("UTC")
         }

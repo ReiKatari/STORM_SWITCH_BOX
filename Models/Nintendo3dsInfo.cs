@@ -8,6 +8,8 @@ namespace StormSwitchBox.Models
         public long SizeBytes { get; set; }
         public byte[]? IconBytes { get; set; }
         public string? GameName { get; set; }
+        public string GameNameRussian { get; set; } = string.Empty;
+        public string GameNameEnglish { get; set; } = string.Empty;
         public string? Publisher { get; set; }
         public string? ProductCode { get; set; }
         public string FileFormat { get; set; } = "3DS"; // 3DS, CCI, CIA, CXI, CFA

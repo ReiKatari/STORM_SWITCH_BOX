@@ -1,3 +1,42 @@
+## **8.2.1** (24.11.2026)
+
+> 💡 **Релиз 8.2.1** - *Приоритет внутренних названий из метаданных игры во вкладке «Информация», адаптивная шапка без наложения поиска и обновлённый стилизованный справочник кодов ошибок*
+
+---
+
+### 🚀 Ключевые изменения и улучшения (STORM SWITCH BOX 8.2.1)
+
+- 🌟 **[Внутренние русские и английские названия игр во вкладке «Информация» (`CatalogScannerService.cs`, `Nintendo3dsService.cs`, `CatalogItem.cs`, `CatalogPage.xaml(.cs)`) ]**:
+  - На Switch исправлено чтение `control.nacp` (полное потоковое чтение всех `0x4000` байт без обрыва на `NCZ` и открытие `Control NCA` с `IntegrityCheckLevel.None`): теперь извлекается и русский слот `[11]`, и английский слот `[0]/[1]`, отдельно учитываются Base и Update Control NCA, а `TitleDbService.EnrichCatalogItem` больше не перетирает реальное вшитое название.
+  - На Nintendo 3DS исправлен порядок слотов SMDH в `TryReadSmdhAtOffset` (и в Android `StormNczEngine.kt`): русский (`11`) и английский (`1`) слоты извлекаются отдельно с приоритетом языка интерфейса, а в окне деталей и подсказке карточки показывается второе вшитое название игры. Поиск во вкладке «Информация» теперь ищет одновременно по русскому и английскому внутренним названиям.
+- 🌟 **[Исправлена вёрстка шапки вкладки «Информация» (`CatalogPage.xaml`)]**:
+  - Верхняя панель разделена на две адаптивные строки: кнопки «Папки сканирования», прокручиваемый переключатель платформ и индикатор TitleDB больше не сжимают строку поиска, а поле поиска с гибкой шириной (`*`) и кнопка `Коды ошибок (2xxx-xxxx)` разнесены с интервалом `12px` и никогда не налезают друг на друга.
+- 🌟 **[Новый широкий стилизованный справочник кодов ошибок (`Views/Dialogs/ErrorCodesDialog.xaml(.cs)`) ]**:
+  - Справочник системных кодов ошибок Switch и Atmosphère (`2xxx-xxxx`) вынесен в отдельное широкое адаптивное окно (до `1120x760`), оформленное под все 8 тем оформления STORM SOFT, с фильтрами по категориям (`Все коды`, `Файлы и SD`, `Вылеты и моды`, `Подписи и ключи`, `Сеть и блокировки`), живым поиском по кодам и симптомам, 10 подробными карточками с цветными акцентами, кнопкой копирования решения и поддержкой 11 языков.
+
+<details>
+
+<summary><b>📋 Полный список изменений (нажмите, чтобы развернуть)</b></summary>
+
+- 🔹 **[Models/CatalogItem.cs, Models/Nintendo3dsInfo.cs, Services/CatalogScannerService.cs, Services/Nintendo3dsService.cs, Services/TitleDbService.cs]**: Добавлены `InternalTitleRussian`, `InternalTitleEnglish`, `InternalTitleFallback`, `HasEmbeddedInternalTitle`, `ResolvePreferredInternalTitle(...)`, `AlternateInternalTitle` и `TitleTooltip`; добавлено полное чтение `control.nacp` через `ReadStreamFull`, приоритет русского языка для `NACP` слота `11`, `icon_Russian.dat` и `SMDH` слота `11`, а также защита от перезаписи вшитых названий базой TitleDB (при сохранении поиска eShop по `InternalTitleEnglish`).
+- 🔹 **[Views/CatalogPage.xaml, Views/CatalogPage.xaml.cs]**: Обновлена разметка шапки (устранено наложение поля поиска на кнопку `Коды ошибок (2xxx-xxxx)`), добавлен подзаголовок второго внутреннего названия в окне деталей `DetailAltTitle`, поиск по обоим внутренним названиям и автообновление названий при смене языка интерфейса; подключён новый `ErrorCodesDialog`.
+- 🔹 **[Views/Dialogs/ErrorCodesDialog.xaml, Views/Dialogs/ErrorCodesDialog.xaml.cs, Services/LocalizationService.UiTree.cs]**: Создан широкий стилизованный диалог-справочник с 10 карточками ошибок (`2002-4153`, `2168-0002`, `2016-0641`, `2162-0002`, `2155-8007`, `2002-3502`, `2005-0003`, `MasterKey / KeyGeneration`, `2002-2060`, `2144-0001`), темо-адаптивными кистями, копированием в буфер обмена и полным 11-язычным переводом без длинных тире.
+- 🔹 **[Android: StormNczEngine.kt]**: Обновлено чтение SMDH-метаданных (функция `extractSmdhMeta` с приоритетом слотов `11 -> 1 -> 0` вместо смещённого слота `0`), синхронизированы номера сборок `8.2.1` и `versionCode = 8201`.
+
+</details>
+
+<details>
+
+<summary><b>🌐 English Changelog (click to expand)</b></summary>
+
+- 🔸 Fixed the Info view (`CatalogScannerService`, `Nintendo3dsService`, `TitleDbService`, `CatalogItem`) to display the exact game titles embedded in Switch `control.nacp` (Russian slot `11` and English slots `0`/`1`, reading all `0x4000` bytes reliably) and 3DS `SMDH` (slots `11` and `1`), preventing TitleDB from overwriting embedded titles while searching across both internal titles and showing the alternate internal title in tooltips and detail headers.
+- 🔸 Redesigned the Info view header toolbar (`CatalogPage.xaml`) into two responsive rows so the search box and `Error codes (2xxx-xxxx)` button stay cleanly separated at every window size.
+- 🔸 Replaced the narrow inline error code popup with a wide, theme-aware styled `ErrorCodesDialog` (up to `1120x760`) featuring category filter pills, live search across 10 detailed Switch/Atmosphère error entries, one-click copy buttons, and 11-language localization.
+
+</details>
+
+---
+
 ## **8.2.0** (24.11.2026)
 
 > 💡 **Релиз 8.2.0** - *Полная поддержка всех 17+1 нативных форматов Nintendo 3DS (включая единые бандлы без установки `.bcci`, `.bcxi` и `.bcia`), справочник и умные рекомендации форматов на Windows и Android*

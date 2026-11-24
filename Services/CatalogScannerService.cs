@@ -164,7 +164,7 @@ namespace StormSwitchBox.Services
                     if (File.Exists(System.IO.Path.Combine(dir, nameNoExt + marker))) return false;
                 }
 
-                // Проверка блокировки файла (если файл занят — вероятно ещё качается)
+                // Проверка блокировки файла (если файл занят - вероятно ещё качается)
                 using (var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
                 {
                     // Файл доступен для чтения
@@ -233,7 +233,16 @@ namespace StormSwitchBox.Services
                         item.Is3ds = true;
                         item.Platform = "3DS";
                         item.TitleId = !string.IsNullOrEmpty(info3ds?.TitleId) ? info3ds.TitleId : "3DS";
-                        item.TitleName = !string.IsNullOrEmpty(info3ds?.GameName) ? info3ds.GameName : System.IO.Path.GetFileNameWithoutExtension(filePath);
+                        item.InternalTitleRussian = info3ds?.GameNameRussian ?? string.Empty;
+                        item.InternalTitleEnglish = info3ds?.GameNameEnglish ?? string.Empty;
+                        item.InternalTitleFallback = info3ds?.GameName ?? string.Empty;
+                        bool has3dsTitle = !string.IsNullOrWhiteSpace(item.InternalTitleRussian) ||
+                                           !string.IsNullOrWhiteSpace(item.InternalTitleEnglish) ||
+                                           !string.IsNullOrWhiteSpace(item.InternalTitleFallback);
+                        item.HasEmbeddedInternalTitle = has3dsTitle;
+                        item.TitleName = has3dsTitle
+                            ? item.ResolvePreferredInternalTitle(App.Localization.CurrentLanguage)
+                            : System.IO.Path.GetFileNameWithoutExtension(filePath);
                         item.Version = !string.IsNullOrEmpty(info3ds?.Version) ? info3ds.Version : "v0";
                         item.Publisher = !string.IsNullOrEmpty(info3ds?.Publisher) ? info3ds.Publisher : "Nintendo";
                         item.Category = "Nintendo 3DS";
@@ -343,6 +352,10 @@ namespace StormSwitchBox.Services
             string localVideoCapture = item.VideoCapture;
             string localSaveDataSize = item.SaveDataSize;
             string localRegions = item.Regions;
+            string baseRuTitle = string.Empty, baseEnTitle = string.Empty, baseAnyTitle = string.Empty;
+            string baseRuPub = string.Empty, baseEnPub = string.Empty, baseAnyPub = string.Empty;
+            string updRuTitle = string.Empty, updEnTitle = string.Empty, updAnyTitle = string.Empty;
+            string updRuPub = string.Empty, updEnPub = string.Empty, updAnyPub = string.Empty;
             byte[]? localCoverBytes = null;
             var localScreenshots = new System.Collections.Generic.List<byte[]>();
             bool hasControlMeta = false;
@@ -415,7 +428,7 @@ namespace StormSwitchBox.Services
                         {
                             if (nca.Header.ContentType == NcaContentType.Control)
                             {
-                                var romfs = nca.OpenFileSystem(NcaSectionType.Data, IntegrityCheckLevel.ErrorOnInvalid);
+                                var romfs = nca.OpenFileSystem(NcaSectionType.Data, IntegrityCheckLevel.None);
                                 try
                                 {
                                     // Parse NACP
@@ -427,36 +440,62 @@ namespace StormSwitchBox.Services
                                     {
                                         using var nacpFile = nacpFileRef.Release();
                                         using var nacpStream = nacpFile.AsStream();
+                                        byte[] nacpBytes = new byte[0x4000];
+                                        int bytesRead = ReadStreamFull(nacpStream, nacpBytes);
                                         var nacp = new LibHac.Ns.ApplicationControlProperty();
-                                        nacpStream.Read(System.Runtime.InteropServices.MemoryMarshal.AsBytes(new Span<LibHac.Ns.ApplicationControlProperty>(ref nacp)));
+                                        var nacpSpan = System.Runtime.InteropServices.MemoryMarshal.AsBytes(new Span<LibHac.Ns.ApplicationControlProperty>(ref nacp));
+                                        nacpBytes.AsSpan(0, Math.Min(bytesRead, nacpSpan.Length)).CopyTo(nacpSpan);
 
-                                        string title = nacp.Title[0].NameString.ToString();
-                                        string pub = nacp.Title[0].PublisherString.ToString();
+                                        string ruTitle = CleanNacpString(nacp.Title[11].NameString.ToString());
+                                        string enTitle = CleanNacpString(nacp.Title[0].NameString.ToString());
+                                        if (string.IsNullOrEmpty(enTitle))
+                                            enTitle = CleanNacpString(nacp.Title[1].NameString.ToString());
 
-                                        if (HasGarbageCharacters(title)) title = "";
-                                        if (HasGarbageCharacters(pub)) pub = "";
-
-                                        if (string.IsNullOrWhiteSpace(title))
+                                        string anyTitle = string.Empty;
+                                        int[] slotOrder = { 11, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14, 15 };
+                                        foreach (int slotIdx in slotOrder)
                                         {
-                                            for (int i = 0; i < 16; i++)
-                                            {
-                                                string t = nacp.Title[i].NameString.ToString();
-                                                if (!string.IsNullOrWhiteSpace(t)) { title = t; break; }
-                                            }
+                                            string candidate = CleanNacpString(nacp.Title[slotIdx].NameString.ToString());
+                                            if (!string.IsNullOrEmpty(candidate)) { anyTitle = candidate; break; }
                                         }
 
-                                        if (string.IsNullOrWhiteSpace(pub))
+                                        string ruPub = CleanNacpString(nacp.Title[11].PublisherString.ToString());
+                                        string enPub = CleanNacpString(nacp.Title[0].PublisherString.ToString());
+                                        if (string.IsNullOrEmpty(enPub))
+                                            enPub = CleanNacpString(nacp.Title[1].PublisherString.ToString());
+
+                                        string anyPub = string.Empty;
+                                        foreach (int slotIdx in slotOrder)
                                         {
-                                            for (int i = 0; i < 16; i++)
-                                            {
-                                                string p = nacp.Title[i].PublisherString.ToString();
-                                                if (!string.IsNullOrWhiteSpace(p)) { pub = p; break; }
-                                            }
+                                            string candidate = CleanNacpString(nacp.Title[slotIdx].PublisherString.ToString());
+                                            if (!string.IsNullOrEmpty(candidate)) { anyPub = candidate; break; }
                                         }
+
+                                        string title = !string.IsNullOrEmpty(ruTitle) ? ruTitle : (!string.IsNullOrEmpty(enTitle) ? enTitle : anyTitle);
+                                        string pub = !string.IsNullOrEmpty(ruPub) ? ruPub : (!string.IsNullOrEmpty(enPub) ? enPub : anyPub);
 
                                         string rawTitleIdHex = nca.Header.TitleId.ToString("X16");
                                         bool isCurrentUpdate = rawTitleIdHex.EndsWith("800", StringComparison.OrdinalIgnoreCase);
                                         string normalizedTitleId = TitleIdHelper.NormalizeBaseTitleIdHex(rawTitleIdHex);
+
+                                        if (isCurrentUpdate)
+                                        {
+                                            if (!string.IsNullOrEmpty(ruTitle)) updRuTitle = ruTitle;
+                                            if (!string.IsNullOrEmpty(enTitle)) updEnTitle = enTitle;
+                                            if (!string.IsNullOrEmpty(anyTitle)) updAnyTitle = anyTitle;
+                                            if (!string.IsNullOrEmpty(ruPub)) updRuPub = ruPub;
+                                            if (!string.IsNullOrEmpty(enPub)) updEnPub = enPub;
+                                            if (!string.IsNullOrEmpty(anyPub)) updAnyPub = anyPub;
+                                        }
+                                        else
+                                        {
+                                            if (!string.IsNullOrEmpty(ruTitle)) baseRuTitle = ruTitle;
+                                            if (!string.IsNullOrEmpty(enTitle)) baseEnTitle = enTitle;
+                                            if (!string.IsNullOrEmpty(anyTitle)) baseAnyTitle = anyTitle;
+                                            if (!string.IsNullOrEmpty(ruPub)) baseRuPub = ruPub;
+                                            if (!string.IsNullOrEmpty(enPub)) baseEnPub = enPub;
+                                            if (!string.IsNullOrEmpty(anyPub)) baseAnyPub = anyPub;
+                                        }
 
                                         string supportedLangs = "";
                                         try
@@ -535,7 +574,10 @@ namespace StormSwitchBox.Services
                                     // Try to get icon (только если ещё не извлекли локальную иконку)
                                     if (localCoverBytes == null)
                                     {
-                                        var iconLangs = new[] { "AmericanEnglish", "BritishEnglish", "Japanese", "French", "German", "LatinAmericanSpanish", "Spanish", "Italian", "Dutch", "CanadianFrench", "Portuguese", "Russian", "Korean", "TraditionalChinese", "SimplifiedChinese" };
+                                        bool preferRuIcon = App.Localization.CurrentLanguage.StartsWith("ru", StringComparison.OrdinalIgnoreCase);
+                                        var iconLangs = preferRuIcon
+                                            ? new[] { "Russian", "AmericanEnglish", "BritishEnglish", "Japanese", "French", "German", "LatinAmericanSpanish", "Spanish", "Italian", "Dutch", "CanadianFrench", "Portuguese", "Korean", "TraditionalChinese", "SimplifiedChinese" }
+                                            : new[] { "AmericanEnglish", "BritishEnglish", "Russian", "Japanese", "French", "German", "LatinAmericanSpanish", "Spanish", "Italian", "Dutch", "CanadianFrench", "Portuguese", "Korean", "TraditionalChinese", "SimplifiedChinese" };
 
                                         foreach (var lang in iconLangs)
                                         {
@@ -720,6 +762,29 @@ namespace StormSwitchBox.Services
             if (fnDlcMatch.Success && int.TryParse(fnDlcMatch.Groups[1].Value, out int fnDlc) && fnDlc > localDlcCount)
                 localDlcCount = fnDlc;
 
+            string finalRuTitle = (!string.IsNullOrEmpty(updRuTitle) && ContainsCyrillic(updRuTitle)) ? updRuTitle
+                                : (!string.IsNullOrEmpty(baseRuTitle) && ContainsCyrillic(baseRuTitle)) ? baseRuTitle
+                                : (!string.IsNullOrEmpty(updRuTitle) ? updRuTitle : baseRuTitle);
+            string finalEnTitle = !string.IsNullOrEmpty(updEnTitle) ? updEnTitle : baseEnTitle;
+            string finalAnyTitle = !string.IsNullOrEmpty(updAnyTitle) ? updAnyTitle : baseAnyTitle;
+            bool hasEmbeddedTitle = !string.IsNullOrEmpty(finalRuTitle) || !string.IsNullOrEmpty(finalEnTitle) || !string.IsNullOrEmpty(finalAnyTitle);
+            bool preferRu = App.Localization.CurrentLanguage.StartsWith("ru", StringComparison.OrdinalIgnoreCase);
+
+            if (hasEmbeddedTitle)
+            {
+                localTitleName = preferRu
+                    ? (!string.IsNullOrEmpty(finalRuTitle) ? finalRuTitle : (!string.IsNullOrEmpty(finalEnTitle) ? finalEnTitle : finalAnyTitle))
+                    : (!string.IsNullOrEmpty(finalEnTitle) ? finalEnTitle : (!string.IsNullOrEmpty(finalRuTitle) ? finalRuTitle : finalAnyTitle));
+            }
+
+            string resolvedPublisher = preferRu
+                ? FirstNonEmpty(updRuPub, baseRuPub, updEnPub, baseEnPub, updAnyPub, baseAnyPub)
+                : FirstNonEmpty(updEnPub, baseEnPub, updRuPub, baseRuPub, updAnyPub, baseAnyPub);
+            if (!string.IsNullOrEmpty(resolvedPublisher))
+            {
+                localPublisher = resolvedPublisher;
+            }
+
             if (hasControlMeta && !string.IsNullOrWhiteSpace(localTitleId) &&
                 localTitleId != "0000000000000000" && !IsBaseVersion(localDispVer))
             {
@@ -732,6 +797,10 @@ namespace StormSwitchBox.Services
                 try
                 {
                     item.TitleId = localTitleId;
+                    item.InternalTitleRussian = finalRuTitle;
+                    item.InternalTitleEnglish = finalEnTitle;
+                    item.InternalTitleFallback = finalAnyTitle;
+                    item.HasEmbeddedInternalTitle = hasEmbeddedTitle;
                     item.TitleName = localTitleName;
                     item.Publisher = localPublisher;
                     item.Version = localDispVer;
@@ -791,6 +860,47 @@ namespace StormSwitchBox.Services
             {
                 item.IsLoading = false;
             });
+        }
+
+        private static int ReadStreamFull(Stream stream, byte[] buffer)
+        {
+            int totalRead = 0;
+            while (totalRead < buffer.Length)
+            {
+                int n = stream.Read(buffer, totalRead, buffer.Length - totalRead);
+                if (n <= 0) break;
+                totalRead += n;
+            }
+            return totalRead;
+        }
+
+        private static string CleanNacpString(string? raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw)) return string.Empty;
+            string trimmed = raw.Trim('\0', ' ', '\r', '\n', '\t');
+            if (string.IsNullOrWhiteSpace(trimmed) || HasGarbageCharacters(trimmed))
+                return string.Empty;
+            return trimmed;
+        }
+
+        private static bool ContainsCyrillic(string? s)
+        {
+            if (string.IsNullOrEmpty(s)) return false;
+            foreach (char c in s)
+            {
+                if ((c >= 'А' && c <= 'я') || c == 'Ё' || c == 'ё')
+                    return true;
+            }
+            return false;
+        }
+
+        private static string FirstNonEmpty(params string[] values)
+        {
+            foreach (var v in values)
+            {
+                if (!string.IsNullOrWhiteSpace(v)) return v;
+            }
+            return string.Empty;
         }
 
         private static bool HasGarbageCharacters(string s)

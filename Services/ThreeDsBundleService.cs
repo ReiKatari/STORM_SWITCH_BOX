@@ -785,7 +785,7 @@ namespace StormSwitchBox.Services
                     bundleMeta.SetBytes("titleinfo", titleInfo);
                 }
 
-                string appVer = !string.IsNullOrWhiteSpace(App.AppVersionString) ? App.AppVersionString : "8.2.0";
+                string appVer = !string.IsNullOrWhiteSpace(App.AppVersionString) ? App.AppVersionString : "8.2.1";
                 bundleMeta.SetString("mainfile", mainSpec.EntryName);
                 bundleMeta.SetString("bundler", $"STORM SWITCH BOX {appVer}");
                 bundleMeta.SetString("date", DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ"));

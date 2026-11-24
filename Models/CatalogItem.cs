@@ -16,7 +16,68 @@ namespace StormSwitchBox.Models
         private string _fileName = "";
 
         [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(AlternateInternalTitle))]
+        [NotifyPropertyChangedFor(nameof(TitleTooltip))]
         private string _titleName = "Unknown Game";
+
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(AlternateInternalTitle))]
+        [NotifyPropertyChangedFor(nameof(TitleTooltip))]
+        private string _internalTitleRussian = string.Empty;
+
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(AlternateInternalTitle))]
+        [NotifyPropertyChangedFor(nameof(TitleTooltip))]
+        private string _internalTitleEnglish = string.Empty;
+
+        [ObservableProperty]
+        private string _internalTitleFallback = string.Empty;
+
+        [ObservableProperty]
+        private bool _hasEmbeddedInternalTitle = false;
+
+        public string ResolvePreferredInternalTitle(string? languageCode)
+        {
+            bool preferRu = string.IsNullOrEmpty(languageCode) || languageCode.StartsWith("ru", StringComparison.OrdinalIgnoreCase);
+            if (preferRu)
+            {
+                if (!string.IsNullOrWhiteSpace(InternalTitleRussian)) return InternalTitleRussian;
+                if (!string.IsNullOrWhiteSpace(InternalTitleEnglish)) return InternalTitleEnglish;
+                if (!string.IsNullOrWhiteSpace(InternalTitleFallback)) return InternalTitleFallback;
+            }
+            else
+            {
+                if (!string.IsNullOrWhiteSpace(InternalTitleEnglish)) return InternalTitleEnglish;
+                if (!string.IsNullOrWhiteSpace(InternalTitleRussian)) return InternalTitleRussian;
+                if (!string.IsNullOrWhiteSpace(InternalTitleFallback)) return InternalTitleFallback;
+            }
+            return string.Empty;
+        }
+
+        [JsonIgnore]
+        public string AlternateInternalTitle
+        {
+            get
+            {
+                if (string.IsNullOrWhiteSpace(InternalTitleRussian) || string.IsNullOrWhiteSpace(InternalTitleEnglish))
+                    return string.Empty;
+                if (string.Equals(InternalTitleRussian.Trim(), InternalTitleEnglish.Trim(), StringComparison.OrdinalIgnoreCase))
+                    return string.Empty;
+                return string.Equals(TitleName?.Trim(), InternalTitleRussian.Trim(), StringComparison.OrdinalIgnoreCase)
+                    ? InternalTitleEnglish
+                    : InternalTitleRussian;
+            }
+        }
+
+        [JsonIgnore]
+        public string TitleTooltip
+        {
+            get
+            {
+                string alt = AlternateInternalTitle;
+                return !string.IsNullOrWhiteSpace(alt) ? $"{TitleName}\n{alt}" : TitleName;
+            }
+        }
 
         [ObservableProperty]
         private string _titleId = "0000000000000000";

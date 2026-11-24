@@ -355,24 +355,68 @@ namespace StormSwitchBox.Services
                 string magic = Encoding.ASCII.GetString(reader.ReadBytes(4));
                 if (magic != "SMDH") return;
 
-                // 16 language slots (0x200 bytes each) starting at smdhOffset + 0x08
-                // Index 1 = English, Index 0 = Japanese, Index 11 = Russian
-                int[] preferredSlots = { 1, 11, 0, 2, 3, 4, 5 };
-                foreach (int slot in preferredSlots)
+                static string CleanSmdhField(string raw)
+                {
+                    if (string.IsNullOrWhiteSpace(raw)) return string.Empty;
+                    string cleaned = raw.Trim('\0', ' ', '\r', '\n', '\t')
+                        .Replace("\r\n", " ")
+                        .Replace('\r', ' ')
+                        .Replace('\n', ' ')
+                        .Trim();
+                    if (string.IsNullOrWhiteSpace(cleaned)) return string.Empty;
+                    foreach (char c in cleaned)
+                    {
+                        if (c == '\uFFFD' || char.IsControl(c)) return string.Empty;
+                    }
+                    return cleaned;
+                }
+
+                (string Title, string Publisher) ReadSmdhSlot(int slot)
                 {
                     long slotOffset = smdhOffset + 0x08 + slot * 0x200;
+                    if (slotOffset + 0x200 > fs.Length) return (string.Empty, string.Empty);
                     fs.Seek(slotOffset, SeekOrigin.Begin);
-                    string shortTitle = Encoding.Unicode.GetString(reader.ReadBytes(0x80)).Trim('\0', ' ', '\r', '\n');
-                    string longTitle = Encoding.Unicode.GetString(reader.ReadBytes(0x100)).Trim('\0', ' ', '\r', '\n');
-                    string publisher = Encoding.Unicode.GetString(reader.ReadBytes(0x80)).Trim('\0', ' ', '\r', '\n');
-
-                    if (!string.IsNullOrWhiteSpace(shortTitle) || !string.IsNullOrWhiteSpace(longTitle))
-                    {
-                        info.GameName = !string.IsNullOrWhiteSpace(shortTitle) ? shortTitle : longTitle.Replace("\n", " ");
-                        if (!string.IsNullOrWhiteSpace(publisher)) info.Publisher = publisher;
-                        break;
-                    }
+                    string shortTitle = CleanSmdhField(Encoding.Unicode.GetString(reader.ReadBytes(0x80)));
+                    string longTitle = CleanSmdhField(Encoding.Unicode.GetString(reader.ReadBytes(0x100)));
+                    string publisher = CleanSmdhField(Encoding.Unicode.GetString(reader.ReadBytes(0x80)));
+                    string bestTitle = !string.IsNullOrWhiteSpace(shortTitle) ? shortTitle : longTitle;
+                    return (bestTitle, publisher);
                 }
+
+                // 16 language slots (0x200 bytes each): Index 11 = Russian, Index 1 = English, Index 0 = Japanese
+                var (ruTitle, ruPub) = ReadSmdhSlot(11);
+                var (enTitle, enPub) = ReadSmdhSlot(1);
+
+                string fallbackTitle = string.Empty;
+                string fallbackPub = string.Empty;
+                int[] fallbackSlots = { 0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14, 15 };
+                foreach (int slot in fallbackSlots)
+                {
+                    var (t, p) = ReadSmdhSlot(slot);
+                    if (string.IsNullOrWhiteSpace(fallbackTitle) && !string.IsNullOrWhiteSpace(t))
+                        fallbackTitle = t;
+                    if (string.IsNullOrWhiteSpace(fallbackPub) && !string.IsNullOrWhiteSpace(p))
+                        fallbackPub = p;
+                    if (!string.IsNullOrWhiteSpace(fallbackTitle) && !string.IsNullOrWhiteSpace(fallbackPub))
+                        break;
+                }
+
+                if (!string.IsNullOrWhiteSpace(ruTitle)) info.GameNameRussian = ruTitle;
+                if (!string.IsNullOrWhiteSpace(enTitle)) info.GameNameEnglish = enTitle;
+
+                bool preferRu = string.IsNullOrEmpty(App.Localization.CurrentLanguage) ||
+                                App.Localization.CurrentLanguage.StartsWith("ru", StringComparison.OrdinalIgnoreCase);
+
+                string resolvedTitle = preferRu
+                    ? (!string.IsNullOrWhiteSpace(info.GameNameRussian) ? info.GameNameRussian : (!string.IsNullOrWhiteSpace(info.GameNameEnglish) ? info.GameNameEnglish : fallbackTitle))
+                    : (!string.IsNullOrWhiteSpace(info.GameNameEnglish) ? info.GameNameEnglish : (!string.IsNullOrWhiteSpace(info.GameNameRussian) ? info.GameNameRussian : fallbackTitle));
+
+                string resolvedPub = preferRu
+                    ? (!string.IsNullOrWhiteSpace(ruPub) ? ruPub : (!string.IsNullOrWhiteSpace(enPub) ? enPub : fallbackPub))
+                    : (!string.IsNullOrWhiteSpace(enPub) ? enPub : (!string.IsNullOrWhiteSpace(ruPub) ? ruPub : fallbackPub));
+
+                if (!string.IsNullOrWhiteSpace(resolvedTitle)) info.GameName = resolvedTitle;
+                if (!string.IsNullOrWhiteSpace(resolvedPub)) info.Publisher = resolvedPub;
 
                 // Read 48x48 RGB565 Morton-tiled icon at smdhOffset + 0x24C0 (size 0x1200 = 4608 bytes)
                 if (info.IconBytes == null && smdhOffset + 0x24C0 + 0x1200 <= fs.Length)

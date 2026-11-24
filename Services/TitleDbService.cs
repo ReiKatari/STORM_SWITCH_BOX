@@ -525,7 +525,7 @@ namespace StormSwitchBox.Services
             {
                 if (hasTitleDbEntry && entry != null)
                 {
-                    if (item.TitleName == "Unknown Game" || item.TitleName == "Unknown" || string.IsNullOrEmpty(item.TitleName) || HasGarbageCharacters(item.TitleName))
+                    if (!item.HasEmbeddedInternalTitle && (item.TitleName == "Unknown Game" || item.TitleName == "Unknown" || string.IsNullOrEmpty(item.TitleName) || HasGarbageCharacters(item.TitleName)))
                         item.TitleName = entry.Name ?? item.TitleName;
 
                     item.Description = EnsureRussianDescription(item, entry);
@@ -591,7 +591,12 @@ namespace StormSwitchBox.Services
                 // Загружаем eShop метаданные (описание на русском, скриншоты, жанр, дата)
                 _ = Task.Run(async () =>
                 {
-                    var eshopData = await _eShopService.SearchGameInfoAsync(item.TitleName);
+                    string eshopQuery = !string.IsNullOrWhiteSpace(item.InternalTitleEnglish) ? item.InternalTitleEnglish : item.TitleName;
+                    var eshopData = await _eShopService.SearchGameInfoAsync(eshopQuery);
+                    if (eshopData == null && !string.IsNullOrWhiteSpace(item.TitleName) && !string.Equals(eshopQuery, item.TitleName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        eshopData = await _eShopService.SearchGameInfoAsync(item.TitleName);
+                    }
                     if (eshopData != null)
                     {
                         App.RunOnUI(() =>
