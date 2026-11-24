@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.IO;
 using System.Collections.Generic;
 using System.Linq;
@@ -59,8 +60,10 @@ namespace StormSwitchBox.Services
         {
             if (string.IsNullOrEmpty(ext)) return false;
             string lower = ext.ToLowerInvariant().TrimStart('.');
-            return lower == "3ds" || lower == "cci" || lower == "cia" || lower == "cxi" || lower == "cfa"
-                || lower == "3dsx" || lower == "zcci" || lower == "zcxi" || lower == "zcia" || lower == "z3dsx" || lower == "z3ds";
+            return lower == "3ds" || lower == "cci" || lower == "cia" || lower == "cxi" || lower == "cfa" || lower == "app"
+                || lower == "3dsx" || lower == "elf" || lower == "axf" || lower == "artic"
+                || lower == "zcci" || lower == "zcxi" || lower == "zcia" || lower == "z3dsx" || lower == "z3ds"
+                || lower == "bcci" || lower == "bcxi" || lower == "bcia";
         }
 
         public async Task<Nintendo3dsInfo> Parse3dsFileAsync(string filePath)
@@ -80,13 +83,38 @@ namespace StormSwitchBox.Services
 
             try
             {
+                string extLower = Path.GetExtension(filePath).ToLowerInvariant();
+                if (extLower == ".artic")
+                {
+                    string previewText = string.Empty;
+                    try { previewText = File.ReadAllText(filePath, Encoding.UTF8).Trim(); } catch { }
+                    info.ContentType = "Artic Stream";
+                    info.FileFormat = "ARTIC";
+                    info.TitleId = "ARTIC";
+                    info.Version = "1.0.0";
+                    info.ProductCode = previewText.StartsWith("artic", StringComparison.OrdinalIgnoreCase) ? "ARTIC-BASE" : "ARTIC";
+                    if (string.IsNullOrEmpty(info.GameName)) info.GameName = Path.GetFileNameWithoutExtension(filePath);
+                    return info;
+                }
+
+                bool isBundle = ThreeDsBundleService.TryReadBundleInfo(filePath, out var bundleInfo);
+
                 using Stream fs = Z3dsService.OpenTransparentReadStream(filePath);
                 using var reader = new BinaryReader(fs, Encoding.ASCII, leaveOpen: true);
 
-                if (fs.Length >= 0x20)
+                if (fs.Length >= 4)
                 {
                     fs.Seek(0, SeekOrigin.Begin);
                     byte[] magic0 = reader.ReadBytes(4);
+                    if (magic0.Length == 4 && magic0[0] == 0x7F && magic0[1] == (byte)'E' && magic0[2] == (byte)'L' && magic0[3] == (byte)'F')
+                    {
+                        info.ContentType = extLower == ".axf" ? "Homebrew (AXF)" : "Homebrew (ELF)";
+                        info.FileFormat = extLower == ".axf" ? "AXF" : "ELF";
+                        info.TitleId = "ELF";
+                        info.Version = "1.0.0";
+                        if (string.IsNullOrEmpty(info.GameName)) info.GameName = Path.GetFileNameWithoutExtension(filePath);
+                        return info;
+                    }
                     if (magic0.Length == 4 && magic0[0] == (byte)'3' && magic0[1] == (byte)'D' && magic0[2] == (byte)'S' && magic0[3] == (byte)'X')
                     {
                         info.ContentType = "Homebrew";
@@ -215,6 +243,14 @@ namespace StormSwitchBox.Services
                 }
 
                 Classify3dsTitleId(info);
+
+                if (isBundle)
+                {
+                    if (string.IsNullOrEmpty(info.FileFormat))
+                        info.FileFormat = extLower.TrimStart('.').ToUpperInvariant();
+                    if (bundleInfo.CiaDependencyCount > 0 && !string.IsNullOrEmpty(info.ContentType))
+                        info.ContentType = $"{info.ContentType} (Bundle +{bundleInfo.CiaDependencyCount})";
+                }
 
                 if (string.IsNullOrEmpty(info.GameName))
                 {
@@ -701,6 +737,295 @@ namespace StormSwitchBox.Services
             }
         }
 
+        private async Task<bool> ExtractNcsdPartition0ToCxiAsync(
+            string inputNcsdPath,
+            string outputCxiPath,
+            CancellationToken cancellationToken)
+        {
+            if (!File.Exists(inputNcsdPath)) return false;
+            TryDeleteFileSilent(outputCxiPath);
+
+            using var fs = new FileStream(inputNcsdPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 4 * 1024 * 1024, FileOptions.SequentialScan);
+            if (fs.Length < 0x200) return false;
+
+            byte[] hdr = new byte[0x200];
+            await fs.ReadExactlyAsync(hdr, 0, hdr.Length, cancellationToken);
+            string magic = Encoding.ASCII.GetString(hdr, 0x100, 4);
+
+            long partOff = 0;
+            long partLen = 0;
+            if (magic == "NCSD")
+            {
+                partOff = (long)BitConverter.ToUInt32(hdr, 0x120) * 0x200L;
+                partLen = (long)BitConverter.ToUInt32(hdr, 0x124) * 0x200L;
+            }
+            else if (magic == "NCCH")
+            {
+                partOff = 0;
+                partLen = (long)BitConverter.ToUInt32(hdr, 0x104) * 0x200L;
+                if (partLen <= 0 || partLen > fs.Length) partLen = fs.Length;
+            }
+            else
+            {
+                return false;
+            }
+
+            if (partLen < 0x200 || partOff + 0x200 > fs.Length) return false;
+            long actualLen = Math.Min(partLen, fs.Length - partOff);
+
+            byte[] ncchSig = new byte[4];
+            fs.Position = partOff + 0x100;
+            await fs.ReadExactlyAsync(ncchSig, 0, 4, cancellationToken);
+            if (Encoding.ASCII.GetString(ncchSig) != "NCCH") return false;
+
+            string? parent = Path.GetDirectoryName(outputCxiPath);
+            if (!string.IsNullOrEmpty(parent)) Directory.CreateDirectory(parent);
+
+            byte[] copyBuf = ArrayPool<byte>.Shared.Rent(4 * 1024 * 1024);
+            try
+            {
+                fs.Position = partOff;
+                await using var dst = new FileStream(outputCxiPath, FileMode.Create, FileAccess.Write, FileShare.None, 4 * 1024 * 1024, FileOptions.SequentialScan);
+                long remaining = actualLen;
+                while (remaining > 0)
+                {
+                    int toRead = (int)Math.Min(copyBuf.Length, remaining);
+                    int got = await fs.ReadAsync(copyBuf, 0, toRead, cancellationToken);
+                    if (got <= 0) break;
+                    await dst.WriteAsync(copyBuf, 0, got, cancellationToken);
+                    remaining -= got;
+                }
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(copyBuf);
+            }
+
+            return HasValidOutputFile(outputCxiPath);
+        }
+
+        private async Task<bool> ExtractCiaContent0ToCxiAsync(
+            string inputCiaPath,
+            string outputCxiPath,
+            CancellationToken cancellationToken)
+        {
+            if (!File.Exists(inputCiaPath)) return false;
+            TryDeleteFileSilent(outputCxiPath);
+
+            using var fs = new FileStream(inputCiaPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 4 * 1024 * 1024, FileOptions.SequentialScan);
+            if (fs.Length < 0x200) return false;
+
+            byte[] ciaHdr = new byte[0x20];
+            await fs.ReadExactlyAsync(ciaHdr, 0, ciaHdr.Length, cancellationToken);
+            uint headerSize = BitConverter.ToUInt32(ciaHdr, 0x00);
+            uint certSize = BitConverter.ToUInt32(ciaHdr, 0x08);
+            uint ticketSize = BitConverter.ToUInt32(ciaHdr, 0x0C);
+            uint tmdSize = BitConverter.ToUInt32(ciaHdr, 0x10);
+            ulong totalContentSize = BitConverter.ToUInt64(ciaHdr, 0x18);
+
+            if (headerSize < 0x20 || headerSize > 0x4000 || certSize == 0 || tmdSize == 0 || totalContentSize < 0x200)
+                return false;
+
+            long contentOff = Align64(headerSize) + Align64(certSize) + Align64(ticketSize) + Align64(tmdSize);
+            if (contentOff + 0x200 > fs.Length) return false;
+
+            byte[] ncchHdr = new byte[0x200];
+            fs.Position = contentOff;
+            await fs.ReadExactlyAsync(ncchHdr, 0, 0x200, cancellationToken);
+            if (Encoding.ASCII.GetString(ncchHdr, 0x100, 4) != "NCCH") return false;
+
+            long ncchLen = (long)BitConverter.ToUInt32(ncchHdr, 0x104) * 0x200L;
+            if (ncchLen < 0x200 || ncchLen > (long)totalContentSize) ncchLen = (long)totalContentSize;
+            ncchLen = Math.Min(ncchLen, fs.Length - contentOff);
+
+            string? parent = Path.GetDirectoryName(outputCxiPath);
+            if (!string.IsNullOrEmpty(parent)) Directory.CreateDirectory(parent);
+
+            byte[] copyBuf = ArrayPool<byte>.Shared.Rent(4 * 1024 * 1024);
+            try
+            {
+                fs.Position = contentOff;
+                await using var dst = new FileStream(outputCxiPath, FileMode.Create, FileAccess.Write, FileShare.None, 4 * 1024 * 1024, FileOptions.SequentialScan);
+                long remaining = ncchLen;
+                while (remaining > 0)
+                {
+                    int toRead = (int)Math.Min(copyBuf.Length, remaining);
+                    int got = await fs.ReadAsync(copyBuf, 0, toRead, cancellationToken);
+                    if (got <= 0) break;
+                    await dst.WriteAsync(copyBuf, 0, got, cancellationToken);
+                    remaining -= got;
+                }
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(copyBuf);
+            }
+
+            return HasValidOutputFile(outputCxiPath);
+        }
+
+        private async Task<bool> WrapCxiToCciReliableAsync(
+            string makerom,
+            string inputCxiPath,
+            string outputCciPath,
+            string workingDir,
+            CancellationToken cancellationToken)
+        {
+            if (!File.Exists(inputCxiPath)) return false;
+            TryDeleteFileSilent(outputCciPath);
+
+            string? shortDir = null;
+            string effectiveIn = inputCxiPath;
+            string effectiveOut = outputCciPath;
+            bool stageFiles = inputCxiPath.Length >= 220 || outputCciPath.Length >= 220;
+
+            try
+            {
+                if (stageFiles)
+                {
+                    long sz = new FileInfo(inputCxiPath).Length;
+                    shortDir = CreateShortTempDirectory("CX", sz * 2 + 256L * 1024 * 1024, Path.GetDirectoryName(outputCciPath), Path.GetDirectoryName(inputCxiPath));
+                    effectiveIn = Path.Combine(shortDir, "p0.cxi");
+                    effectiveOut = Path.Combine(shortDir, "out.cci");
+                    File.Copy(inputCxiPath, effectiveIn, overwrite: true);
+                    workingDir = shortDir;
+                }
+
+                foreach (var targetFlag in new[] { "p", "t" })
+                {
+                    try
+                    {
+                        await RunProcessAsync(makerom, $"-f cci -ignoresign -target {targetFlag} -content \"{effectiveIn}:0:0\" -o \"{effectiveOut}\"", workingDir, cancellationToken);
+                        if (HasValidOutputFile(effectiveOut))
+                        {
+                            if (stageFiles)
+                            {
+                                string? outParent = Path.GetDirectoryName(outputCciPath);
+                                if (!string.IsNullOrEmpty(outParent)) Directory.CreateDirectory(outParent);
+                                File.Move(effectiveOut, outputCciPath, overwrite: true);
+                            }
+                            return HasValidOutputFile(outputCciPath);
+                        }
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        TryDeleteFileSilent(effectiveOut);
+                        throw;
+                    }
+                    catch { }
+                    TryDeleteFileSilent(effectiveOut);
+                }
+
+                return false;
+            }
+            finally
+            {
+                if (!string.IsNullOrEmpty(shortDir)) CleanupShortTempDirectory(shortDir);
+            }
+        }
+
+        private async Task<string> PrepareZ3dsEntryForBundleAsync(
+            string inputPath,
+            string desiredPlainExt,
+            string tempDir,
+            string entryTag,
+            int compLevel,
+            bool applyCustomMeta,
+            ProcessingTask task,
+            CancellationToken cancellationToken)
+        {
+            string targetMagic = desiredPlainExt switch
+            {
+                "cxi" => "NCCH",
+                "cia" => "CIA",
+                _ => "NCSD"
+            };
+            string targetZext = desiredPlainExt switch
+            {
+                "cxi" => ".zcxi",
+                "cia" => ".zcia",
+                _ => ".zcci"
+            };
+
+            if (!applyCustomMeta &&
+                Z3dsService.TryReadHeaderAndMetadata(inputPath, out var zHdr, out _, out _) &&
+                string.Equals(zHdr.UnderlyingMagicString, targetMagic, StringComparison.Ordinal) &&
+                !Nintendo3dsCryptoService.Is3dsFileEncrypted(inputPath))
+            {
+                if (Path.GetExtension(inputPath).Equals(targetZext, StringComparison.OrdinalIgnoreCase))
+                    return inputPath;
+
+                string copiedZ = Path.Combine(tempDir, $"{entryTag}{targetZext}");
+                File.Copy(inputPath, copiedZ, overwrite: true);
+                return copiedZ;
+            }
+
+            string workPlain = inputPath;
+            if (Z3dsService.TryReadHeaderAndMetadata(workPlain, out var zDecHdr, out _, out _))
+            {
+                string decPlain = Path.Combine(tempDir, $"{entryTag}_dec{zDecHdr.RecommendedPlainExtension}");
+                await Z3dsService.DecompressZ3dsAsync(workPlain, decPlain, task, cancellationToken);
+                workPlain = decPlain;
+            }
+
+            if (Nintendo3dsCryptoService.Is3dsFileEncrypted(workPlain))
+            {
+                workPlain = await Nintendo3dsCryptoService.EnsureDecrypted3dsFileAsync(workPlain, tempDir, task, cancellationToken);
+            }
+
+            string inExt = Path.GetExtension(workPlain).ToLowerInvariant().TrimStart('.');
+            string convertedPlain = workPlain;
+
+            if (desiredPlainExt == "cxi" && (inExt == "3ds" || inExt == "cci"))
+            {
+                convertedPlain = Path.Combine(tempDir, $"{entryTag}.cxi");
+                if (!await ExtractNcsdPartition0ToCxiAsync(workPlain, convertedPlain, cancellationToken))
+                    throw new InvalidOperationException($"Не удалось извлечь игровой раздел NCCH из {Path.GetFileName(inputPath)}.");
+            }
+            else if (desiredPlainExt == "cxi" && inExt == "cia")
+            {
+                convertedPlain = Path.Combine(tempDir, $"{entryTag}.cxi");
+                if (!await ExtractCiaContent0ToCxiAsync(workPlain, convertedPlain, cancellationToken))
+                    throw new InvalidOperationException($"Не удалось извлечь игровой раздел NCCH из CIA {Path.GetFileName(inputPath)}.");
+            }
+            else if (desiredPlainExt == "cia" && (inExt == "3ds" || inExt == "cci" || inExt == "cxi" || inExt == "cfa" || inExt == "app"))
+            {
+                convertedPlain = Path.Combine(tempDir, $"{entryTag}.cia");
+                string makerom = GetMakeromPath();
+                if (!await ConvertCciToCiaReliableAsync(makerom, workPlain, convertedPlain, tempDir, task, cancellationToken))
+                    throw new InvalidOperationException($"Не удалось конвертировать {Path.GetFileName(inputPath)} в CIA для бандла.");
+            }
+            else if (desiredPlainExt == "cci" && inExt == "cia")
+            {
+                convertedPlain = Path.Combine(tempDir, $"{entryTag}.cci");
+                string makerom = GetMakeromPath();
+                if (!await ConvertCiaToCciReliableAsync(makerom, workPlain, convertedPlain, tempDir, cancellationToken))
+                    throw new InvalidOperationException($"Не удалось конвертировать {Path.GetFileName(inputPath)} в CCI для бандла.");
+            }
+            else if (desiredPlainExt == "cci" && (inExt == "cxi" || inExt == "cfa" || inExt == "app"))
+            {
+                convertedPlain = Path.Combine(tempDir, $"{entryTag}.cci");
+                string makerom = GetMakeromPath();
+                if (!await WrapCxiToCciReliableAsync(makerom, workPlain, convertedPlain, tempDir, cancellationToken))
+                    throw new InvalidOperationException($"Не удалось упаковать {Path.GetFileName(inputPath)} в CCI для бандла.");
+            }
+
+            if (applyCustomMeta)
+            {
+                string copyMeta = Path.Combine(tempDir, $"{entryTag}_meta.{desiredPlainExt}");
+                if (!string.Equals(Path.GetFullPath(convertedPlain), Path.GetFullPath(copyMeta), StringComparison.OrdinalIgnoreCase))
+                {
+                    File.Copy(convertedPlain, copyMeta, overwrite: true);
+                }
+                IconBadgeStudioService.Patch3dsSmdhInPlace(copyMeta, task.CustomMetadata!);
+                convertedPlain = copyMeta;
+            }
+
+            string outZ3ds = Path.Combine(tempDir, $"{entryTag}{targetZext}");
+            await Z3dsService.CompressToZ3dsAsync(convertedPlain, outZ3ds, compLevel, 0, null, task, cancellationToken);
+            return outZ3ds;
+        }
+
         private async Task<bool> ConvertCiaToCciReliableAsync(
             string makerom,
             string inputCiaPath,
@@ -826,7 +1151,49 @@ namespace StormSwitchBox.Services
 
                 if (baseFile == null)
                 {
-                    throw new Exception("Не найден базовый файл игры (.3ds, .cci, .cia, .cxi, .3dsx, .zcci, .zcxi, .zcia, .z3dsx).");
+                    throw new Exception("Не найден базовый файл игры (.3ds, .cci, .cia, .cxi, .app, .3dsx, .zcci, .zcxi, .zcia, .z3dsx, .bcci, .bcxi, .bcia).");
+                }
+
+                // Expand any input bundle (.bcci / .bcxi / .bcia) so nested updates/DLCs are preserved cleanly
+                if (ThreeDsBundleService.IsBundleFile(baseFile))
+                {
+                    string unbundleDir = Path.Combine(tempDir, "in_bn");
+                    var extractedIn = await ThreeDsBundleService.ExtractBundleAsync(baseFile, unbundleDir, task, cancellationToken);
+                    var expandedInputs = new List<string>();
+                    expandedInputs.AddRange(extractedIn);
+                    foreach (var u in updateFiles) expandedInputs.Add(u.Path);
+                    foreach (var d in dlcFiles) expandedInputs.Add(d);
+                    foreach (var m in modDirs) expandedInputs.Add(m);
+                    foreach (var p in patchFiles) expandedInputs.Add(p);
+
+                    baseFile = null;
+                    updateFiles.Clear();
+                    dlcFiles.Clear();
+                    modDirs.Clear();
+                    patchFiles.Clear();
+
+                    foreach (var f in expandedInputs)
+                    {
+                        if (Directory.Exists(f)) { modDirs.Add(f); continue; }
+                        if (!File.Exists(f)) continue;
+                        string e2 = Path.GetExtension(f).ToLowerInvariant();
+                        if (e2 == ".ips" || e2 == ".bps") { patchFiles.Add(f); continue; }
+                        var m2 = Parse3dsFile(f);
+                        int vn2 = 0;
+                        if (!string.IsNullOrEmpty(m2.Version) && m2.Version.StartsWith("v", StringComparison.OrdinalIgnoreCase))
+                            int.TryParse(m2.Version.Substring(1), out vn2);
+                        if (m2.ContentType.StartsWith("Patch", StringComparison.OrdinalIgnoreCase) || m2.TitleId.StartsWith("0004000E", StringComparison.OrdinalIgnoreCase))
+                            updateFiles.Add((f, vn2));
+                        else if (m2.ContentType.StartsWith("AddOnContent", StringComparison.OrdinalIgnoreCase) || m2.TitleId.StartsWith("0004008C", StringComparison.OrdinalIgnoreCase))
+                            dlcFiles.Add(f);
+                        else
+                        {
+                            if (baseFile == null) baseFile = f;
+                            else dlcFiles.Add(f);
+                        }
+                    }
+                    if (baseFile == null)
+                        throw new Exception("Внутри бандла не найден основной игровой образ.");
                 }
 
                 // Sort updates ascending by version so the newest update overlays last
@@ -847,9 +1214,10 @@ namespace StormSwitchBox.Services
 
                 var spec = Resolve3dsTargetSpec(targetFormat, baseFile);
 
-                // If only a single base file and no updates/mods/dlcs/patches, convert directly unless forceRebuild is requested
+                // If only a single base file and no updates/mods/dlcs/patches (and not targeting a bundle), convert directly unless forceRebuild is requested
                 bool hasCustomMeta = task.CustomMetadata != null && task.CustomMetadata.HasModifications;
-                if (!forceRebuild && !hasCustomMeta && sortedUpdates.Count == 0 && modDirs.Count == 0 && dlcFiles.Count == 0 && patchFiles.Count == 0)
+                bool hasBannerAudioEdit = task.CustomMetadata != null && !string.IsNullOrWhiteSpace(task.CustomMetadata.CustomAudioWavPath);
+                if (!forceRebuild && !spec.IsBundle && !hasCustomMeta && sortedUpdates.Count == 0 && modDirs.Count == 0 && dlcFiles.Count == 0 && patchFiles.Count == 0)
                 {
                     string convDir = Path.GetDirectoryName(outputFilePath) ?? "";
                     await Convert3dsContainerAsync(task, baseFile, convDir, targetFormat, cancellationToken, Path.GetFileNameWithoutExtension(outputFilePath));
@@ -859,6 +1227,29 @@ namespace StormSwitchBox.Services
                 if (spec.PlainExt == "3dsx")
                 {
                     throw new InvalidOperationException("Homebrew .3DSX не поддерживает сборку с обновлениями/DLC/модами через makerom.");
+                }
+
+                // Fast zero-unpack Bundle path (.bcci / .bcxi / .bcia) when no RomFS/ExeFS mods or audio edits need NCCH rebuild
+                if (spec.IsBundle && !forceRebuild && modDirs.Count == 0 && patchFiles.Count == 0 && !hasBannerAudioEdit)
+                {
+                    int compLvlBundle = Resolve3dsCompressionLevel(task);
+                    string preparedMain = await PrepareZ3dsEntryForBundleAsync(baseFile, spec.PlainExt, tempDir, "main", compLvlBundle, hasCustomMeta, task, cancellationToken);
+                    var preparedDeps = new List<string>();
+                    int depIdx = 0;
+                    foreach (var upd in sortedUpdates)
+                    {
+                        depIdx++;
+                        preparedDeps.Add(await PrepareZ3dsEntryForBundleAsync(upd, "cia", tempDir, $"upd_{depIdx}", compLvlBundle, false, task, cancellationToken));
+                    }
+                    foreach (var dlc in dlcFiles)
+                    {
+                        depIdx++;
+                        preparedDeps.Add(await PrepareZ3dsEntryForBundleAsync(dlc, "cia", tempDir, $"dlc_{depIdx}", compLvlBundle, false, task, cancellationToken));
+                    }
+
+                    string finalBundlePath = Path.ChangeExtension(outputFilePath, spec.BundleExt);
+                    await ThreeDsBundleService.CreateBundleAsync(finalBundlePath, preparedMain, preparedDeps, task, cancellationToken);
+                    return;
                 }
 
                 string targetOutFile = spec.WantZ3ds && !spec.IsDualZcci
@@ -918,9 +1309,10 @@ namespace StormSwitchBox.Services
                     }
                 }
 
-                // Step 3: Extract & Integrate DLCs (0004008C)
+                // Step 3: Extract & Integrate DLCs (for TAR bundles keep DLCs as native .zcia entries!)
                 var extraCfaFiles = new List<string>();
                 int dlcIdx = 0;
+                if (!spec.IsBundle)
                 foreach (var dlcFile in dlcFiles)
                 {
                     dlcIdx++;
@@ -990,9 +1382,24 @@ namespace StormSwitchBox.Services
                     extraCfaFiles,
                     cancellationToken);
 
-                if ((spec.WantZ3ds || spec.IsDualZcci) && File.Exists(targetOutFile))
+                if (spec.IsBundle && File.Exists(targetOutFile))
                 {
-                    string z3dsOutPath = Path.ChangeExtension(outputFilePath, spec.Z3dsExt);
+                    int compLvl = Resolve3dsCompressionLevel(task);
+                    string tempZ3dsMain = Path.Combine(tempDir, "patched_main" + spec.Z3dsExt);
+                    await Z3dsService.CompressToZ3dsAsync(targetOutFile, tempZ3dsMain, compLvl, 0, null, task, cancellationToken);
+                    var dlcZcias = new List<string>();
+                    int dIdx = 0;
+                    foreach (var dlcFile in dlcFiles)
+                    {
+                        dIdx++;
+                        dlcZcias.Add(await PrepareZ3dsEntryForBundleAsync(dlcFile, "cia", tempDir, $"bdlc_{dIdx}", compLvl, false, task, cancellationToken));
+                    }
+                    string finalBundlePath = Path.ChangeExtension(outputFilePath, spec.BundleExt);
+                    await ThreeDsBundleService.CreateBundleAsync(finalBundlePath, tempZ3dsMain, dlcZcias, task, cancellationToken);
+                }
+                else if ((spec.WantZ3ds || spec.IsDualZcci) && File.Exists(targetOutFile))
+                {
+                    string z3dsOutPath = Path.ChangeExtension(outputFilePath, spec.EffectiveZ3dsExt);
                     int compLvl = Resolve3dsCompressionLevel(task);
                     await Z3dsService.CompressToZ3dsAsync(targetOutFile, z3dsOutPath, compLvl, 0, null, task, cancellationToken);
                     if (spec.IsDualZcci && File.Exists(z3dsOutPath))
@@ -1581,13 +1988,13 @@ namespace StormSwitchBox.Services
                 }
 
                 string contentArgs = contentBuilder.ToString();
-                string containerFormat = outExt == "3ds" ? "cci" : "cia";
+                string containerFormat = (outExt == "3ds" || outExt == "cci") ? "cci" : "cia";
                 await RunProcessAsync(makerom, $"-f {containerFormat} -ignoresign -target t -o \"{targetOutFile}\" {contentArgs}", tempDir, cancellationToken);
             }
 
             if (File.Exists(targetOutFile))
             {
-                if (outExt == "3ds")
+                if (outExt == "3ds" || outExt == "cci")
                 {
                     SmartShrinkService.Trim3dsCardImage(targetOutFile, task);
                 }
@@ -1646,11 +2053,28 @@ namespace StormSwitchBox.Services
             }
         }
 
-        private readonly record struct Target3dsSpec(string PlainExt, string Z3dsExt, bool WantZ3ds, bool IsDualCia, bool IsDualZcci);
+        private readonly record struct Target3dsSpec(
+            string PlainExt,
+            string Z3dsExt,
+            bool WantZ3ds,
+            bool IsDualCia,
+            bool IsDualZcci,
+            bool IsBundle = false,
+            string BundleExt = "",
+            bool ForceZ3dsExt = false)
+        {
+            public string EffectiveZ3dsExt => ForceZ3dsExt ? ".z3ds" : Z3dsExt;
+        }
 
         private static Target3dsSpec Resolve3dsTargetSpec(string? targetFormat, string? inputPath = null)
         {
             string fmt = (targetFormat ?? "3DS").Trim().ToUpperInvariant();
+            if (fmt == "BCCI")
+                return new Target3dsSpec("cci", ".zcci", true, false, false, IsBundle: true, BundleExt: ".bcci");
+            if (fmt == "BCXI")
+                return new Target3dsSpec("cxi", ".zcxi", true, false, false, IsBundle: true, BundleExt: ".bcxi");
+            if (fmt == "BCIA")
+                return new Target3dsSpec("cia", ".zcia", true, false, false, IsBundle: true, BundleExt: ".bcia");
             if (fmt == "3DS + CIA")
                 return new Target3dsSpec("3ds", ".zcci", false, true, false);
             if (fmt == "3DS + ZCCI")
@@ -1674,6 +2098,7 @@ namespace StormSwitchBox.Services
 
             if (fmt.StartsWith("Z3DS", StringComparison.OrdinalIgnoreCase))
             {
+                bool forceGenericExt = fmt == "Z3DS";
                 string detectedPlain = "3ds";
                 string detectedZext = ".zcci";
                 if (!string.IsNullOrEmpty(inputPath) && File.Exists(inputPath))
@@ -1692,12 +2117,12 @@ namespace StormSwitchBox.Services
                     else
                     {
                         string ext = Path.GetExtension(inputPath).ToLowerInvariant();
-                        if (ext == ".cia") { detectedPlain = "cia"; detectedZext = ".zcia"; }
-                        else if (ext == ".cxi" || ext == ".cfa") { detectedPlain = "cxi"; detectedZext = ".zcxi"; }
+                        if (ext == ".cia" || ext == ".bcia") { detectedPlain = "cia"; detectedZext = ".zcia"; }
+                        else if (ext == ".cxi" || ext == ".cfa" || ext == ".app" || ext == ".bcxi") { detectedPlain = "cxi"; detectedZext = ".zcxi"; }
                         else if (ext == ".3dsx") { detectedPlain = "3dsx"; detectedZext = ".z3dsx"; }
                     }
                 }
-                return new Target3dsSpec(detectedPlain, detectedZext, true, false, false);
+                return new Target3dsSpec(detectedPlain, detectedZext, true, false, false, ForceZ3dsExt: forceGenericExt);
             }
 
             return new Target3dsSpec("3ds", ".zcci", false, false, false);
@@ -1735,7 +2160,52 @@ namespace StormSwitchBox.Services
                 bool hasBannerAudioEdit = task.CustomMetadata != null && !string.IsNullOrWhiteSpace(task.CustomMetadata.CustomAudioWavPath);
                 bool hasSmdhEdit = task.CustomMetadata != null && task.CustomMetadata.HasModifications;
 
-                // 1. Handle Z3DS input (.zcci / .zcxi / .zcia / .z3dsx)
+                string origExt = Path.GetExtension(inputPath).ToLowerInvariant().TrimStart('.');
+                if (origExt == "elf" || origExt == "axf" || origExt == "artic")
+                {
+                    throw new InvalidOperationException($"Формат .{origExt.ToUpperInvariant()} предназначен для прямого запуска/инспекции/проверки и не переупаковывается в контейнер {targetFormat}.");
+                }
+
+                // 0. Handle input TAR bundle (.bcci / .bcxi / .bcia)
+                if (ThreeDsBundleService.TryReadBundleInfo(inputPath, out var inBundleInfo))
+                {
+                    decTemp = CreateShortTempDirectory("BN", File.Exists(inputPath) ? new FileInfo(inputPath).Length + 512L * 1024 * 1024 : 0, outputFolder, inputPath);
+                    var extractedEntries = await ThreeDsBundleService.ExtractBundleAsync(inputPath, decTemp, task, cancellationToken);
+                    if (extractedEntries.Count == 0)
+                        throw new InvalidOperationException("Внутри бандла 3DS не найдено игровых файлов.");
+
+                    if (spec.IsBundle || extractedEntries.Count > 1)
+                    {
+                        string targetOut = Path.Combine(outputFolder, baseOutName + (spec.IsBundle ? spec.BundleExt : "." + spec.PlainExt));
+                        await Build3dsMultiContentAsync(task, extractedEntries, targetOut, targetFormat, cancellationToken);
+                        return;
+                    }
+
+                    inputPath = extractedEntries[0];
+                }
+
+                // Target is TAR Bundle (.bcci / .bcxi / .bcia) for single input
+                if (spec.IsBundle)
+                {
+                    string earlyExt = Path.GetExtension(inputPath).ToLowerInvariant().TrimStart('.');
+                    if (earlyExt == "3dsx" || earlyExt == "z3dsx")
+                    {
+                        throw new InvalidOperationException("Homebrew .3DSX / .Z3DSX нельзя упаковать в бандл .BCCI / .BCXI / .BCIA.");
+                    }
+                    if (hasBannerAudioEdit)
+                    {
+                        await Build3dsMultiContentAsync(task, new List<string> { inputPath }, Path.Combine(outputFolder, baseOutName + spec.BundleExt), targetFormat, cancellationToken, forceRebuild: true);
+                        return;
+                    }
+
+                    decTemp ??= CreateShortTempDirectory("BN", File.Exists(inputPath) ? new FileInfo(inputPath).Length * 2 : 0, outputFolder, inputPath);
+                    string preparedMain = await PrepareZ3dsEntryForBundleAsync(inputPath, spec.PlainExt, decTemp, "main", compLvl, hasSmdhEdit, task, cancellationToken);
+                    string finalBundleOut = Path.Combine(outputFolder, baseOutName + spec.BundleExt);
+                    await ThreeDsBundleService.CreateBundleAsync(finalBundleOut, preparedMain, Array.Empty<string>(), task, cancellationToken);
+                    return;
+                }
+
+                // 1. Handle Z3DS input (.zcci / .zcxi / .zcia / .z3dsx / .z3ds)
                 if (Z3dsService.TryReadHeaderAndMetadata(inputPath, out var inZhdr, out _, out _))
                 {
                     string inPlainExt = inZhdr.RecommendedPlainExtension.TrimStart('.');
@@ -1764,11 +2234,11 @@ namespace StormSwitchBox.Services
                 {
                     if (spec.WantZ3ds && spec.Z3dsExt == ".z3dsx")
                     {
-                        string z3dsxPath = Path.Combine(outputFolder, baseOutName + ".z3dsx");
+                        string z3dsxPath = Path.Combine(outputFolder, baseOutName + spec.EffectiveZ3dsExt);
                         await Z3dsService.CompressToZ3dsAsync(inputPath, z3dsxPath, compLvl, 0, null, task, cancellationToken);
                         return;
                     }
-                    if (!spec.WantZ3ds && !spec.IsDualCia && !spec.IsDualZcci && (spec.PlainExt == "3dsx" || spec.PlainExt == "3ds"))
+                    if (!spec.WantZ3ds && !spec.IsDualCia && !spec.IsDualZcci && spec.PlainExt == "3dsx")
                     {
                         string plain3dsxOut = Path.Combine(outputFolder, baseOutName + ".3dsx");
                         if (!string.Equals(Path.GetFullPath(inputPath), Path.GetFullPath(plain3dsxOut), StringComparison.OrdinalIgnoreCase))
@@ -1786,7 +2256,7 @@ namespace StormSwitchBox.Services
                         });
                         return;
                     }
-                    throw new InvalidOperationException("Homebrew .3DSX можно сжать в .Z3DSX или оставить в .3DSX (конвертация в NCSD/CIA не поддерживается).");
+                    throw new InvalidOperationException("Homebrew .3DSX можно сжать в .Z3DSX / .Z3DS или оставить в .3DSX (конвертация в NCSD/CIA/NCCH не поддерживается).");
                 }
 
                 if (spec.PlainExt == "3dsx")
@@ -1798,7 +2268,7 @@ namespace StormSwitchBox.Services
                 bool isMatchingPlainToZ3ds = !spec.IsDualCia && (spec.WantZ3ds || spec.IsDualZcci) && !hasBannerAudioEdit &&
                     (((inExt == "3ds" || inExt == "cci") && spec.Z3dsExt == ".zcci") ||
                      (inExt == "cia" && spec.Z3dsExt == ".zcia") ||
-                     ((inExt == "cxi" || inExt == "cfa") && spec.Z3dsExt == ".zcxi"));
+                     ((inExt == "cxi" || inExt == "cfa" || inExt == "app") && spec.Z3dsExt == ".zcxi"));
 
                 if (isMatchingPlainToZ3ds)
                 {
@@ -1848,7 +2318,7 @@ namespace StormSwitchBox.Services
                         workingPlain = patchedCopy;
                     }
 
-                    string finalZ3dsOut = Path.Combine(outputFolder, baseOutName + spec.Z3dsExt);
+                    string finalZ3dsOut = Path.Combine(outputFolder, baseOutName + spec.EffectiveZ3dsExt);
                     await Z3dsService.CompressToZ3dsAsync(workingPlain, finalZ3dsOut, compLvl, 0, null, task, cancellationToken);
                     return;
                 }
@@ -1938,7 +2408,8 @@ namespace StormSwitchBox.Services
 
                 try
                 {
-                    bool isSameFormat = (inExt == outExt) || (inExt == "cci" && outExt == "3ds") || (inExt == "3ds" && outExt == "cci");
+                    bool isNcchIn = inExt == "cxi" || inExt == "cfa" || inExt == "app";
+                    bool isSameFormat = (inExt == outExt) || (inExt == "cci" && outExt == "3ds") || (inExt == "3ds" && outExt == "cci") || (isNcchIn && outExt == "cxi");
                     if (isSameFormat)
                     {
                         if (!string.Equals(Path.GetFullPath(inputPath), Path.GetFullPath(plainWorkOutPath), StringComparison.OrdinalIgnoreCase))
@@ -1946,13 +2417,25 @@ namespace StormSwitchBox.Services
                             File.Copy(inputPath, plainWorkOutPath, overwrite: true);
                         }
                     }
-                    else if ((inExt == "3ds" || inExt == "cci") && outExt == "cia")
+                    else if ((inExt == "3ds" || inExt == "cci" || isNcchIn) && outExt == "cia")
                     {
                         await ConvertCciToCiaReliableAsync(makerom, inputPath, plainWorkOutPath, outputFolder, task, cancellationToken);
+                    }
+                    else if ((inExt == "3ds" || inExt == "cci") && outExt == "cxi")
+                    {
+                        await ExtractNcsdPartition0ToCxiAsync(inputPath, plainWorkOutPath, cancellationToken);
+                    }
+                    else if (inExt == "cia" && outExt == "cxi")
+                    {
+                        await ExtractCiaContent0ToCxiAsync(inputPath, plainWorkOutPath, cancellationToken);
                     }
                     else if (inExt == "cia" && (outExt == "3ds" || outExt == "cci"))
                     {
                         await ConvertCiaToCciReliableAsync(makerom, inputPath, plainWorkOutPath, outputFolder, cancellationToken);
+                    }
+                    else if (isNcchIn && (outExt == "3ds" || outExt == "cci"))
+                    {
+                        await WrapCxiToCciReliableAsync(makerom, inputPath, plainWorkOutPath, outputFolder, cancellationToken);
                     }
 
                     if (!HasValidOutputFile(plainWorkOutPath))
@@ -1972,7 +2455,7 @@ namespace StormSwitchBox.Services
 
                     if (spec.WantZ3ds || spec.IsDualZcci)
                     {
-                        string finalZ3dsPath = Path.Combine(outputFolder, baseOutName + spec.Z3dsExt);
+                        string finalZ3dsPath = Path.Combine(outputFolder, baseOutName + spec.EffectiveZ3dsExt);
                         await Z3dsService.CompressToZ3dsAsync(plainWorkOutPath, finalZ3dsPath, compLvl, 0, null, task, cancellationToken);
                         if (spec.IsDualZcci && File.Exists(finalZ3dsPath))
                         {
@@ -2025,6 +2508,23 @@ namespace StormSwitchBox.Services
             string outputBaseFolder,
             CancellationToken cancellationToken)
         {
+            if (ThreeDsBundleService.TryReadBundleInfo(inputPath, out _))
+            {
+                string bGameName = Path.GetFileNameWithoutExtension(inputPath);
+                string bOutDir = Path.Combine(outputBaseFolder, $"{bGameName}_bundle");
+                var extracted = await ThreeDsBundleService.ExtractBundleAsync(inputPath, bOutDir, task, cancellationToken);
+                long totalSz = extracted.Where(File.Exists).Sum(p => new FileInfo(p).Length);
+                App.RunOnUI(() =>
+                {
+                    task.Progress = 100;
+                    task.Status = "Успешно";
+                    task.IsRunning = false;
+                    task.TargetSize = ProcessingTask.FormatSize(totalSz);
+                    task.LogDetails += $"\n✅ [Готово] Бандл 3DS распакован ({extracted.Count} файлов) в: {bOutDir}";
+                });
+                return;
+            }
+
             if (Z3dsService.TryReadHeaderAndMetadata(inputPath, out var zHdr, out _, out _) &&
                 zHdr.UnderlyingMagicString == "3DSX")
             {
@@ -2128,9 +2628,17 @@ namespace StormSwitchBox.Services
                     null,
                     cancellationToken);
 
-                if ((spec.WantZ3ds || spec.IsDualZcci) && File.Exists(workOutPath))
+                if (spec.IsBundle && File.Exists(workOutPath))
                 {
-                    string finalZ3dsPath = Path.Combine(outputBaseFolder, rawBase + spec.Z3dsExt);
+                    int compLvl = Resolve3dsCompressionLevel(task);
+                    string tempZ = Path.Combine(tempDir, "pack_main" + spec.Z3dsExt);
+                    await Z3dsService.CompressToZ3dsAsync(workOutPath, tempZ, compLvl, 0, null, task, cancellationToken);
+                    string finalBundle = Path.Combine(outputBaseFolder, rawBase + spec.BundleExt);
+                    await ThreeDsBundleService.CreateBundleAsync(finalBundle, tempZ, Array.Empty<string>(), task, cancellationToken);
+                }
+                else if ((spec.WantZ3ds || spec.IsDualZcci) && File.Exists(workOutPath))
+                {
+                    string finalZ3dsPath = Path.Combine(outputBaseFolder, rawBase + spec.EffectiveZ3dsExt);
                     int compLvl = Resolve3dsCompressionLevel(task);
                     await Z3dsService.CompressToZ3dsAsync(workOutPath, finalZ3dsPath, compLvl, 0, null, task, cancellationToken);
                     if (spec.IsDualZcci && File.Exists(finalZ3dsPath))

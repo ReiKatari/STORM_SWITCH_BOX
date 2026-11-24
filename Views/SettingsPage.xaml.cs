@@ -78,7 +78,7 @@ namespace StormSwitchBox.Views
             };
 
             // 3DS Format combo initialization
-            string f3ds = App.Settings.Current.DefaultFormat3ds ?? "3DS";
+            string f3ds = App.Settings.Current.DefaultFormat3ds ?? "BCCI";
             int matchedF3dsIdx = 0;
             for (int i = 0; i < Format3dsCombo.Items.Count; i++)
             {
@@ -89,6 +89,7 @@ namespace StormSwitchBox.Views
                 }
             }
             Format3dsCombo.SelectedIndex = matchedF3dsIdx;
+            UpdateFormat3dsRecommendation();
 
             // AccentColor combo initialization
             string color = App.Settings.Current.AccentColorTheme ?? "Default";
@@ -128,7 +129,7 @@ namespace StormSwitchBox.Views
             else WatchFolderActionCombo3ds.SelectedIndex = 0;
 
             int wfFormat3ds = App.Settings.Current.WatchFolderFormat3ds;
-            if (wfFormat3ds >= 0 && wfFormat3ds <= 7) WatchFolderFormatCombo3ds.SelectedIndex = wfFormat3ds;
+            if (wfFormat3ds >= 0 && wfFormat3ds <= 13) WatchFolderFormatCombo3ds.SelectedIndex = wfFormat3ds;
             else WatchFolderFormatCombo3ds.SelectedIndex = 0;
 
             // Language combo initialization
@@ -717,7 +718,7 @@ namespace StormSwitchBox.Views
                 }
 
                 string[] pageTypes3ds = { "Convert", "Unpack", "Pack", "Multi", "Verify" };
-                string[] watchFormats3ds = { "3DS", "CIA", "CXI", "ZCCI", "ZCIA", "ZCXI", "Z3DSX", "Z3DS (Авто)" };
+                string[] watchFormats3ds = { "3DS", "CIA", "CXI", "ZCCI", "ZCIA", "ZCXI", "Z3DSX", "Z3DS (Авто)", "BCCI", "BCXI", "BCIA", "CCI", "3DSX", "Z3DS" };
                 int actIdx3ds = Math.Clamp(settings.WatchFolderAction3ds, 0, pageTypes3ds.Length - 1);
                 int wfIdx3ds = Math.Clamp(settings.WatchFolderFormat3ds, 0, watchFormats3ds.Length - 1);
                 int fmtIdx3ds = Array.IndexOf(ViewModels.TasksViewModel.FormatNames3ds, watchFormats3ds[wfIdx3ds]);
@@ -1284,6 +1285,7 @@ namespace StormSwitchBox.Views
 
             if (ThreeDsOutFolderTitleTxt != null) ThreeDsOutFolderTitleTxt.Text = loc["Settings_3ds_OutFolder_Title"];
             if (ThreeDsOutFolderDescTxt != null) ThreeDsOutFolderDescTxt.Text = loc["Settings_3ds_OutFolder_Desc"];
+            UpdateFormat3dsRecommendation();
             if (OutputFolderBox3ds != null) OutputFolderBox3ds.PlaceholderText = loc["Settings_3ds_OutFolder_Placeholder"];
             if (SelectOutputFolder3dsButton != null) SelectOutputFolder3dsButton.Content = loc["Settings_3ds_OutFolder_Browse"];
 
@@ -1421,6 +1423,16 @@ namespace StormSwitchBox.Views
             }
         }
 
+        private void UpdateFormat3dsRecommendation()
+        {
+            if (Format3dsRecommendationTxt == null) return;
+            string tagStr = (Format3dsCombo?.SelectedItem as ComboBoxItem)?.Tag?.ToString()
+                            ?? App.Settings.Current.DefaultFormat3ds
+                            ?? "BCCI";
+            bool isRu = string.Equals(App.Localization?.CurrentLanguage, "ru", StringComparison.OrdinalIgnoreCase);
+            Format3dsRecommendationTxt.Text = Services.ThreeDsFormatCatalog.BuildTooltipText(tagStr, isRu);
+        }
+
         private async void Format3dsCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             try
@@ -1435,6 +1447,7 @@ namespace StormSwitchBox.Views
                     {
                         App.TasksVM.SelectedFormatIndex3ds = vmFmtIdx;
                     }
+                    UpdateFormat3dsRecommendation();
                     await App.Settings.SaveAsync();
                 }
             }

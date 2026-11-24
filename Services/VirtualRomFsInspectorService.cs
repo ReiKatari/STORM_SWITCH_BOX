@@ -191,6 +191,24 @@ namespace StormSwitchBox.Services
         {
             try
             {
+                if (ThreeDsBundleService.TryReadBundleInfo(containerPath, out var bundleInfo))
+                {
+                    foreach (var be in bundleInfo.Entries)
+                    {
+                        results.Add(new VirtualArchiveEntry
+                        {
+                            Name = be.Name,
+                            FullPath = "/bundle/" + be.Name,
+                            Section = string.Equals(be.Name, bundleInfo.MainEntryName, StringComparison.Ordinal) ? "Bundle (Main)" : "Bundle (TAR)",
+                            Size = be.Size,
+                            TitleId = bundleInfo.Metadata?.GetString("bundler") ?? "TAR",
+                            Is3dsDirectSlice = true,
+                            SliceOffset = be.DataOffset,
+                            SliceLength = be.Size
+                        });
+                    }
+                }
+
                 using Stream fs = Z3dsService.OpenTransparentReadStream(containerPath);
                 using var br = new BinaryReader(fs, Encoding.ASCII, leaveOpen: true);
 

@@ -1371,7 +1371,7 @@ class MainActivity : Activity() {
                 }
                 selectedOperationMode = json.optInt("operationMode", 0).coerceIn(0, 7)
                 selectedCompressionMethod = json.optInt("compressionMethod", 0).coerceIn(0, 3)
-                selectedOutputFormat = json.optInt("outputFormat", 0).coerceIn(0, 12)
+                selectedOutputFormat = json.optInt("outputFormat", 0).coerceIn(0, 17)
                 useBlockNcz = json.optBoolean("useBlockNcz", true)
                 smartMergeDedup = json.optBoolean("smartMergeDedup", true)
                 autoEmbedMods = json.optBoolean("autoEmbedMods", true)
@@ -1940,7 +1940,7 @@ class MainActivity : Activity() {
 
         // 3DS: .3ds, .cia, .cxi, or roms_3ds
         val ext = file.extension.lowercase()
-        val is3ds = ext in listOf("3ds", "cia", "cxi", "cci", "cfa", "3dsx", "zcci", "zcxi", "zcia", "z3dsx", "z3ds") || path.contains("/roms_3ds/", ignoreCase = true)
+        val is3ds = StormNczEngine.is3dsExtension(ext) || path.contains("/roms_3ds/", ignoreCase = true)
         if (is3ds) {
             custom3dsOutputDir.mkdirs()
             return custom3dsOutputDir
@@ -2414,7 +2414,12 @@ class MainActivity : Activity() {
             "ZCIA - Сжатый установочный пакет Nintendo 3DS (Azahar Z3DS)",
             "ZCXI - Сжатый NCCH контейнер Nintendo 3DS (Azahar Z3DS)",
             "Z3DSX - Сжатый Homebrew Nintendo 3DS (Azahar Z3DS)",
-            "Z3DS - Автовыбор сжатого формата 3DS по исходному файлу"
+            "Z3DS - Автовыбор сжатого формата 3DS по исходному файлу",
+            "BCCI ★ - Бандл STORM 3DS / Azahar (Игра + Update + DLC в 1 файле без установки)",
+            "BCXI ★ - Сверхкомпактный бандл NCCH + Update + DLC (минимум размера)",
+            "BCIA - Бандл-инсталлятор CIA/ZCIA (пакетная установка в sdmc)",
+            "CXI - Чистый исполняемый раздел NCCH Nintendo 3DS (без обёртки картриджа)",
+            "3DSX - Несжатый Homebrew Nintendo 3DS (Homebrew Launcher)"
         )
         val formatDropdown = makeStormDropdown(outputFormats, selectedOutputFormat, th) { pos ->
             selectedOutputFormat = pos
@@ -2423,6 +2428,44 @@ class MainActivity : Activity() {
             buildUserInterface()
         }
         cfgCard.addView(formatDropdown)
+
+        val is3dsSelected = selectedOutputFormat in 4..6 || selectedOutputFormat in 8..17
+        val recText = StormNczEngine.get3dsFormatRecommendation(selectedOutputFormat, currentLangCode == "ru")
+        if (is3dsSelected && recText.isNotBlank()) {
+            val recCard = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                background = makeCardDrawable(th.bgPrimary, th.accent, 8)
+                setPadding(dp(10), dp(8), dp(10), dp(8))
+                layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    topMargin = dp(8)
+                }
+            }
+            recCard.addView(TextView(this).apply {
+                text = recText
+                setTextColor(th.textPrimary)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.2f)
+            })
+            recCard.addView(makeButton("📖 Справочник всех 17+1 форматов 3DS", th.bgElevated, th.accent) {
+                val dlgTxt = TextView(this@MainActivity).apply {
+                    text = StormNczEngine.build3dsFormatCatalogGuide(currentLangCode == "ru")
+                    setTextColor(th.textPrimary)
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+                    setPadding(dp(14), dp(10), dp(14), dp(10))
+                }
+                val dlgScroll = ScrollView(this@MainActivity).apply { addView(dlgTxt) }
+                showImmersiveDialog(
+                    AlertDialog.Builder(this@MainActivity)
+                        .setTitle("Nintendo 3DS: Все 17+1 форматов")
+                        .setView(dlgScroll)
+                        .setPositiveButton("OK", null)
+                )
+            }.apply {
+                layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    topMargin = dp(6)
+                }
+            })
+            cfgCard.addView(recCard)
+        }
 
         // 3.2 Профиль оптимизации и сжатия (без дублирования!)
         cfgCard.addView(TextView(this).apply {
@@ -2654,6 +2697,11 @@ class MainActivity : Activity() {
             10 -> "zcxi"
             11 -> "z3dsx"
             12 -> "zcci"
+            13 -> "bcci"
+            14 -> "bcxi"
+            15 -> "bcia"
+            16 -> "cxi"
+            17 -> "3dsx"
             else -> "nsz"
         }
 
@@ -3122,7 +3170,11 @@ class MainActivity : Activity() {
 
                         val res = when (selectedOperationMode) {
                             3 -> {
-                                if (StormNczEngine.isZ3dsFile(inFile)) {
+                                if (StormNczEngine.is3dsBundleFile(inFile)) {
+                                    val bundleOutDir = File(getEffectiveOutputDirForFile(inFile), "${baseName}_bundle")
+                                    val extractedFiles = StormNczEngine.extract3dsTarBundle(inFile, bundleOutDir, cb)
+                                    StormNczEngine.CompressionResult(true, inFile.absolutePath, bundleOutDir.absolutePath, inFile.length(), extractedFiles.sumOf { it.length() }, 1L, extractedFiles.size, extractedFiles.size, 18, 0, "Извлечён бандл (${extractedFiles.size} ф.) -> ${bundleOutDir.name}/")
+                                } else if (StormNczEngine.isZ3dsFile(inFile)) {
                                     val plainExt = try { StormNczEngine.Z3dsReadHandle(inFile).use { it.header.recommendedPlainExt } } catch (_: Throwable) { "cci" }
                                     val outFile = File(getEffectiveOutputDirForFile(inFile), "${baseName}.$plainExt")
                                     StormNczEngine.decompressZ3ds(inFile, outFile, cb)
@@ -5738,14 +5790,15 @@ class MainActivity : Activity() {
             ),
             InstructionTopicItem(
                 9,
-                "9. Архитектура и форматы Nintendo 3DS (3DS, CCI, CIA, CXI, 3DSX и Azahar Z3DS)",
+                "9. Все 17+1 форматов Nintendo 3DS (BCCI, BCXI, BCIA, Z3DS, CCI, CIA, CXI, ARTIC)",
                 "Форматы Switch и 3DS",
                 "NINTENDO 3DS",
-                "Встроен полноценный нативный конвейер для образов Nintendo 3DS (Citra, Azahar, Lime3DS):\n" +
-                    "• Аппаратный 128-битный генератор ключей KeyScrambler: NormalKey = ROL128((ROL128(KeyX, 2) xor KeyY) + C, 87).\n" +
-                    "• Расшифровка разделов NCCH и установка флага NoCrypto (0x04 по смещению +0x18F) для запуска в эмуляторах без aes_keys.txt.\n" +
-                    "• Прямая взаимная конвертация CIA <-> CCI / 3DS и сжатые форматы Azahar Z3DS (.zcci, .zcxi, .zcia, .z3dsx) на базе Seekable Zstandard (автодешифровка + Trim 0xFF + Seek Table 0x8F92EAB1 с произвольным чтением кадров без полной распаковки).",
-                "Совет: Для Azahar выберите ZCCI / ZCIA / ZCXI / Z3DSX (экономия места с прямым запуском без распаковки), а для Citra и других эмуляторов - CCI."
+                "Полный конвейер STORM 3DS и Azahar для всех 17+1 нативных форматов Nintendo 3DS:\n" +
+                    "• ★ .BCCI / .BCXI (бандлы microtar + Z3DS v1): лидеры #1! Хранят игру (.zcci или чистый игровой .zcxi) + обновления (.zcia) + DLC (.zcia) в ОДНОМ файле. Мгновенный запуск, 0 установки в sdmc, 0 двойного расхода места. .BCIA - пакетная установка .cia/.zcia в sdmc.\n" +
+                    "• .ZCCI / .ZCXI / .ZCIA / .Z3DSX / .Z3DS: сжатые Seekable Zstandard (автодешифровка NoCrypto + Trim 0xFF + Seek Table 0x8F92EAB1). Для одиночных игр выбирайте ZCCI/ZCXI, а ZCIA - для обновлений и DLC.\n" +
+                    "• .CCI / .3DS / .CXI / .CIA / .3DSX / .APP / .CFA: классические контейнеры (Citra MMJ / FBI на консоли 3DS) и быстрая вырезка Partition 0 NCCH.\n" +
+                    "• .ELF / .AXF / .ARTIC: инспекция и верификация ARM11 ELF и сетевого стриминга Artic Base с реальной консоли 3DS.",
+                "Совет: Для STORM 3DS и Azahar выбирайте BCCI или BCXI (Игра + Патчи + DLC в 1 файле без установки), ZCCI/ZCXI - для одиночных игр, CCI - для Citra MMJ, CIA - для 3DS!"
             ),
             InstructionTopicItem(
                 10,
@@ -6702,7 +6755,7 @@ class MainActivity : Activity() {
             }
             return 0
         }
-        val validExts = setOf("nsp", "nsz", "xci", "xcz", "nup", "nca", "ncz", "3ds", "cci", "cia", "cxi", "cfa", "3dsx", "zcci", "zcxi", "zcia", "z3dsx", "z3ds", "nds", "zip", "rar", "7z", "ips", "pchtxt")
+        val validExts = setOf("nsp", "nsz", "xci", "xcz", "nup", "nca", "ncz", "bcci", "bcxi", "bcia", "3ds", "cci", "cia", "cxi", "cfa", "app", "3dsx", "elf", "axf", "artic", "zcci", "zcxi", "zcia", "z3dsx", "z3ds", "nds", "zip", "rar", "7z", "ips", "pchtxt")
         var added = 0
         if (!recursive) {
             folder.listFiles()?.forEach { f ->
@@ -6739,7 +6792,7 @@ class MainActivity : Activity() {
         val th = themes[currentThemeIndex]
         var currentDir = if (initialDir.exists() && initialDir.isDirectory) initialDir else File("/storage/emulated/0")
         val selectedPaths = LinkedHashSet<File>()
-        val validExts = setOf("nsp", "nsz", "xci", "xcz", "nup", "nca", "ncz", "3ds", "cci", "cia", "cxi", "cfa", "3dsx", "zcci", "zcxi", "zcia", "z3dsx", "z3ds", "nds", "zip", "rar", "7z", "ips", "pchtxt")
+        val validExts = setOf("nsp", "nsz", "xci", "xcz", "nup", "nca", "ncz", "bcci", "bcxi", "bcia", "3ds", "cci", "cia", "cxi", "cfa", "app", "3dsx", "elf", "axf", "artic", "zcci", "zcxi", "zcia", "z3dsx", "z3ds", "nds", "zip", "rar", "7z", "ips", "pchtxt")
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL

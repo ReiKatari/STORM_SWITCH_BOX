@@ -79,21 +79,39 @@
                         <ComboBoxItem Content="NSP + NSZ"/>
                         <ComboBoxItem Content="XCI + XCZ"/>
                     </ComboBox>
-                    <ComboBox x:Name="FormatComboBox3ds" SelectedIndex="{x:Bind ViewModel.SelectedFormatIndex3ds, Mode=TwoWay}" Width="136" 
+                    <ComboBox x:Name="FormatComboBox3ds" SelectedIndex="{x:Bind ViewModel.SelectedFormatIndex3ds, Mode=TwoWay}" Width="156" 
                               SelectionChanged="FormatComboBox3ds_SelectionChanged"
-                              ToolTipService.ToolTip="Выходной формат для 3DS"
+                              ToolTipService.ToolTip="{x:Bind ViewModel.SelectedFormat3dsGuideText, Mode=OneWay}"
                               Visibility="{x:Bind ViewModel.Is3dsPlatformVisible, Mode=OneWay}">
-                        <ComboBoxItem Content="3DS"/>
-                        <ComboBoxItem Content="CIA"/>
-                        <ComboBoxItem Content="CXI"/>
-                        <ComboBoxItem Content="3DS + CIA"/>
-                        <ComboBoxItem Content="ZCCI"/>
-                        <ComboBoxItem Content="ZCIA"/>
-                        <ComboBoxItem Content="ZCXI"/>
-                        <ComboBoxItem Content="Z3DSX"/>
-                        <ComboBoxItem Content="Z3DS (Авто)"/>
-                        <ComboBoxItem Content="3DS + ZCCI"/>
+                        <ComboBoxItem Content="BCCI ★" Tag="BCCI" ToolTipService.ToolTip="★ Лучший выбор для STORM 3DS / Azahar: бандл .zcci + обновления + DLC + моды в 1 файле без установки в sdmc."/>
+                        <ComboBoxItem Content="BCXI ★" Tag="BCXI" ToolTipService.ToolTip="★ Абсолютный минимум размера: бандл .zcxi (только игровой NCCH) + обновления + DLC + моды в 1 файле без установки."/>
+                        <ComboBoxItem Content="BCIA" Tag="BCIA" ToolTipService.ToolTip="Бандл инсталляторов (.cia/.zcia) для пакетной установки в sdmc (занимает 2x места)."/>
+                        <ComboBoxItem Content="ZCCI ★" Tag="ZCCI" ToolTipService.ToolTip="Оптимум для 1 игры: сжатый картридж Z3DS (Seekable Zstd), мгновенный старт без установки."/>
+                        <ComboBoxItem Content="ZCXI" Tag="ZCXI" ToolTipService.ToolTip="Минимум размера для 1 игры: сжатый чистый NCCH (Partition 0) в формате Z3DS."/>
+                        <ComboBoxItem Content="ZCIA" Tag="ZCIA" ToolTipService.ToolTip="Сжатый установочный пакет CIA (лучше для отдельных обновлений и DLC)."/>
+                        <ComboBoxItem Content="Z3DSX" Tag="Z3DSX" ToolTipService.ToolTip="Сжатый Homebrew .3DSX для Azahar / STORM 3DS."/>
+                        <ComboBoxItem Content="Z3DS" Tag="Z3DS" ToolTipService.ToolTip="Универсальное расширение .z3ds (контейнер Z3DS v1 с автоопределением магии внутри)."/>
+                        <ComboBoxItem Content="Z3DS (Авто)" Tag="Z3DS (Авто)" ToolTipService.ToolTip="Автовыбор сжатого формата Z3DS (.zcci/.zcia/.zcxi/.z3dsx) по исходнику."/>
+                        <ComboBoxItem Content="CCI" Tag="CCI" ToolTipService.ToolTip="Расшифрованный обрезанный картридж NCSD - максимум совместимости со всеми эмуляторами (Citra/MMJ/Azahar)."/>
+                        <ComboBoxItem Content="3DS" Tag="3DS" ToolTipService.ToolTip="Классический расшифрованный образ картриджа NCSD + Trim 0xFF (Citra / Azahar / Lime3DS)."/>
+                        <ComboBoxItem Content="CXI" Tag="CXI" ToolTipService.ToolTip="Чистый несжатый исполняемый раздел игры NCCH (легче .3ds/.cci)."/>
+                        <ComboBoxItem Content="CIA" Tag="CIA" ToolTipService.ToolTip="Установочный пакет для реальной консоли 3DS (FBI / Luma3DS) и обновлений/DLC."/>
+                        <ComboBoxItem Content="3DSX" Tag="3DSX" ToolTipService.ToolTip="Несжатый формат Homebrew Launcher (реальная 3DS и эмуляторы)."/>
+                        <ComboBoxItem Content="3DS + CIA" Tag="3DS + CIA" ToolTipService.ToolTip="Одновременно .3ds (эмуляторы) и .cia (установка на реальную 3DS)."/>
+                        <ComboBoxItem Content="3DS + ZCCI" Tag="3DS + ZCCI" ToolTipService.ToolTip="Одновременно классический .3ds и сжатый Z3DS .zcci."/>
                     </ComboBox>
+                    <Button x:Name="Format3dsGuideButton" Height="34" Padding="9,0" CornerRadius="6"
+                            Visibility="{x:Bind ViewModel.Is3dsPlatformVisible, Mode=OneWay}"
+                            ToolTipService.ToolTip="Справочник и рекомендации по всем 17+1 форматам Nintendo 3DS">
+                        <FontIcon Glyph="&#xE946;" FontSize="14" Foreground="#00E5FF"/>
+                        <Button.Flyout>
+                            <Flyout Opening="Format3dsGuideFlyout_Opening">
+                                <ScrollViewer MaxWidth="620" MaxHeight="480" Padding="4">
+                                    <TextBlock x:Name="Format3dsGuideTextBlock" TextWrapping="Wrap" FontSize="12" IsTextSelectionEnabled="True"/>
+                                </ScrollViewer>
+                            </Flyout>
+                        </Button.Flyout>
+                    </Button>
                 </StackPanel>
             </AppBarElementContainer>
             <AppBarButton x:Name="StartAllButton" Label="Запустить всё" Command="{x:Bind ViewModel.StartAllTasksCommand}">

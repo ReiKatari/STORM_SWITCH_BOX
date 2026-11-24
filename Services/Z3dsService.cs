@@ -539,6 +539,11 @@ namespace StormSwitchBox.Services
         /// </summary>
         public static Stream OpenTransparentReadStream(string filePath)
         {
+            if (ThreeDsBundleService.TryOpenMainEntryTransparentStream(filePath, out var bundledStream, out _) && bundledStream != null)
+            {
+                return bundledStream;
+            }
+
             var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
             try
             {
@@ -626,7 +631,7 @@ namespace StormSwitchBox.Services
         public static Z3dsMetadata ExtractContainerMetadata(string plainPath, byte[] underlyingMagic, uint frameSize)
         {
             var meta = new Z3dsMetadata();
-            string ver = !string.IsNullOrWhiteSpace(App.AppVersionString) ? App.AppVersionString : "8.1.3";
+            string ver = !string.IsNullOrWhiteSpace(App.AppVersionString) ? App.AppVersionString : "8.2.0";
             meta.SetString("compressor", $"STORM SWITCH BOX {ver}");
             meta.SetString("date", DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ"));
             meta.SetString("maxframesize", frameSize.ToString());
@@ -1129,7 +1134,20 @@ namespace StormSwitchBox.Services
         {
             try
             {
-                using var zstream = new Z3dsReadStream(filePath);
+                using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                return VerifyZ3dsIntegrity(fs);
+            }
+            catch (Exception ex)
+            {
+                return (false, $"Ошибка Z3DS: {ex.Message}", null, null, 0);
+            }
+        }
+
+        public static (bool IsValid, string Details, Z3dsHeader? Header, Z3dsMetadata? Metadata, int FrameCount) VerifyZ3dsIntegrity(Stream stream)
+        {
+            try
+            {
+                using var zstream = new Z3dsReadStream(stream, leaveOpen: true);
                 if (zstream.FrameCount > 0)
                 {
                     // Decompress first and last frame to validate actual Zstd payload integrity

@@ -39,7 +39,7 @@ namespace StormSwitchBox.Services
         {
             if (string.IsNullOrWhiteSpace(path)) return false;
             string ext = Path.GetExtension(path).ToLowerInvariant();
-            return ext is ".nsp" or ".nsz" or ".xci" or ".xcz" or ".cia" or ".3ds" or ".cci" or ".cxi" or ".3dsx" or ".zcci" or ".zcxi" or ".zcia" or ".z3dsx" or ".nro";
+            return ext is ".nsp" or ".nsz" or ".xci" or ".xcz" or ".cia" or ".3ds" or ".cci" or ".cxi" or ".cfa" or ".app" or ".3dsx" or ".elf" or ".axf" or ".artic" or ".zcci" or ".zcxi" or ".zcia" or ".z3dsx" or ".z3ds" or ".bcci" or ".bcxi" or ".bcia" or ".nro";
         }
 
         private TcpListener? _httpListener;

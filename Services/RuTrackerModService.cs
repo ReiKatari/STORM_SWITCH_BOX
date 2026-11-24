@@ -4526,7 +4526,7 @@ namespace StormSwitchBox.Services
                 return string.Empty;
 
             string cleaned = StripBalancedBracketsAndTags(rawTitle);
-            cleaned = Regex.Replace(cleaned, @"\.(?:nsp|nsz|xci|xcz|nup|nro|3ds|cia|cci|cxi|zip|rar|7z|torrent)$", "", RegexOptions.IgnoreCase);
+            cleaned = Regex.Replace(cleaned, @"\.(?:nsp|nsz|xci|xcz|nup|nro|3ds|cia|cci|cxi|cfa|app|3dsx|elf|axf|artic|zcci|zcxi|zcia|z3dsx|z3ds|bcci|bcxi|bcia|zip|rar|7z|torrent)$", "", RegexOptions.IgnoreCase);
             cleaned = Regex.Replace(cleaned, @"\s*\+\s*(?:Wave\s*\d+\s*DLC|\d*\s*DLCs?|Updates?|Patch(?:es)?|Expansion\s*Pass|Booster\s*Course\s*Pass).*$", "", RegexOptions.IgnoreCase);
             cleaned = Regex.Replace(cleaned, @"\b(?:Update|Patch|Unlocker|v\d+(?:\.\d+)*)\b.*$", "", RegexOptions.IgnoreCase);
             cleaned = Regex.Replace(cleaned, @"\s{2,}", " ").Trim(' ', '-', '_', '.', '+', '/', '|');
@@ -4558,7 +4558,7 @@ namespace StormSwitchBox.Services
                 ? norm.Substring(lastDirSlash + 1)
                 : norm;
 
-            fileName = Regex.Replace(fileName, @"\.(?:nsp|nsz|xci|xcz|nup|nro|3ds|cia|cci|cxi|zip|rar|7z|torrent)$", "", RegexOptions.IgnoreCase);
+            fileName = Regex.Replace(fileName, @"\.(?:nsp|nsz|xci|xcz|nup|nro|3ds|cia|cci|cxi|cfa|app|3dsx|elf|axf|artic|zcci|zcxi|zcia|z3dsx|z3ds|bcci|bcxi|bcia|zip|rar|7z|torrent)$", "", RegexOptions.IgnoreCase);
             string cleaned = StripBalancedBracketsAndTags(fileName);
             cleaned = Regex.Replace(cleaned, @"\s*\+\s*(?:Wave\s*\d+\s*DLC|\d*\s*DLCs?|Updates?|Patch(?:es)?).*$", "", RegexOptions.IgnoreCase);
             cleaned = Regex.Replace(cleaned, @"\b(?:Update|Patch|DLC|Unlocker|v\d+(?:\.\d+)*)\b.*$", "", RegexOptions.IgnoreCase).Trim();
@@ -4995,7 +4995,7 @@ namespace StormSwitchBox.Services
                 return "UNLOCKER";
 
             // 4. Игровые контейнеры Switch / Switch 2 / 3DS / Z3DS
-            if (ext is ".nsp" or ".nsz" or ".xci" or ".xcz" or ".nup" or ".3ds" or ".cia" or ".cci" or ".cxi" or ".3dsx" or ".zcci" or ".zcxi" or ".zcia" or ".z3dsx" or ".z3ds")
+            if (ext is ".nsp" or ".nsz" or ".xci" or ".xcz" or ".nup" or ".3ds" or ".cia" or ".cci" or ".cxi" or ".cfa" or ".app" or ".3dsx" or ".elf" or ".axf" or ".artic" or ".zcci" or ".zcxi" or ".zcia" or ".z3dsx" or ".z3ds" or ".bcci" or ".bcxi" or ".bcia")
             {
                 bool inTransSubfolder = Regex.IsMatch(dir, @"(?:translation|перевод|русиф|machine\s*trans|rus[\s_\-]mod|локализац|укр|ukr)", RegexOptions.IgnoreCase) ||
                                         Regex.IsMatch(fn, @"(?:translation|перевод|русиф|machine\s*trans|rus[\s_\-]mod|локализац)", RegexOptions.IgnoreCase);

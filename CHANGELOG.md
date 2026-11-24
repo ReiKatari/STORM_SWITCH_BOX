@@ -1,3 +1,40 @@
+## **8.2.0** (24.11.2026)
+
+> 💡 **Релиз 8.2.0** - *Полная поддержка всех 17+1 нативных форматов Nintendo 3DS (включая единые бандлы без установки `.bcci`, `.bcxi` и `.bcia`), справочник и умные рекомендации форматов на Windows и Android*
+
+---
+
+### 🚀 Ключевые изменения и улучшения (STORM SWITCH BOX 8.2.0)
+
+- 🌟 **[Бандлы без установки `.bcci`, `.bcxi`, `.bcia` (`ThreeDsBundleService.cs`, `Nintendo3dsService.cs`, `StormNczEngine.kt`)]**:
+  - На Windows (C#) и Android (Kotlin) реализован бинарно-точный движок `microtar` + `Z3DSMetadata`, совместимый с `STORM 3DS` и `Azahar`: запись `"metadata"` идёт первой (`bundler`, `date`, `mainfile`, `titleinfo` без дублирования `smdh`), имена записей санитизируются до 99 байт UTF-8, поддерживаются файлы `> 8 ГБ` (GNU base-256) и проверка всех вложенных Z3DS-секций (`Seek Table 0x8F92EAB1`).
+  - **`.bcci` (рекомендуется №1)** объединяет сжатую игру `.zcci` + официальные обновления `.zcia` + все DLC `.zcia` (и вшитые моды/русификаторы) в 1 файл с мгновенным запуском без установки в `sdmc` и без 2x расхода места. **`.bcxi`** дополнительно убирает лишние разделы мануала/DLP (только Partition 0 NCCH `.zcxi` + `.zcia` патчей и DLC) для абсолютного минимума размера, а **`.bcia`** собирает пакеты `.cia`/`.zcia` для групповой установки.
+  - Реализован быстрый режим сборки `.bcci` / `.bcxi` без распаковки RomFS через `ctrtool`, а также потоковое извлечение `Partition 0 NCCH` (`NCSD / CIA <-> CXI` и `CXI/APP -> CCI`).
+- 🌟 **[Все 17+1 форматов 3DS, описания и умные рекомендации в интерфейсе и Инструкции]**:
+  - Во все выпадающие списки, файловые пикеры, Умные папки, Аудитор библиотеки, Инспектор RomFS/TAR, Историю задач, локализацию (11 языков Windows и 10 языков Android), Инструкцию (RU/EN и интерактивный симулятор конвертера) и фильтр RuTracker добавлены все 18 расширений: `.bcci`, `.bcxi`, `.bcia`, `.zcci`, `.zcxi`, `.zcia`, `.z3dsx`, `.z3ds`, `.cci`, `.3ds`, `.cxi`, `.cia`, `.3dsx`, `.app`, `.cfa`, `.elf`, `.axf`, `.artic`.
+  - В интерфейсе задач, параметров (Windows) и главного экрана (Android) добавлены описания каждого формата, панель рекомендаций (с выделением `.bcci` и `.bcxi` как лучших форматов) и встроенный справочник форматов 3DS.
+
+<details>
+
+<summary><b>📋 Полный список изменений (нажмите, чтобы развернуть)</b></summary>
+
+- 🔹 **[Windows: Services/ThreeDsBundleService.cs, Services/Z3dsService.cs, Services/Nintendo3dsService.cs]**: Реализован каталог `ThreeDsFormatCatalog` (все 17+1 форматов с описаниями и рекомендациями RU/EN), `SubRangeStream` и потоковый движок `microtar` (`TryReadBundleInfo`, `TryOpenMainEntryTransparentStream`, `CreateBundleAsync`, `ExtractBundleAsync`, `VerifyBundleIntegrity`), быстрая вырезка Partition 0 `ExtractNcsdPartition0ToCxiAsync` / `ExtractCiaContent0ToCxiAsync`, `WrapCxiToCciReliableAsync`, потоковый `Z3dsService.VerifyZ3dsIntegrity(Stream)` и маршрутизация всех 18 расширений в `Build3dsMultiContentAsync`, `Convert3dsContainerAsync`, `Unpack3dsContainerAsync`, `Pack3dsContainerAsync`.
+- 🔹 **[Windows: ViewModels, Services и Views]**: Обновлены `ProcessingTask.cs`, `AppSettings.cs` (`DefaultFormat3ds = "BCCI"`), `TasksViewModel.cs`, `WatchFolderService.cs`, `CatalogScannerService.cs`, `LibraryAuditorService.cs`, `DirectConsoleSenderService.cs`, `VirtualRomFsInspectorService.cs` (`/bundle/...`), `HistoryService.cs`, `RuTrackerModService.cs`, `TasksPage.xaml(.cs)` (кнопка-справочник форматов), `SettingsPage.xaml(.cs)` (живая карточка рекомендаций и WatchFolder 0..13), `LocalizationService.cs`, `LocalizationService.UiTree.cs` и `InstructionPage.xaml.cs`.
+- 🔹 **[Android: StormNczEngine.kt, MainActivity.kt, RuTrackerCloudEngine.kt, StormLocalization.kt, ThreeDsBundleAndFormatsTest.kt]**: Добавлены `is3dsExtension` / `is3dsBundleExtension`, группировка TitleID 3DS (`00040000` / `0004000E` / `0004008C`), чистый Kotlin `microtar` + `Z3DSMetadata` движок, режимы `13=BCCI ★`, `14=BCXI ★`, `15=BCIA`, `16=CXI`, `17=3DSX`, быстрая вырезка Partition 0 NCCH, карточка рекомендаций и диалог-справочник 3DS, тема справки №9 и юнит-тесты `ThreeDsBundleAndFormatsTest.kt`.
+- 🔹 **[Версия 8.2.0]**: Все сборки Windows (`8.2.0`) и Android (`versionCode = 8200`, `versionName = "8.2.0"`) синхронизированы; обновлены `README.md`, `CHANGELOG.md` и `RELEASE_NOTES.md`.
+
+</details>
+
+<details>
+
+<summary><b>🌐 English Changelog (click to expand)</b></summary>
+
+- 🔸 Implemented bit-exact `microtar` + `Z3DSMetadata` bundles (`.bcci`, `.bcxi`, `.bcia`) on both Windows (C#) and Android (Kotlin) matching `STORM 3DS` and `Azahar`: writes `"metadata"` first (`bundler`, `date`, `mainfile`, `titleinfo` without `smdh`), sanitizes entry names up to 99 UTF-8 bytes, supports >8 GiB TAR headers, zero-unpack assembly when no RomFS/ExeFS mods are attached, and transparent bundle inspection and integrity verification.
+- 🔸 Added all remaining Nintendo 3DS native formats (`17+1`: `.bcci`, `.bcxi`, `.bcia`, `.zcci`, `.zcxi`, `.zcia`, `.z3dsx`, `.z3ds`, `.cci`, `.3ds`, `.cxi`, `.cia`, `.3dsx`, `.app`, `.cfa`, `.elf`, `.axf`, `.artic`), fast `NCSD/CIA -> CXI` Partition 0 extraction, and `CXI/APP -> CCI` wrapping.
+- 🔸 Added live per-format descriptions, recommendation banners highlighting `.bcci` and `.bcxi` as #1 zero-install choices, and full interactive 3DS format guides in both Windows and Android UIs plus 11-language localizations.
+
+</details>
+
 ## **8.1.3** (24.11.2026)
 
 > 💡 **Релиз 8.1.3** - *Надёжная прямая конвертация крупных образов 3DS/CCI (>= 2 ГБ и 4 ГБ) в CIA/ZCIA через нарезку игровых разделов NCSD, защита от сбоев по длине пути `MAX_PATH` во всех операциях 3DS и синхронизированное обновление версий*

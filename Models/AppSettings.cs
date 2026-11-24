@@ -154,7 +154,7 @@ namespace StormSwitchBox.Models
 
         // Настройки Nintendo 3DS
         public string KeysPath3ds { get; set; } = "";
-        public string DefaultFormat3ds { get; set; } = "3DS"; // 3DS (CCI), CIA, CXI
+        public string DefaultFormat3ds { get; set; } = "BCCI"; // BCCI, BCXI, BCIA, ZCCI, ZCXI, ZCIA, Z3DSX, Z3DS, CCI, 3DS, CXI, CIA, 3DSX
         public bool HardPatch3ds { get; set; } = true;
         public int SelectedFormatIndex3ds { get; set; } = 0; // 0 = 3DS, 1 = CIA, 2 = CXI
         public int SelectedPlatformIndex { get; set; } = 0; // 0 = Switch, 1 = 3DS

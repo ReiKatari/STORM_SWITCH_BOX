@@ -28,13 +28,18 @@ namespace StormSwitchBox.ViewModels;
 public partial class TasksViewModel : ObservableObject
 {
 	public static readonly string[] FormatNames = new string[] { "NSP", "NSZ", "XCI", "XCZ", "NUP", "NSP + NSZ", "XCI + XCZ" };
-	public static readonly string[] FormatNames3ds = new string[] { "3DS", "CIA", "CXI", "3DS + CIA", "ZCCI", "ZCIA", "ZCXI", "Z3DSX", "Z3DS (Авто)", "3DS + ZCCI" };
+	public static readonly string[] FormatNames3ds = new string[]
+	{
+		"BCCI", "BCXI", "BCIA", "ZCCI", "ZCXI", "ZCIA", "Z3DSX", "Z3DS",
+		"Z3DS (Авто)", "CCI", "3DS", "CXI", "CIA", "3DSX", "3DS + CIA", "3DS + ZCCI"
+	};
 
 	private static readonly HashSet<string> GameExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase) 
 	{ 
 		".NSP", ".XCI", ".NSZ", ".XCZ", ".NUP",
-		".3DS", ".CCI", ".CIA", ".CXI", ".CFA", ".3DSX",
+		".3DS", ".CCI", ".CIA", ".CXI", ".CFA", ".APP", ".3DSX", ".ELF", ".AXF", ".ARTIC",
 		".ZCCI", ".ZCXI", ".ZCIA", ".Z3DSX", ".Z3DS",
+		".BCCI", ".BCXI", ".BCIA",
 		".NPDM", ".NSO", ".NACP", ".NCA", ".NCZ" 
 	};
 
@@ -53,9 +58,20 @@ public partial class TasksViewModel : ObservableObject
 				{
 					App.Settings.Current.SelectedFormatIndex3ds = value;
 					App.Settings.Current.DefaultFormat3ds = FormatNames3ds[value];
+					OnPropertyChanged(nameof(SelectedFormat3dsGuideText));
 					_ = App.Settings.SaveAsync();
 				}
 			}
+		}
+	}
+
+	public string SelectedFormat3dsGuideText
+	{
+		get
+		{
+			string fmt = FormatNames3ds[Math.Clamp(_selectedFormatIndex3ds, 0, FormatNames3ds.Length - 1)];
+			bool isRu = string.Equals(App.Localization?.CurrentLanguage, "ru", StringComparison.OrdinalIgnoreCase);
+			return ThreeDsFormatCatalog.BuildTooltipText(fmt, isRu);
 		}
 	}
 
@@ -186,7 +202,11 @@ public partial class TasksViewModel : ObservableObject
 			_selectedFormatIndex = selectedFormatIndex;
 			_selectedFormat = FormatNames[selectedFormatIndex];
 		}
-		_selectedFormatIndex3ds = Math.Clamp(App.Settings.Current.SelectedFormatIndex3ds, 0, FormatNames3ds.Length - 1);
+		string savedDef3ds = App.Settings.Current.DefaultFormat3ds ?? "BCCI";
+		int strMatch3ds = Array.FindIndex(FormatNames3ds, f => string.Equals(f, savedDef3ds, StringComparison.OrdinalIgnoreCase));
+		_selectedFormatIndex3ds = strMatch3ds >= 0
+			? strMatch3ds
+			: Math.Clamp(App.Settings.Current.SelectedFormatIndex3ds, 0, FormatNames3ds.Length - 1);
 		_selectedPlatform = Math.Clamp(App.Settings.Current.SelectedPlatformIndex, 0, 2);
 
 		Tasks.CollectionChanged += (_, _) => _isDirty = true;
@@ -1395,8 +1415,10 @@ public partial class TasksViewModel : ObservableObject
 		{
 			string singleExt = exts[0];
 			if (singleExt == "NSP" || singleExt == "NSZ" || singleExt == "XCI" || singleExt == "XCZ" || singleExt == "NUP" ||
-			    singleExt == "3DS" || singleExt == "CIA" || singleExt == "CXI" || singleExt == "3DSX" ||
-			    singleExt == "ZCCI" || singleExt == "ZCIA" || singleExt == "ZCXI" || singleExt == "Z3DSX" || singleExt == "Z3DS")
+			    singleExt == "3DS" || singleExt == "CCI" || singleExt == "CIA" || singleExt == "CXI" || singleExt == "CFA" ||
+			    singleExt == "APP" || singleExt == "3DSX" || singleExt == "ELF" || singleExt == "AXF" || singleExt == "ARTIC" ||
+			    singleExt == "ZCCI" || singleExt == "ZCIA" || singleExt == "ZCXI" || singleExt == "Z3DSX" || singleExt == "Z3DS" ||
+			    singleExt == "BCCI" || singleExt == "BCXI" || singleExt == "BCIA")
 			{
 				return singleExt;
 			}
@@ -1422,7 +1444,7 @@ public partial class TasksViewModel : ObservableObject
 					: SelectedFormat;
 				if (string.IsNullOrEmpty(targetFmt))
 				{
-					targetFmt = is3ds ? "3DS" : "NSP";
+					targetFmt = is3ds ? "BCCI" : "NSP";
 				}
 
 				ProcessingTask? existingTask = null;
@@ -2755,7 +2777,33 @@ public partial class TasksViewModel : ObservableObject
 					foreach (string f in task.InputFiles)
 					{
 						if (cts.IsCancellationRequested) break;
-						if (Z3dsService.IsZ3dsFile(f))
+						string extLower = Path.GetExtension(f).ToLowerInvariant();
+						if (ThreeDsBundleService.IsBundleExtension(extLower) || ThreeDsBundleService.IsBundleFile(f))
+						{
+							var bcheck = ThreeDsBundleService.VerifyBundleIntegrity(f);
+							if (!bcheck.IsValid) allValid = false;
+							z3dsSummary = bcheck.Details;
+						}
+						else if (extLower == ".elf" || extLower == ".axf")
+						{
+							byte[] hdr4 = new byte[4];
+							using (var fsElf = File.OpenRead(f))
+							{
+								bool ok = fsElf.Read(hdr4, 0, 4) == 4 && hdr4[0] == 0x7F && hdr4[1] == (byte)'E' && hdr4[2] == (byte)'L' && hdr4[3] == (byte)'F';
+								if (!ok) allValid = false;
+								z3dsSummary = ok ? $"Корректный ARM11 {extLower.TrimStart('.').ToUpperInvariant()} (0x7F ELF)" : "Повреждён заголовок ELF/AXF";
+							}
+						}
+						else if (extLower == ".artic")
+						{
+							string uriTxt = File.ReadAllText(f, System.Text.Encoding.UTF8).Trim();
+							bool ok = uriTxt.StartsWith("articbase://", StringComparison.OrdinalIgnoreCase)
+								|| uriTxt.StartsWith("articinio://", StringComparison.OrdinalIgnoreCase)
+								|| uriTxt.StartsWith("articinin://", StringComparison.OrdinalIgnoreCase);
+							if (!ok) allValid = false;
+							z3dsSummary = ok ? $"Указатель сетевого стриминга Artic Base: {uriTxt}" : "Некорректный URI в .artic (ожидается articbase://)";
+						}
+						else if (Z3dsService.IsZ3dsFile(f))
 						{
 							var zcheck = Z3dsService.VerifyZ3dsIntegrity(f);
 							if (!zcheck.IsValid) allValid = false;

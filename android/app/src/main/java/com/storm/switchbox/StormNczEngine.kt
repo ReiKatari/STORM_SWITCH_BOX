@@ -202,9 +202,31 @@ object StormNczEngine {
 
     private val hex16Regex = Regex("""([0-9A-Fa-f]{16})""")
 
+    fun is3dsBundleExtension(ext: String): Boolean {
+        val norm = ext.lowercase().trimStart('.')
+        return norm in setOf("bcci", "bcxi", "bcia")
+    }
+
+    fun is3dsExtension(ext: String): Boolean {
+        val norm = ext.lowercase().trimStart('.')
+        return norm in setOf(
+            "bcci", "bcxi", "bcia",
+            "zcci", "zcxi", "zcia", "z3dsx", "z3ds",
+            "3ds", "cci", "cxi", "cia", "cfa", "app", "3dsx", "elf", "axf", "artic",
+            "nds"
+        )
+    }
+
     fun normalizeBaseTitleId(rawTid: String): String {
         val clean = rawTid.trim().uppercase()
         if (clean.length != 16 || !clean.all { it in '0'..'9' || it in 'A'..'F' }) return ""
+        if (clean.startsWith("0004")) {
+            val high = clean.substring(0, 8)
+            if (high in setOf("00040000", "0004000E", "0004008C", "00040002")) {
+                return "00040000" + clean.substring(8, 16)
+            }
+            return clean
+        }
         val suffix = clean.substring(13, 16)
         return when {
             suffix == "000" -> clean
@@ -222,7 +244,7 @@ object StormNczEngine {
         }
     }
 
-    private val CLEAN_TITLE_EXT_REGEX = Regex("""(?i)\.(nsp|nsz|xci|xcz|nup|3ds|cia|nca|ncz|zip|rar|7z)$""")
+    private val CLEAN_TITLE_EXT_REGEX = Regex("""(?i)\.(nsp|nsz|xci|xcz|nup|bcci|bcxi|bcia|zcci|zcxi|zcia|z3dsx|z3ds|3ds|cci|cxi|cia|cfa|app|3dsx|elf|axf|artic|nds|nca|ncz|zip|rar|7z)$""")
     private val CLEAN_TITLE_BRACKETS_REGEX = Regex("""\([^()]*\)|\[[^\[\]]*\]|\{[^{}]*\}""")
     private val CLEAN_TITLE_PLUS_DLC_REGEX = Regex("""(?i)\s*\+\s*(wave\s*\d+\s*dlc|\d*\s*dlcs?|updates?|patch(es)?).*$""")
     private val CLEAN_TITLE_TAGS_REGEX = Regex("""(?i)\b(v\d+(?:\.\d+)*|upd|update|patch|dlc|base|mod|rus|multi\d*|nintendo|switch|nsp|nsz|xci|xcz)\b""")
@@ -455,13 +477,39 @@ object StormNczEngine {
             } catch (_: Exception) {}
         }
 
+        if (file.exists() && file.isFile && is3dsBundleFile(file)) {
+            read3dsTarBundle(file)?.let { bInfo ->
+                val tinfo = bInfo.metadata["titleinfo"]
+                if (foundTid.isEmpty() && tinfo != null && tinfo.size >= 8) {
+                    val tval = ByteBuffer.wrap(tinfo).order(ByteOrder.LITTLE_ENDIAN).getLong(0)
+                    if (tval != 0L) foundTid = "%016X".format(tval)
+                }
+                for (te in bInfo.entries) {
+                    if (te.name.equals("metadata", ignoreCase = true)) continue
+                    val eLow = te.name.lowercase()
+                    val eTid = strictTid16Regex.find(te.name)?.groupValues?.get(1)?.uppercase().orEmpty()
+                    val eRole = when {
+                        eLow.endsWith(".zcci") || eLow.endsWith(".cci") || eLow.endsWith(".zcxi") || eLow.endsWith(".cxi") || eTid.startsWith("00040000") -> "БАЗА"
+                        eTid.startsWith("0004000E") || eLow.contains("upd") || eLow.contains("patch") -> "ПАТЧ"
+                        eTid.startsWith("0004008C") || eLow.contains("dlc") -> "DLC"
+                        else -> "КОНТЕНТ"
+                    }
+                    detectedSubParts.add(QueuedSubComponent(eRole, eTid.ifEmpty { foundTid }, te.name, te.size))
+                }
+            }
+        }
+
+        val is3dsTid = foundTid.length == 16 && foundTid.startsWith("0004")
         val baseTid = normalizeBaseTitleId(foundTid)
         val isUnlockerName = unlockerKeywordRegex.containsMatchIn(lowerName)
-        val isDlcTid = foundTid.length == 16 && !foundTid.endsWith("000") && !foundTid.endsWith("800")
-        val isSmallDlcUnlocker = isDlcTid && file.exists() && file.isFile && file.length() in 1L..(25L * 1024L * 1024L)
+        val is3dsUpdateTid = is3dsTid && foundTid.startsWith("0004000E")
+        val is3dsDlcTid = is3dsTid && foundTid.startsWith("0004008C")
+        val is3dsBaseTid = is3dsTid && !is3dsUpdateTid && !is3dsDlcTid
+        val isDlcTid = if (is3dsTid) is3dsDlcTid else (foundTid.length == 16 && !foundTid.endsWith("000") && !foundTid.endsWith("800"))
+        val isSmallDlcUnlocker = !is3dsTid && isDlcTid && file.exists() && file.isFile && file.length() in 1L..(25L * 1024L * 1024L)
 
         val hasMultipleRolesInside = detectedSubParts.map { it.roleBadge }.distinct().size > 1
-        val hasBaseAny = hasBaseProg || detectedSubParts.any { it.roleBadge == "БАЗА" || it.titleId.endsWith("000") }
+        val hasBaseAny = hasBaseProg || detectedSubParts.any { it.roleBadge == "БАЗА" || (!it.titleId.startsWith("0004") && it.titleId.endsWith("000")) || it.titleId.startsWith("00040000") }
 
         val (roleBadge, roleOrder) = when {
             ext in listOf("zip", "rar", "7z", "tar", "gz", "tgz", "pchtxt", "ips", "bps") || file.isDirectory || lowerName.contains("mod") || lowerName.contains("rus") || lowerName.contains("русиф") ->
@@ -480,10 +528,12 @@ object StormNczEngine {
             }
             isUnlockerName || isSmallDlcUnlocker ->
                 "UNLOCKER" to 3
-            foundTid.endsWith("800") || Regex("""(?i)\b(upd|update|patch)\b""").containsMatchIn(lowerName) ->
+            is3dsUpdateTid || (!is3dsTid && foundTid.endsWith("800")) || Regex("""(?i)\b(upd|update|patch)\b""").containsMatchIn(lowerName) ->
                 "ПАТЧ" to 1
             isDlcTid || Regex("""(?i)\b(dlc|addon)\b""").containsMatchIn(lowerName) ->
                 "DLC" to 2
+            is3dsBaseTid ->
+                "БАЗА" to 0
             else ->
                 "БАЗА" to 0
         }
@@ -834,6 +884,32 @@ object StormNczEngine {
                         result.add(Pfs0Entry("[3DS NCCH] ${file.name}", 0L, raf.length(), 0L))
                         return result
                     }
+                }
+                if (is3dsBundleFile(file)) {
+                    read3dsTarBundle(file)?.let { binfo ->
+                        for (te in binfo.entries) {
+                            result.add(Pfs0Entry("[TAR BUNDLE] ${te.name}", te.dataOffset, te.size, te.dataOffset))
+                        }
+                        if (result.isNotEmpty()) return result
+                    }
+                }
+                val fileExtLow = file.extension.lowercase()
+                if (fileExtLow in listOf("elf", "axf") && raf.length() >= 4L) {
+                    val elf4 = ByteArray(4)
+                    raf.seek(0L)
+                    raf.readFully(elf4)
+                    if (elf4[0] == 0x7F.toByte() && elf4[1] == 'E'.code.toByte() && elf4[2] == 'L'.code.toByte() && elf4[3] == 'F'.code.toByte()) {
+                        result.add(Pfs0Entry("[3DS ${fileExtLow.uppercase()}] ARM11 Executable (${file.name})", 0L, raf.length(), 0L))
+                        return result
+                    }
+                }
+                if (fileExtLow == "artic" && raf.length() <= 4096L) {
+                    val rawTxt = ByteArray(raf.length().toInt())
+                    raf.seek(0L)
+                    raf.readFully(rawTxt)
+                    val uri = String(rawTxt, StandardCharsets.UTF_8).trim()
+                    result.add(Pfs0Entry("[3DS ARTIC] ${uri.take(120)}", 0L, raf.length(), 0L))
+                    return result
                 }
                 if (isZ3dsFile(file)) {
                     try {
@@ -3012,6 +3088,11 @@ object StormNczEngine {
             "zcxi" -> 10
             "z3dsx" -> 11
             "z3ds" -> 12
+            "bcci" -> 13
+            "bcxi" -> 14
+            "bcia" -> 15
+            "cxi" -> 16
+            "3dsx" -> 17
             else -> 2
         }
         return buildSmartMultiContentPackage(
@@ -3197,9 +3278,40 @@ object StormNczEngine {
         val fallbackTid = tidMatch?.groupValues?.get(1)?.uppercase() ?: "0100000000010000"
         val fallbackVer = extractDisplayVersionFromFileName(file.name) ?: "1.0.0"
         val ext = file.extension.lowercase()
-        val family = if (ext in listOf("3ds", "cci", "cia", "cxi", "cfa", "3dsx", "nds", "zcci", "zcxi", "zcia", "z3dsx", "z3ds")) "3DS" else "SWITCH"
+        val family = if (is3dsExtension(ext)) "3DS" else "SWITCH"
 
-        if (!file.exists() || file.length() < 32L) {
+        if (!file.exists() || file.length() < 4L) {
+            return ContainerMetadataInfo(cleanFallbackTitle, "Nintendo", fallbackVer, fallbackTid, family, null)
+        }
+
+        if (ext == "artic") {
+            val uri = try { file.readText(StandardCharsets.UTF_8).trim() } catch (_: Throwable) { "" }
+            return ContainerMetadataInfo(cleanFallbackTitle, "Artic Base Stream", uri.ifBlank { fallbackVer }, fallbackTid, "3DS", null)
+        }
+        if (ext in listOf("elf", "axf")) {
+            return ContainerMetadataInfo(cleanFallbackTitle, "Nintendo 3DS ${ext.uppercase()}", fallbackVer, fallbackTid, "3DS", null)
+        }
+        if (is3dsBundleFile(file)) {
+            read3dsTarBundle(file)?.let { binfo ->
+                var resolvedTid = fallbackTid
+                var resolvedVer = fallbackVer
+                val tinfo = binfo.metadata["titleinfo"]
+                if (tinfo != null && tinfo.size >= 0x18) {
+                    val tbb = ByteBuffer.wrap(tinfo).order(ByteOrder.LITTLE_ENDIAN)
+                    val tidVal = tbb.getLong(0)
+                    val verVal = tbb.getShort(0x10).toInt() and 0xFFFF
+                    if (tidVal != 0L) resolvedTid = "%016X".format(tidVal)
+                    if (verVal > 0) resolvedVer = "v$verVal"
+                }
+                val mainE = binfo.mainEntry
+                if (mainE != null) {
+                    val subMeta = readZ3dsSliceMetadata(file, mainE.dataOffset, mainE.size, cleanFallbackTitle, resolvedVer, resolvedTid)
+                    if (subMeta != null) return subMeta
+                }
+                return ContainerMetadataInfo(cleanFallbackTitle, "STORM 3DS Bundle", resolvedVer, resolvedTid, "3DS", null)
+            }
+        }
+        if (file.length() < 32L) {
             return ContainerMetadataInfo(cleanFallbackTitle, "Nintendo", fallbackVer, fallbackTid, family, null)
         }
 
@@ -4859,7 +4971,7 @@ object StormNczEngine {
 
     private fun extractZ3dsContainerMetadata(plainFile: File, underlyingMagic: ByteArray, frameSize: Int): LinkedHashMap<String, ByteArray> {
         val meta = LinkedHashMap<String, ByteArray>()
-        meta["compressor"] = "STORM SWITCH BOX 8.1.3".toByteArray(StandardCharsets.UTF_8)
+        meta["compressor"] = "STORM SWITCH BOX 8.2.0".toByteArray(StandardCharsets.UTF_8)
         val df = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US).apply {
             timeZone = java.util.TimeZone.getTimeZone("UTC")
         }
@@ -5320,6 +5432,1000 @@ object StormNczEngine {
         }
     }
 
+    // =========================================================================
+    // ПОДДЕРЖКА БАЯ-ТОЧНЫХ ТАР-БАНДЛОВ STORM 3DS / AZAHAR (.bcci, .bcxi, .bcia)
+    // И ВСЕХ 17+1 НАТИВНЫХ ФОРМАТОВ 3DS (microtar + Z3DS v1 + Partition 0)
+    // =========================================================================
+
+    data class TarBundleEntry(
+        val name: String,
+        val dataOffset: Long,
+        val size: Long,
+        val typeFlag: Byte
+    )
+
+    data class TarBundleInfo(
+        val filePath: String,
+        val entries: List<TarBundleEntry>,
+        val metadata: LinkedHashMap<String, ByteArray>,
+        val mainFileName: String?,
+        val bundleExt: String
+    ) {
+        val mainEntry: TarBundleEntry?
+            get() = entries.firstOrNull { !it.name.equals("metadata", true) && (mainFileName == null || it.name == mainFileName) }
+                ?: entries.firstOrNull {
+                    val low = it.name.lowercase()
+                    !it.name.equals("metadata", true) &&
+                        (low.endsWith(".zcci") || low.endsWith(".zcxi") || low.endsWith(".cci") || low.endsWith(".3ds") || low.endsWith(".cxi") || low.endsWith(".zcia") || low.endsWith(".cia"))
+                }
+                ?: entries.firstOrNull { !it.name.equals("metadata", true) }
+    }
+
+    private const val TAR_MAX_FILES = 50
+
+    private fun parseZ3dsMetadataPublic(buf: ByteArray): LinkedHashMap<String, ByteArray> {
+        val out = LinkedHashMap<String, ByteArray>()
+        if (buf.isEmpty() || (buf[0].toInt() and 0xFF) != 1) return out
+        var pos = 1
+        while (pos + 4 <= buf.size) {
+            val type = buf[pos].toInt() and 0xFF
+            val nameLen = buf[pos + 1].toInt() and 0xFF
+            val dataLen = (buf[pos + 2].toInt() and 0xFF) or ((buf[pos + 3].toInt() and 0xFF) shl 8)
+            pos += 4
+            if (type == 0) break
+            if (pos + nameLen + dataLen > buf.size) break
+            if (type == 1) {
+                val name = String(buf, pos, nameLen, StandardCharsets.UTF_8)
+                out[name] = buf.copyOfRange(pos + nameLen, pos + nameLen + dataLen)
+            }
+            pos += nameLen + dataLen
+        }
+        return out
+    }
+
+    private fun validateTarHeader512(hdr: ByteArray): Boolean {
+        if (hdr.size < 512) return false
+        if (hdr.all { it == 0.toByte() }) return false
+        val nameEnd = hdr.indexOfFirst { it == 0.toByte() }.let { if (it in 0..99) it else 100 }
+        if (nameEnd == 0) return false
+        var expected = 0L
+        var sawDigit = false
+        for (i in 148 until 156) {
+            val c = hdr[i].toInt() and 0xFF
+            if (c in '0'.code..'7'.code) {
+                expected = (expected shl 3) or (c - '0'.code).toLong()
+                sawDigit = true
+            }
+        }
+        if (!sawDigit) return false
+        var uSum = 0L
+        var sSum = 0L
+        for (i in 0 until 512) {
+            if (i in 148 until 156) {
+                uSum += 32L
+                sSum += 32L
+            } else {
+                uSum += (hdr[i].toInt() and 0xFF).toLong()
+                sSum += hdr[i].toInt().toLong()
+            }
+        }
+        return expected == uSum || expected == sSum
+    }
+
+    private fun parseTarEntrySize(hdr: ByteArray): Long {
+        if ((hdr[124].toInt() and 0x80) != 0) {
+            var v = 0L
+            for (i in 125 until 136) {
+                v = (v shl 8) or (hdr[i].toInt() and 0xFF).toLong()
+            }
+            return v
+        }
+        var v = 0L
+        for (i in 124 until 136) {
+            val c = hdr[i].toInt() and 0xFF
+            if (c == 0 || c == 32) continue
+            if (c in '0'.code..'7'.code) {
+                v = (v shl 3) or (c - '0'.code).toLong()
+            }
+        }
+        return v
+    }
+
+    fun is3dsBundleFile(file: File): Boolean {
+        if (!file.exists() || !file.isFile || file.length() < 1024L) return false
+        return try {
+            RandomAccessFile(file, "r").use { raf ->
+                val hdr = ByteArray(512)
+                raf.seek(0L)
+                raf.readFully(hdr)
+                if (!validateTarHeader512(hdr)) return false
+                val zeroIdx = (0 until 100).firstOrNull { hdr[it] == 0.toByte() } ?: 100
+                val entryName = String(hdr, 0, zeroIdx, StandardCharsets.UTF_8)
+                if (entryName.equals("metadata", ignoreCase = true) || is3dsBundleExtension(file.extension)) {
+                    return true
+                }
+                val low = entryName.lowercase()
+                low.endsWith(".zcci") || low.endsWith(".zcxi") || low.endsWith(".zcia") ||
+                    low.endsWith(".cci") || low.endsWith(".3ds") || low.endsWith(".cxi") || low.endsWith(".cia")
+            }
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    fun read3dsTarBundle(file: File): TarBundleInfo? {
+        if (!is3dsBundleFile(file)) return null
+        val entries = mutableListOf<TarBundleEntry>()
+        var metaMap = LinkedHashMap<String, ByteArray>()
+        try {
+            RandomAccessFile(file, "r").use { raf ->
+                val len = raf.length()
+                val hdr = ByteArray(512)
+                var pos = 0L
+                while (pos + 512L <= len) {
+                    raf.seek(pos)
+                    raf.readFully(hdr)
+                    if (hdr.all { it == 0.toByte() }) break
+                    if (!validateTarHeader512(hdr)) return null
+                    val zeroIdx = (0 until 100).firstOrNull { hdr[it] == 0.toByte() } ?: 100
+                    val name = String(hdr, 0, zeroIdx, StandardCharsets.UTF_8)
+                    val size = parseTarEntrySize(hdr)
+                    val tFlag = hdr[156]
+                    val dataOff = pos + 512L
+                    if (size < 0L || dataOff + size > len) return null
+                    if (tFlag == 0.toByte() || tFlag == '0'.code.toByte()) {
+                        entries.add(TarBundleEntry(name, dataOff, size, tFlag))
+                        if (name.equals("metadata", ignoreCase = true) && size in 1L..(16L * 1024L * 1024L)) {
+                            val mb = ByteArray(size.toInt())
+                            raf.seek(dataOff)
+                            raf.readFully(mb)
+                            metaMap = parseZ3dsMetadataPublic(mb)
+                        }
+                    }
+                    val paddedSize = (size + 511L) and -512L
+                    pos = dataOff + paddedSize
+                }
+            }
+        } catch (_: Throwable) {
+            return null
+        }
+        if (entries.isEmpty()) return null
+        val mainName = metaMap["mainfile"]?.let { String(it, StandardCharsets.UTF_8).trimEnd('\u0000') }?.takeIf { it.isNotBlank() }
+        return TarBundleInfo(file.absolutePath, entries, metaMap, mainName, file.extension.lowercase())
+    }
+
+    private fun verifyZ3dsSliceQuick(raf: RandomAccessFile, sliceOff: Long, sliceSize: Long, entryName: String): Pair<Boolean, String> {
+        if (sliceSize < Z3DS_HEADER_SIZE.toLong()) return false to "❌ Запись $entryName слишком мала для Z3DS"
+        val hBuf = ByteArray(Z3DS_HEADER_SIZE)
+        raf.seek(sliceOff)
+        raf.readFully(hBuf)
+        if (String(hBuf, 0, 4, StandardCharsets.US_ASCII) != "Z3DS") {
+            return false to "❌ Запись $entryName не содержит сигнатуру Z3DS"
+        }
+        val uMagic = String(hBuf, 4, 4, StandardCharsets.US_ASCII).trimEnd('\u0000')
+        val bb = ByteBuffer.wrap(hBuf).order(ByteOrder.LITTLE_ENDIAN)
+        val ver = hBuf[8].toInt() and 0xFF
+        val hdrSize = bb.getShort(0x0A).toInt() and 0xFFFF
+        val metaSize = bb.getInt(0x0C).toLong() and 0xFFFFFFFFL
+        val compSize = bb.getLong(0x10)
+        val uncompSize = bb.getLong(0x18)
+        if (ver != Z3DS_VERSION || hdrSize < Z3DS_HEADER_SIZE || hdrSize.toLong() + metaSize > sliceSize) {
+            return false to "❌ Повреждён заголовок Z3DS в записи $entryName"
+        }
+        val seekEnd = if (compSize > 0L) sliceOff + hdrSize.toLong() + metaSize + compSize else sliceOff + sliceSize
+        if (seekEnd > sliceOff + sliceSize || seekEnd < sliceOff + hdrSize.toLong() + metaSize + 17L) {
+            return false to "❌ Отсутствует Seek Table Z3DS в записи $entryName"
+        }
+        val footer = ByteArray(9)
+        raf.seek(seekEnd - 9L)
+        raf.readFully(footer)
+        val fbb = ByteBuffer.wrap(footer).order(ByteOrder.LITTLE_ENDIAN)
+        val frameCount = fbb.getInt(0).toLong() and 0xFFFFFFFFL
+        val desc = footer[4].toInt() and 0xFF
+        val fMagic = fbb.getInt(5).toLong() and 0xFFFFFFFFL
+        if (fMagic != ZSTD_SEEKABLE_MAGIC) {
+            return false to "❌ Нет сигнатуры 0x8F92EAB1 в Seek Table ($entryName)"
+        }
+        val entrySz = if ((desc and 0x80) != 0) 12 else 8
+        val bodySz = frameCount * entrySz.toLong() + 9L
+        val skipStart = seekEnd - 8L - bodySz
+        if (skipStart < sliceOff + hdrSize.toLong() + metaSize) {
+            return false to "❌ Некорректная Seek Table в $entryName"
+        }
+        val skipHdr = ByteArray(8)
+        raf.seek(skipStart)
+        raf.readFully(skipHdr)
+        val sbb = ByteBuffer.wrap(skipHdr).order(ByteOrder.LITTLE_ENDIAN)
+        val skipMagic = sbb.getInt(0).toLong() and 0xFFFFFFFFL
+        val skipLen = sbb.getInt(4).toLong() and 0xFFFFFFFFL
+        if (skipMagic != ZSTD_SKIPPABLE_MAGIC || skipLen != bodySz) {
+            return false to "❌ Повреждён skippable-кадр Seek Table в $entryName"
+        }
+        return true to "✔ $entryName (Z3DS/$uMagic, $frameCount кадр., ${formatSize(uncompSize)} -> ${formatSize(sliceSize)})"
+    }
+
+    fun verify3dsTarBundle(file: File): Pair<Boolean, String> {
+        val info = read3dsTarBundle(file) ?: return false to "❌ Невалидная структура TAR-бандла microtar"
+        if (info.entries.size > TAR_MAX_FILES) {
+            return false to "❌ Превышен лимит записей TAR-бандла (${info.entries.size} > $TAR_MAX_FILES)"
+        }
+        val hasMeta = info.entries.any { it.name.equals("metadata", ignoreCase = true) }
+        val nonMeta = info.entries.filter { !it.name.equals("metadata", ignoreCase = true) }
+        if (nonMeta.isEmpty()) {
+            return false to "❌ TAR-бандл не содержит игровых файлов"
+        }
+        val lines = mutableListOf<String>()
+        lines.add(if (hasMeta) "✔ Метаданные бандла TAR найдены" else "⚠ Отсутствует запись metadata в TAR")
+        var allOk = true
+        RandomAccessFile(file, "r").use { raf ->
+            for (te in nonMeta) {
+                val low = te.name.lowercase()
+                if (te.size >= 32L && (low.endsWith(".zcci") || low.endsWith(".zcxi") || low.endsWith(".zcia") || low.endsWith(".z3dsx") || low.endsWith(".z3ds"))) {
+                    val (zOk, zMsg) = verifyZ3dsSliceQuick(raf, te.dataOffset, te.size, te.name)
+                    if (!zOk) allOk = false
+                    lines.add(zMsg)
+                } else {
+                    lines.add("✔ ${te.name} (${formatSize(te.size)})")
+                }
+            }
+        }
+        return allOk to lines.joinToString("; ")
+    }
+
+    fun extract3dsTarBundle(
+        bundleFile: File,
+        outputDir: File,
+        onProgress: (NczProgress) -> Unit = {}
+    ): List<File> {
+        val info = read3dsTarBundle(bundleFile)
+            ?: throw IOException("Повреждённый TAR-бандл 3DS: ${bundleFile.name}")
+        outputDir.mkdirs()
+        val nonMeta = info.entries.filter { !it.name.equals("metadata", ignoreCase = true) }
+        val totalBytes = nonMeta.sumOf { it.size }.coerceAtLeast(1L)
+        var doneBytes = 0L
+        val extracted = mutableListOf<File>()
+        RandomAccessFile(bundleFile, "r").use { raf ->
+            val buf = ByteArray(256 * 1024)
+            for ((idx, te) in nonMeta.withIndex()) {
+                val safeName = te.name.replace('\\', '/').substringAfterLast('/').replace(Regex("""[:*?"<>|]"""), "_").ifBlank { "entry_$idx.bin" }
+                val outFile = File(outputDir, safeName)
+                raf.seek(te.dataOffset)
+                BufferedOutputStream(FileOutputStream(outFile), 256 * 1024).use { bos ->
+                    var rem = te.size
+                    while (rem > 0L) {
+                        checkCancelled()
+                        val r = raf.read(buf, 0, min(rem, buf.size.toLong()).toInt())
+                        if (r <= 0) break
+                        bos.write(buf, 0, r)
+                        rem -= r
+                        doneBytes += r
+                    }
+                    bos.flush()
+                }
+                extracted.add(outFile)
+                val pct = ((doneBytes * 100L) / totalBytes).toInt().coerceIn(0, 100)
+                onProgress(NczProgress(safeName, idx + 1, nonMeta.size, doneBytes, totalBytes, 0.0, pct, "Извлечение бандла: $safeName"))
+            }
+        }
+        return extracted
+    }
+
+    private fun sanitizeTarEntryName(rawName: String, usedNames: MutableSet<String>): String {
+        var clean = rawName.replace('\\', '/').substringAfterLast('/').replace(Regex("""[\\/:*?"<>|\u0000-\u001F]"""), "_").trim()
+        if (clean.isEmpty() || clean.equals("metadata", ignoreCase = true)) {
+            clean = "content_$clean.bin"
+        }
+        fun truncateUtf899(s: String): String {
+            var cur = s
+            while (cur.toByteArray(StandardCharsets.UTF_8).size > 99) {
+                val dot = cur.lastIndexOf('.')
+                cur = if (dot > 1) cur.substring(0, dot - 1) + cur.substring(dot) else cur.dropLast(1)
+            }
+            return cur
+        }
+        clean = truncateUtf899(clean)
+        var idx = 1
+        var candidate = clean
+        while (!usedNames.add(candidate.lowercase())) {
+            val ext = clean.substringAfterLast('.', "")
+            val base = if (ext.isNotEmpty()) clean.substringBeforeLast('.') else clean
+            val suffix = if (ext.isNotEmpty()) "_$idx.$ext" else "_$idx"
+            candidate = truncateUtf899(base + suffix)
+            idx++
+        }
+        return candidate
+    }
+
+    private fun writeMicrotarHeader(os: OutputStream, name: String, size: Long) {
+        val hdr = ByteArray(512)
+        val nBytes = name.toByteArray(StandardCharsets.UTF_8)
+        System.arraycopy(nBytes, 0, hdr, 0, min(nBytes.size, 99))
+        fun putAscii(off: Int, str: String) {
+            val b = str.toByteArray(StandardCharsets.US_ASCII)
+            System.arraycopy(b, 0, hdr, off, min(b.size, hdr.size - off))
+        }
+        putAscii(100, "0000644\u0000")
+        putAscii(108, "0000000\u0000")
+        putAscii(116, "0000000\u0000")
+        if (size <= 0x1FFFFFFFFL) {
+            val oct = java.lang.Long.toOctalString(size).padStart(11, '0') + "\u0000"
+            putAscii(124, oct)
+        } else {
+            hdr[124] = 0x80.toByte()
+            var v = size
+            for (i in 135 downTo 125) {
+                hdr[i] = (v and 0xFFL).toByte()
+                v = v ushr 8
+            }
+        }
+        putAscii(136, "00000000000\u0000")
+        for (i in 148 until 156) hdr[i] = ' '.code.toByte()
+        hdr[156] = '0'.code.toByte()
+        var sum = 0L
+        for (i in 0 until 512) sum += (hdr[i].toInt() and 0xFF).toLong()
+        val chkStr = java.lang.Long.toOctalString(sum).padStart(6, '0') + "\u0000 "
+        putAscii(148, chkStr)
+        os.write(hdr)
+    }
+
+    fun create3dsTarBundle(
+        entries: List<Pair<String, File>>,
+        outputFile: File,
+        mainFileName: String,
+        mainMetadata: Map<String, ByteArray>,
+        onProgress: (NczProgress) -> Unit = {}
+    ): CompressionResult {
+        val startMs = System.currentTimeMillis()
+        require(entries.isNotEmpty() && entries.size + 1 <= TAR_MAX_FILES) {
+            "Число файлов в бандле должно быть от 1 до ${TAR_MAX_FILES - 1}"
+        }
+        outputFile.parentFile?.mkdirs()
+        val tempOut = File(outputFile.parentFile ?: File("."), ".storm_bundle_${System.currentTimeMillis()}.tmp")
+
+        val usedNames = HashSet<String>()
+        var sanitizedMain = mainFileName
+        val normalizedEntries = entries.map { (rawName, file) ->
+            val sanitized = sanitizeTarEntryName(rawName, usedNames)
+            if (rawName == mainFileName) sanitizedMain = sanitized
+            sanitized to file
+        }
+
+        val bundleMeta = LinkedHashMap<String, ByteArray>()
+        for ((k, v) in mainMetadata) {
+            if (!k.equals("smdh", ignoreCase = true) &&
+                !k.equals("compressor", ignoreCase = true) &&
+                !k.equals("maxframesize", ignoreCase = true)
+            ) {
+                bundleMeta[k] = v
+            }
+        }
+        bundleMeta["bundler"] = "STORM SWITCH BOX 8.2.0".toByteArray(StandardCharsets.UTF_8)
+        val df = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US).apply {
+            timeZone = java.util.TimeZone.getTimeZone("UTC")
+        }
+        bundleMeta["date"] = df.format(java.util.Date()).toByteArray(StandardCharsets.UTF_8)
+        bundleMeta["mainfile"] = sanitizedMain.toByteArray(StandardCharsets.UTF_8)
+        val metaBytes = serializeZ3dsMetadataPadded16(bundleMeta)
+
+        val totalBytes = normalizedEntries.sumOf { it.second.length() }.coerceAtLeast(1L)
+        var writtenBytes = 0L
+
+        try {
+            BufferedOutputStream(FileOutputStream(tempOut), 512 * 1024).use { bos ->
+                // 1. Обязательная первая запись "metadata" (tar_file.cpp / loader.cpp)
+                writeMicrotarHeader(bos, "metadata", metaBytes.size.toLong())
+                bos.write(metaBytes)
+                val metaRem = (512 - (metaBytes.size % 512)) % 512
+                if (metaRem > 0) bos.write(ByteArray(metaRem))
+
+                // 2. Основные и дополнительные файлы (.zcci/.zcxi/.zcia/.cia/.cci)
+                val buf = ByteArray(256 * 1024)
+                for ((idx, pair) in normalizedEntries.withIndex()) {
+                    val (entryName, srcFile) = pair
+                    val fLen = srcFile.length()
+                    writeMicrotarHeader(bos, entryName, fLen)
+                    FileInputStream(srcFile).use { fis ->
+                        var rem = fLen
+                        while (rem > 0L) {
+                            checkCancelled()
+                            val r = fis.read(buf, 0, min(rem, buf.size.toLong()).toInt())
+                            if (r <= 0) break
+                            bos.write(buf, 0, r)
+                            rem -= r
+                            writtenBytes += r
+                            val pct = 20 + ((writtenBytes * 78L) / totalBytes).toInt()
+                            onProgress(NczProgress(entryName, idx + 1, normalizedEntries.size, writtenBytes, totalBytes, 0.0, pct.coerceIn(0, 98), "Упаковка TAR-бандла: $entryName ($pct%)"))
+                        }
+                    }
+                    val pad = ((512L - (fLen % 512L)) % 512L).toInt()
+                    if (pad > 0) bos.write(ByteArray(pad))
+                }
+                // 3. Финальный 1024-байтовый нулевой EOF-маркер
+                bos.write(ByteArray(1024))
+                bos.flush()
+            }
+
+            if (outputFile.exists()) outputFile.delete()
+            if (!tempOut.renameTo(outputFile)) {
+                tempOut.copyTo(outputFile, overwrite = true)
+                tempOut.delete()
+            }
+            val elapsed = (System.currentTimeMillis() - startMs).coerceAtLeast(1L)
+            onProgress(NczProgress(outputFile.name, 1, 1, totalBytes, totalBytes, 0.0, 100, "Готово: ${outputFile.name}"))
+            return CompressionResult(
+                success = true,
+                inputPath = entries.first().second.absolutePath,
+                outputPath = outputFile.absolutePath,
+                originalBytes = totalBytes,
+                compressedBytes = outputFile.length(),
+                elapsedMs = elapsed,
+                compressedNcaCount = normalizedEntries.size,
+                totalFilesCount = normalizedEntries.size,
+                blockSizeExponent = 18,
+                zstdLevel = 18,
+                message = "Собран TAR-бандл ${outputFile.extension.uppercase()}: ${outputFile.name} (${normalizedEntries.size} ф., ${formatSize(outputFile.length())})"
+            )
+        } finally {
+            try { if (tempOut.exists()) tempOut.delete() } catch (_: Throwable) {}
+        }
+    }
+
+    private fun readZ3dsSliceMetadata(
+        containerFile: File,
+        sliceOff: Long,
+        sliceSize: Long,
+        fallbackTitle: String,
+        fallbackVer: String,
+        fallbackTid: String
+    ): ContainerMetadataInfo? {
+        if (sliceSize < Z3DS_HEADER_SIZE.toLong()) return null
+        return try {
+            RandomAccessFile(containerFile, "r").use { raf ->
+                raf.seek(sliceOff)
+                val hBuf = ByteArray(Z3DS_HEADER_SIZE)
+                raf.readFully(hBuf)
+                if (String(hBuf, 0, 4, StandardCharsets.US_ASCII) != "Z3DS") return null
+                val bb = ByteBuffer.wrap(hBuf).order(ByteOrder.LITTLE_ENDIAN)
+                val hdrSize = bb.getShort(0x0A).toInt() and 0xFFFF
+                val metaSize = bb.getInt(0x0C).toLong() and 0xFFFFFFFFL
+                var resolvedTid = fallbackTid
+                var resolvedVer = fallbackVer
+                if (metaSize > 0L && metaSize <= 16L * 1024L * 1024L && hdrSize + metaSize <= sliceSize) {
+                    val mBuf = ByteArray(metaSize.toInt())
+                    raf.seek(sliceOff + hdrSize.toLong())
+                    raf.readFully(mBuf)
+                    val meta = parseZ3dsMetadataPublic(mBuf)
+                    meta["titleinfo"]?.let { ti ->
+                        if (ti.size >= 0x18) {
+                            val tbb = ByteBuffer.wrap(ti).order(ByteOrder.LITTLE_ENDIAN)
+                            val tidVal = tbb.getLong(0)
+                            val verVal = tbb.getShort(0x10).toInt() and 0xFFFF
+                            if (tidVal != 0L) resolvedTid = "%016X".format(tidVal)
+                            if (verVal > 0) resolvedVer = "v$verVal"
+                        }
+                    }
+                    meta["smdh"]?.let { sm ->
+                        if (sm.size >= 0x36C0 && String(sm, 0, 4, StandardCharsets.US_ASCII) == "SMDH") {
+                            val st = String(sm, 8 + 0x80, 0x80, Charsets.UTF_16LE).trimEnd('\u0000').trim()
+                            val pb = String(sm, 8 + 0x180, 0x80, Charsets.UTF_16LE).trimEnd('\u0000').trim()
+                            if (st.isNotBlank()) return ContainerMetadataInfo(st, pb.ifBlank { "Nintendo 3DS" }, resolvedVer, resolvedTid, "3DS", null)
+                        }
+                    }
+                }
+                ContainerMetadataInfo(fallbackTitle, "Nintendo 3DS", resolvedVer, resolvedTid, "3DS", null)
+            }
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    fun extractNcsdPartition0ToCxi(inputNcsd: File, outputCxi: File, onProgress: (NczProgress) -> Unit = {}): CompressionResult {
+        val startMs = System.currentTimeMillis()
+        outputCxi.parentFile?.mkdirs()
+        RandomAccessFile(inputNcsd, "r").use { raf ->
+            val len = raf.length()
+            if (len < 0x4200L) throw IOException("Файл слишком мал для NCSD: ${inputNcsd.name}")
+            raf.seek(0x100L)
+            val m4 = ByteArray(4)
+            raf.readFully(m4)
+            if (String(m4, StandardCharsets.US_ASCII) != "NCSD") throw IOException("Ожидается NCSD картридж: ${inputNcsd.name}")
+            raf.seek(0x120L)
+            val b8 = ByteArray(8)
+            raf.readFully(b8)
+            val bb = ByteBuffer.wrap(b8).order(ByteOrder.LITTLE_ENDIAN)
+            val offU = bb.int.toLong() and 0xFFFFFFFFL
+            val lenU = bb.int.toLong() and 0xFFFFFFFFL
+            val partOff = if (offU > 0L) offU * 0x200L else 0x4000L
+            val partLen = lenU * 0x200L
+            if (partLen <= 0x200L || partOff + partLen > len) {
+                throw IOException("Некорректная Partition 0 в NCSD (${inputNcsd.name})")
+            }
+            raf.seek(partOff)
+            BufferedOutputStream(FileOutputStream(outputCxi), 256 * 1024).use { bos ->
+                val buf = ByteArray(256 * 1024)
+                var rem = partLen
+                var done = 0L
+                while (rem > 0L) {
+                    checkCancelled()
+                    val r = raf.read(buf, 0, min(rem, buf.size.toLong()).toInt())
+                    if (r <= 0) break
+                    bos.write(buf, 0, r)
+                    rem -= r
+                    done += r
+                    val pct = 10 + ((done * 75L) / partLen.coerceAtLeast(1L)).toInt()
+                    onProgress(NczProgress(outputCxi.name, 1, 1, done, partLen, 0.0, pct, "Извлечение Partition 0 -> CXI ($pct%)"))
+                }
+                bos.flush()
+            }
+        }
+        val decErr = decrypt3dsNcchPartitionsInPlace(outputCxi, listOf(0L to outputCxi.length()))
+        if (decErr != null) {
+            try { outputCxi.delete() } catch (_: Throwable) {}
+            throw IOException(decErr)
+        }
+        onProgress(NczProgress(outputCxi.name, 1, 1, outputCxi.length(), outputCxi.length(), 0.0, 100, "Готово: ${outputCxi.name}"))
+        return CompressionResult(true, inputNcsd.absolutePath, outputCxi.absolutePath, inputNcsd.length(), outputCxi.length(), (System.currentTimeMillis() - startMs).coerceAtLeast(1L), 1, 1, 18, 0, "Извлечён игровой раздел CXI: ${outputCxi.name}")
+    }
+
+    fun extractCiaContent0ToCxi(inputCia: File, outputCxi: File, onProgress: (NczProgress) -> Unit = {}): CompressionResult {
+        val startMs = System.currentTimeMillis()
+        outputCxi.parentFile?.mkdirs()
+        RandomAccessFile(inputCia, "r").use { raf ->
+            val len = raf.length()
+            if (len < 0x2040L) throw IOException("Файл слишком мал для CIA: ${inputCia.name}")
+            val ciaHdr = ByteArray(32)
+            raf.seek(0L)
+            raf.readFully(ciaHdr)
+            val cbb = ByteBuffer.wrap(ciaHdr).order(ByteOrder.LITTLE_ENDIAN)
+            val hdrSize = cbb.int.toLong() and 0xFFFFFFFFL
+            cbb.int
+            val certSize = cbb.int.toLong() and 0xFFFFFFFFL
+            val tikSize = cbb.int.toLong() and 0xFFFFFFFFL
+            val tmdSize = cbb.int.toLong() and 0xFFFFFFFFL
+            cbb.int
+            val contentSize = cbb.long
+            fun align64(v: Long): Long = (v + 63L) and -64L
+            val tmdOff = align64(align64(align64(hdrSize) + certSize) + tikSize)
+            val contentOff = align64(tmdOff + tmdSize)
+            if (contentOff >= len || contentSize <= 0x200L) throw IOException("Некорректная структура CIA (${inputCia.name})")
+            if (tmdSize >= 0xB28L && tmdOff + 0xB0CL <= len) {
+                raf.seek(tmdOff + 0xB0AL)
+                val flags = ((raf.readByte().toInt() and 0xFF) shl 8) or (raf.readByte().toInt() and 0xFF)
+                if ((flags and 0x0001) != 0) throw IOException("CIA зашифрован консольным TitleKey (0x0001); подайте расшифрованный CIA")
+            }
+            val firstNcch = ByteArray(0x200)
+            raf.seek(contentOff)
+            raf.readFully(firstNcch)
+            if (String(firstNcch, 0x100, 4, StandardCharsets.US_ASCII) != "NCCH") {
+                throw IOException("Первый раздел CIA не является NCCH")
+            }
+            val ncchUnits = ByteBuffer.wrap(firstNcch).order(ByteOrder.LITTLE_ENDIAN).getInt(0x104).toLong() and 0xFFFFFFFFL
+            val part0Len = if (ncchUnits > 0L) (ncchUnits * 0x200L).coerceAtMost(len - contentOff) else min(contentSize, len - contentOff)
+            raf.seek(contentOff)
+            BufferedOutputStream(FileOutputStream(outputCxi), 256 * 1024).use { bos ->
+                val buf = ByteArray(256 * 1024)
+                var rem = part0Len
+                var done = 0L
+                while (rem > 0L) {
+                    checkCancelled()
+                    val r = raf.read(buf, 0, min(rem, buf.size.toLong()).toInt())
+                    if (r <= 0) break
+                    bos.write(buf, 0, r)
+                    rem -= r
+                    done += r
+                    val pct = 10 + ((done * 75L) / part0Len.coerceAtLeast(1L)).toInt()
+                    onProgress(NczProgress(outputCxi.name, 1, 1, done, part0Len, 0.0, pct, "Извлечение Content 0 CIA -> CXI ($pct%)"))
+                }
+                bos.flush()
+            }
+        }
+        val decErr = decrypt3dsNcchPartitionsInPlace(outputCxi, listOf(0L to outputCxi.length()))
+        if (decErr != null) {
+            try { outputCxi.delete() } catch (_: Throwable) {}
+            throw IOException(decErr)
+        }
+        onProgress(NczProgress(outputCxi.name, 1, 1, outputCxi.length(), outputCxi.length(), 0.0, 100, "Готово: ${outputCxi.name}"))
+        return CompressionResult(true, inputCia.absolutePath, outputCxi.absolutePath, inputCia.length(), outputCxi.length(), (System.currentTimeMillis() - startMs).coerceAtLeast(1L), 1, 1, 18, 0, "Извлечён Content 0 -> CXI: ${outputCxi.name}")
+    }
+
+    fun wrapCxiToCci(inputCxi: File, outputCci: File, onProgress: (NczProgress) -> Unit = {}): CompressionResult {
+        val startMs = System.currentTimeMillis()
+        outputCci.parentFile?.mkdirs()
+        val cxiLen = inputCxi.length()
+        if (cxiLen < 0x200L) throw IOException("Файл слишком мал для NCCH/CXI: ${inputCxi.name}")
+        val ncchHdr = ByteArray(0x200)
+        RandomAccessFile(inputCxi, "r").use { raf ->
+            raf.readFully(ncchHdr)
+        }
+        if (String(ncchHdr, 0x100, 4, StandardCharsets.US_ASCII) != "NCCH") {
+            throw IOException("Входной файл не является NCCH (.cxi/.app/.cfa): ${inputCxi.name}")
+        }
+        val mediaId = ByteBuffer.wrap(ncchHdr).order(ByteOrder.LITTLE_ENDIAN).getLong(0x118)
+        val alignedLen = (cxiLen + 0x1FFL) and -0x200L
+        val ncsdHdr = ByteArray(0x4000)
+        val nbb = ByteBuffer.wrap(ncsdHdr).order(ByteOrder.LITTLE_ENDIAN)
+        nbb.position(0x100)
+        nbb.put("NCSD".toByteArray(StandardCharsets.US_ASCII))
+        nbb.putInt(((0x4000L + alignedLen) / 0x200L).toInt())
+        nbb.putLong(if (mediaId != 0L) mediaId else 0x0004000000030000L)
+        nbb.position(0x120)
+        nbb.putInt(0x4000 / 0x200)
+        nbb.putInt((alignedLen / 0x200L).toInt())
+
+        BufferedOutputStream(FileOutputStream(outputCci), 256 * 1024).use { bos ->
+            bos.write(ncsdHdr)
+            FileInputStream(inputCxi).use { fis ->
+                val buf = ByteArray(256 * 1024)
+                var rem = cxiLen
+                var done = 0L
+                while (rem > 0L) {
+                    checkCancelled()
+                    val r = fis.read(buf, 0, min(rem, buf.size.toLong()).toInt())
+                    if (r <= 0) break
+                    bos.write(buf, 0, r)
+                    rem -= r
+                    done += r
+                    val pct = 15 + ((done * 75L) / cxiLen.coerceAtLeast(1L)).toInt()
+                    onProgress(NczProgress(outputCci.name, 1, 1, done, cxiLen, 0.0, pct, "Обёртка CXI -> CCI ($pct%)"))
+                }
+            }
+            val pad = (alignedLen - cxiLen).toInt()
+            if (pad > 0) bos.write(ByteArray(pad))
+            bos.flush()
+        }
+        val decErr = decrypt3dsNcchPartitionsInPlace(outputCci, listOf(0x4000L to alignedLen))
+        if (decErr != null) {
+            try { outputCci.delete() } catch (_: Throwable) {}
+            throw IOException(decErr)
+        }
+        onProgress(NczProgress(outputCci.name, 1, 1, outputCci.length(), outputCci.length(), 0.0, 100, "Готово: ${outputCci.name}"))
+        return CompressionResult(true, inputCxi.absolutePath, outputCci.absolutePath, cxiLen, outputCci.length(), (System.currentTimeMillis() - startMs).coerceAtLeast(1L), 1, 1, 18, 0, "Упакован в CCI: ${outputCci.name}")
+    }
+
+    fun get3dsFormatRecommendation(modeIndex: Int, isRu: Boolean = true): String {
+        return when (modeIndex) {
+            13 -> if (isRu)
+                "★ BCCI (Bundle CCI) - ЛУЧШИЙ ВЫБОР для STORM 3DS и Azahar! В 1 файле (microtar + Z3DS) хранит игру .zcci, обновления .zcia и DLC .zcia. Мгновенный запуск БЕЗ установки в sdmc и без 2x расхода памяти."
+            else
+                "★ BCCI (Bundle CCI) - #1 CHOICE for STORM 3DS & Azahar! Bundles .zcci game + .zcia updates + .zcia DLC in ONE file with instant zero-install launch (no 2x sdmc space)."
+            14 -> if (isRu)
+                "★ BCXI (Bundle CXI) - АБСОЛЮТНЫЙ МИНИМУМ РАЗМЕРА «всё в 1 файле»! Срезает мануал/DLP (оставляет чистый игровой .zcxi) + .zcia обновлений и DLC, без установки в sdmc."
+            else
+                "★ BCXI (Bundle CXI) - SMALLEST ALL-IN-ONE BUNDLE! Uses stripped Partition 0 .zcxi + .zcia updates/DLC with zero sdmc installation."
+            15 -> if (isRu)
+                "BCIA (Bundle CIA) - бандл инсталляторов .cia/.zcia для пакетной установки в sdmc. Для хранения коллекции лучше .BCCI или .BCXI (не тратят 2x места)."
+            else
+                "BCIA (Bundle CIA) - batch .cia/.zcia installer TAR. For zero-install gameplay, prefer .BCCI or .BCXI."
+            8 -> if (isRu)
+                "★ ZCCI - лучший формат для ОДИНОЧНОЙ игры (без DLC/патчей): сжатие Z3DS v1 1.5-3x, запуск с произвольным доступом без распаковки."
+            else
+                "★ ZCCI - best single-game format (no updates/DLC): Z3DS v1 Seekable Zstd (1.5-3x smaller, instant boot)."
+            10 -> if (isRu)
+                "ZCXI - минимальный размер для 1 игры: сжатый чистый Partition 0 NCCH в контейнере Z3DS v1."
+            else
+                "ZCXI - smallest single-game container (compressed Partition 0 NCCH in Z3DS v1)."
+            9 -> if (isRu)
+                "ZCIA - сжатый установочный архив (оптимален для отдельных Updates и DLC; базовую игру лучше хранить в BCCI / ZCCI)."
+            else
+                "ZCIA - compressed CIA (best for standalone updates/DLC; store base games as BCCI / ZCCI)."
+            11 -> if (isRu) "Z3DSX - сжатый Homebrew-файл .3dsx для STORM 3DS / Azahar." else "Z3DSX - compressed Homebrew .3dsx for STORM 3DS / Azahar."
+            12 -> if (isRu) "Z3DS - автовыбор точного расширения Z3DS (.zcci / .zcxi / .zcia / .z3dsx) по структуре исходного файла." else "Z3DS - auto-selects compressed extension (.zcci/.zcxi/.zcia/.z3dsx) from source magic."
+            4, 5 -> if (isRu) "CCI / 3DS (Decrypted + Trim 0xFF) - стандарт NCSD с максимальной совместимостью (Citra MMJ, RetroArch, Azahar, STORM 3DS)." else "CCI / 3DS (Decrypted + Trim 0xFF) - widest emulator compatibility (Citra MMJ, RetroArch, Azahar, STORM 3DS)."
+            16 -> if (isRu) "CXI - чистый несжатый раздел Partition 0 NCCH без обёртки картриджа (легче .3ds/.cci)." else "CXI - uncompressed Partition 0 NCCH executable without NCSD cartridge wrapper."
+            6 -> if (isRu) "CIA - установочный пакет для реальной консоли Nintendo 3DS (FBI / Luma3DS)." else "CIA - installable package for real Nintendo 3DS consoles (FBI / Luma3DS)."
+            17 -> if (isRu) "3DSX - несжатый Homebrew Launcher формат (.3dsx)." else "3DSX - uncompressed Homebrew Launcher executable (.3dsx)."
+            else -> ""
+        }
+    }
+
+    fun build3dsFormatCatalogGuide(isRu: Boolean = true): String {
+        return if (isRu) {
+            """
+            ★ РЕКОМЕНДАЦИЯ #1 ДЛЯ STORM 3DS И AZAHAR:
+            • .BCCI (Bundle CCI) - лучший единый формат «Игра + Update + DLC + Мод». TAR-бандл хранит сжатую игру .zcci и все .zcia (обновления и DLC). Мгновенный запуск, 0 установки в sdmc, 0 двойного расхода памяти!
+            • .BCXI (Bundle CXI) - ещё компактнее (на 5-15%): хранит чистый игровой NCCH (.zcxi) без мануала/DLP + .zcia обновлений и DLC. Идеален для смартфонов.
+            • .BCIA (Bundle CIA) - бандл .cia/.zcia для пакетной установки в sdmc (требует 2x места).
+
+            ★ СЖАТЫЕ ОДИНОЧНЫЕ ФОРМАТЫ Z3DS v1 (Seekable Zstd):
+            • .ZCCI (Decrypted) - лучший выбор для 1 игры без патчей/DLC. Намного лучше .zcia для базовых игр!
+            • .ZCXI (Decrypted) - абсолютный минимум размера для 1 игры (Partition 0 NCCH + Z3DS).
+            • .ZCIA - сжатый инсталлятор CIA (рекомендуется для отдельных Updates и DLC).
+            • .Z3DSX / .Z3DS - сжатый Homebrew (.z3dsx) и универсальное расширение Z3DS (.z3ds).
+
+            КЛАССИЧЕСКИЕ, СИСТЕМНЫЕ И СЕРВИСНЫЕ (ВСЕ 17+1 ФОРМАТОВ):
+            • .CCI / .3DS (Decrypted + Trim 0xFF) - максимальная совместимость со всеми эмуляторами (Citra MMJ, RetroArch, STORM 3DS, Azahar).
+            • .CXI / .CFA / .APP - чистый NCCH игры (.cxi), архив данных/DLC/мануалов (.cfa) и установленный контент SDMC (.app).
+            • .CIA / .3DSX - установка на реальную 3DS через FBI (.cia) и Homebrew (.3dsx).
+            • .ELF / .AXF - отладочные ARM11 бинарники (инспекция/проверка).
+            • .ARTIC - сетевой стриминг с реальной 3DS по Wi-Fi (Artic Base).
+
+            ⚠️ Никогда не храните 3DS-игры в .zip/.7z/.rar - вместо этого сжимайте в .BCCI, .BCXI или .ZCCI!
+            """.trimIndent()
+        } else {
+            """
+            ★ #1 CHOICE FOR STORM 3DS & AZAHAR:
+            • .BCCI (Bundle CCI) - best all-in-one Game + Update + DLC container: TAR bundle with compressed .zcci + .zcia updates & DLC. Instant boot, zero sdmc install, zero 2x storage waste!
+            • .BCXI (Bundle CXI) - smallest all-in-one (5-15% smaller than .bcci): stripped Partition 0 .zcxi + .zcia updates & DLC.
+            • .BCIA (Bundle CIA) - batch .cia/.zcia sdmc installer bundle (takes 2x storage).
+
+            ★ COMPRESSED SINGLE Z3DS v1 FORMATS (Seekable Zstd):
+            • .ZCCI (Decrypted) - best for single games without updates/DLC (way better than .zcia for base games!).
+            • .ZCXI (Decrypted) - smallest single-game container (Partition 0 NCCH + Z3DS).
+            • .ZCIA - compressed CIA (best for standalone updates and DLCs).
+            • .Z3DSX / .Z3DS - compressed Homebrew (.z3dsx) and generic Z3DS container (.z3ds).
+
+            CLASSIC, CONSOLE & DIAGNOSTIC (ALL 17+1 FORMATS):
+            • .CCI / .3DS (Decrypted + Trim 0xFF) - max compatibility (Citra MMJ, RetroArch, STORM 3DS, Azahar).
+            • .CXI / .CFA / .APP - executable Partition 0 NCCH (.cxi), data NCCH (.cfa), and sdmc title content (.app).
+            • .CIA / .3DSX - real 3DS hardware FBI install (.cia) and Homebrew (.3dsx).
+            • .ELF / .AXF - ARM11 debug executables; .ARTIC - Artic Base network stream pointer.
+
+            ⚠️ Never store 3DS games inside .zip/.7z/.rar archives; use .BCCI, .BCXI or .ZCCI instead!
+            """.trimIndent()
+        }
+    }
+
+    private fun read3dsTidAndRole(file: File): Pair<String, String> {
+        val low = file.name.lowercase()
+        val tidRegex = Regex("""(?<![0-9A-Fa-f])(0004[0-9A-Fa-f]{12})(?![0-9A-Fa-f])""")
+        var tid = tidRegex.find(file.name)?.groupValues?.get(1)?.uppercase() ?: ""
+        try {
+            if (isZ3dsFile(file)) {
+                Z3dsReadHandle(file).use { zh ->
+                    zh.getMetadataBytes("titleinfo")?.let { ti ->
+                        if (ti.size >= 8) {
+                            val v = ByteBuffer.wrap(ti).order(ByteOrder.LITTLE_ENDIAN).getLong(0)
+                            if (v != 0L) tid = "%016X".format(v)
+                        }
+                    }
+                }
+            } else if (file.length() >= 0x400L) {
+                RandomAccessFile(file, "r").use { raf ->
+                    val ext = file.extension.lowercase()
+                    if (ext == "cia" || file.length() >= 0x2040L && String(ByteArray(4).also { raf.seek(0x100); raf.readFully(it) }, StandardCharsets.US_ASCII) !in listOf("NCSD", "NCCH")) {
+                        raf.seek(0L)
+                        val ciaHdr = ByteArray(32)
+                        raf.readFully(ciaHdr)
+                        val cbb = ByteBuffer.wrap(ciaHdr).order(ByteOrder.LITTLE_ENDIAN)
+                        val hdrSize = cbb.int.toLong() and 0xFFFFFFFFL
+                        cbb.int
+                        val certSize = cbb.int.toLong() and 0xFFFFFFFFL
+                        val tikSize = cbb.int.toLong() and 0xFFFFFFFFL
+                        val tmdSize = cbb.int.toLong() and 0xFFFFFFFFL
+                        fun align64(v: Long): Long = (v + 63L) and -64L
+                        val tmdOff = align64(align64(align64(hdrSize) + certSize) + tikSize)
+                        if (hdrSize in 0x20L..0x4000L && tmdSize >= 0x200L && tmdOff + 0x200L <= raf.length()) {
+                            val sigBuf = ByteArray(4)
+                            raf.seek(tmdOff)
+                            raf.readFully(sigBuf)
+                            val sigType = ByteBuffer.wrap(sigBuf).order(ByteOrder.BIG_ENDIAN).int
+                            val sigSz = when (sigType) {
+                                0x00010000, 0x00010003 -> 0x240
+                                0x00010001, 0x00010004 -> 0x140
+                                0x00010002, 0x00010005 -> 0x80
+                                else -> 0x140
+                            }
+                            if (tmdOff + sigSz + 0x54L <= raf.length()) {
+                                val tB = ByteArray(8)
+                                raf.seek(tmdOff + sigSz + 0x4CL)
+                                raf.readFully(tB)
+                                val tv = ByteBuffer.wrap(tB).order(ByteOrder.BIG_ENDIAN).long
+                                if (tv != 0L) tid = "%016X".format(tv)
+                            }
+                        }
+                    }
+                    if (tid.isEmpty() && raf.length() >= 0x200L) {
+                        val m4 = ByteArray(4)
+                        raf.seek(0x100L)
+                        raf.readFully(m4)
+                        val mStr = String(m4, StandardCharsets.US_ASCII)
+                        if (mStr == "NCSD") {
+                            val tB = ByteArray(8)
+                            raf.seek(0x108L)
+                            raf.readFully(tB)
+                            val tv = ByteBuffer.wrap(tB).order(ByteOrder.LITTLE_ENDIAN).long
+                            if (tv != 0L) tid = "%016X".format(tv)
+                        } else if (mStr == "NCCH") {
+                            val tB = ByteArray(8)
+                            raf.seek(0x118L)
+                            raf.readFully(tB)
+                            val tv = ByteBuffer.wrap(tB).order(ByteOrder.LITTLE_ENDIAN).long
+                            if (tv != 0L) tid = "%016X".format(tv)
+                        }
+                    }
+                }
+            }
+        } catch (_: Throwable) {}
+
+        val role = when {
+            tid.startsWith("0004000E") -> "UPDATE"
+            tid.startsWith("0004008C") -> "DLC"
+            tid.startsWith("00040000") -> "BASE"
+            low.contains("upd") || low.contains("update") || low.contains("patch") -> "UPDATE"
+            low.contains("dlc") || low.contains("addon") -> "DLC"
+            else -> "BASE"
+        }
+        return tid to role
+    }
+
+    fun build3dsBundlePackage(
+        inputFiles: List<File>,
+        outputDir: File,
+        targetFormatMode: Int,
+        preBuildCustomization: PreBuildCustomization = PreBuildCustomization(),
+        zstdLevel: Int = 18,
+        onProgress: (NczProgress) -> Unit = {}
+    ): CompressionResult {
+        val startMs = System.currentTimeMillis()
+        outputDir.mkdirs()
+        val bundleExt = when (targetFormatMode) {
+            13 -> "bcci"
+            14 -> "bcxi"
+            15 -> "bcia"
+            else -> "bcci"
+        }
+        val tmpRoot = File(outputDir, ".storm_bundle_tmp_${System.currentTimeMillis()}").apply { mkdirs() }
+        try {
+            val expandedInputs = mutableListOf<File>()
+            for ((idx, f) in inputFiles.withIndex()) {
+                if (!f.exists() || !f.isFile) continue
+                val ext = f.extension.lowercase()
+                if (ext in listOf("elf", "axf", "artic")) {
+                    return CompressionResult(false, f.absolutePath, "", f.length(), 0L, 1L, 0, 1, 18, zstdLevel, "Формат .${ext.uppercase()} предназначен только для анализа и не упаковывается в бандл")
+                }
+                if (ext == "3dsx" || ext == "z3dsx") {
+                    return CompressionResult(false, f.absolutePath, "", f.length(), 0L, 1L, 0, 1, 18, zstdLevel, "Homebrew .${ext.uppercase()} нельзя упаковать в игровые бандлы .bcci/.bcxi/.bcia")
+                }
+                if (is3dsBundleFile(f)) {
+                    val subDir = File(tmpRoot, "in_bundle_$idx")
+                    expandedInputs.addAll(extract3dsTarBundle(f, subDir, onProgress))
+                } else if (is3dsExtension(ext)) {
+                    expandedInputs.add(f)
+                }
+            }
+            if (expandedInputs.isEmpty()) {
+                return CompressionResult(false, inputFiles.first().absolutePath, "", 0L, 0L, 1L, 0, 1, 18, zstdLevel, "Не найдено подходящих 3DS-файлов для сборки бандла .${bundleExt}")
+            }
+
+            val analyzed = expandedInputs.map { Triple(it, read3dsTidAndRole(it).first, read3dsTidAndRole(it).second) }
+            val baseItem = analyzed.firstOrNull { it.third == "BASE" }
+                ?: analyzed.maxByOrNull { it.first.length() }!!
+            val extras = analyzed.filter { it.first.canonicalPath != baseItem.first.canonicalPath }
+
+            val cleanBaseName = if (preBuildCustomization.enabled && preBuildCustomization.customOutputFileName.isNotBlank()) {
+                val u = preBuildCustomization.customOutputFileName.trim().filter { it !in "\\/:*?\"<>|[]" }
+                if (u.contains('.')) u.substringBeforeLast('.') else u
+            } else {
+                extractCleanGameTitle(baseItem.first.name).ifBlank { baseItem.first.nameWithoutExtension }
+            }
+            val outputFile = File(outputDir, "$cleanBaseName.$bundleExt")
+
+            val tarEntries = mutableListOf<Pair<String, File>>()
+            val preparedDir = File(tmpRoot, "prepared").apply { mkdirs() }
+
+            // 1. Подготовка основного файла (BCCI -> .zcci, BCXI -> .zcxi, BCIA -> .zcia)
+            val mainFile = baseItem.first
+            val mainTargetExt = when (targetFormatMode) {
+                13 -> "zcci"
+                14 -> "zcxi"
+                15 -> "zcia"
+                else -> "zcci"
+            }
+
+            val preparedMain: File = run {
+                val destMain = File(preparedDir, "${cleanBaseName}_base.$mainTargetExt")
+                val wantCustomSmdh = preBuildCustomization.enabled && preBuildCustomization.customInternalTitle.isNotBlank()
+                if (targetFormatMode == 15) {
+                    // BCIA требует CIA/ZCIA
+                    val isZ = isZ3dsFile(mainFile)
+                    if (isZ) {
+                        val magic = Z3dsReadHandle(mainFile).use { it.header.underlyingMagicStr }
+                        if (magic != "CIA") throw IOException("Формат .BCIA требует .cia/.zcia (обнаружен $magic). Выберите .BCCI или .BCXI!")
+                        mainFile
+                    } else {
+                        val (dMagic, _, _) = detectPlain3dsForZ3ds(mainFile)
+                        if (String(dMagic, StandardCharsets.US_ASCII).trimEnd('\u0000') != "CIA") {
+                            throw IOException("Контейнер ${mainFile.name} не является CIA; для игр .3ds/.cci/.cxi используйте .BCCI или .BCXI!")
+                        }
+                        val cRes = compressToZ3ds(mainFile, destMain, zstdLevel, 0, PreBuildCustomization(), onProgress)
+                        if (!cRes.success) throw IOException(cRes.message)
+                        destMain
+                    }
+                } else if (targetFormatMode == 14) {
+                    // BCXI -> .zcxi (Partition 0 NCCH)
+                    val zHdr = if (isZ3dsFile(mainFile)) Z3dsReadHandle(mainFile).use { it.header } else null
+                    if (zHdr != null && zHdr.underlyingMagicStr == "NCCH" && !wantCustomSmdh) {
+                        mainFile
+                    } else {
+                        val workSrc = if (zHdr != null) {
+                            val dTmp = File(preparedDir, "base_uncomp.${zHdr.recommendedPlainExt}")
+                            val dRes = decompressZ3ds(mainFile, dTmp, onProgress)
+                            if (!dRes.success) throw IOException(dRes.message)
+                            dTmp
+                        } else mainFile
+
+                        val (mMagic, _, _) = detectPlain3dsForZ3ds(workSrc)
+                        val mStr = String(mMagic, StandardCharsets.US_ASCII).trimEnd('\u0000')
+                        val cxiTmp = File(preparedDir, "base_part0.cxi")
+                        val readyCxi = when (mStr) {
+                            "NCCH" -> workSrc
+                            "NCSD" -> { extractNcsdPartition0ToCxi(workSrc, cxiTmp, onProgress); cxiTmp }
+                            "CIA" -> { extractCiaContent0ToCxi(workSrc, cxiTmp, onProgress); cxiTmp }
+                            else -> throw IOException("Неподдерживаемый источник для .BCXI: $mStr")
+                        }
+                        val cRes = compressToZ3ds(readyCxi, destMain, zstdLevel, 0, preBuildCustomization, onProgress)
+                        if (!cRes.success) throw IOException(cRes.message)
+                        destMain
+                    }
+                } else {
+                    // BCCI -> .zcci (NCSD Z3DS)
+                    val zHdr = if (isZ3dsFile(mainFile)) Z3dsReadHandle(mainFile).use { it.header } else null
+                    if (zHdr != null && zHdr.underlyingMagicStr == "NCSD" && !wantCustomSmdh) {
+                        mainFile
+                    } else {
+                        val workSrc = if (zHdr != null) {
+                            val dTmp = File(preparedDir, "base_uncomp.${zHdr.recommendedPlainExt}")
+                            val dRes = decompressZ3ds(mainFile, dTmp, onProgress)
+                            if (!dRes.success) throw IOException(dRes.message)
+                            dTmp
+                        } else mainFile
+
+                        val (mMagic, _, _) = detectPlain3dsForZ3ds(workSrc)
+                        val mStr = String(mMagic, StandardCharsets.US_ASCII).trimEnd('\u0000')
+                        val cciTmp = File(preparedDir, "base_cart.cci")
+                        val readyCci = when (mStr) {
+                            "NCSD" -> workSrc
+                            "CIA" -> {
+                                val rCci = processAndConvert3dsContainer(workSrc, preparedDir, 4, PreBuildCustomization(enabled = true, customOutputFileName = cciTmp.name), zstdLevel, onProgress)
+                                if (!rCci.success) throw IOException(rCci.message)
+                                File(rCci.outputPath)
+                            }
+                            "NCCH" -> { wrapCxiToCci(workSrc, cciTmp, onProgress); cciTmp }
+                            else -> throw IOException("Неподдерживаемый источник для .BCCI: $mStr")
+                        }
+                        val cRes = compressToZ3ds(readyCci, destMain, zstdLevel, 0, preBuildCustomization, onProgress)
+                        if (!cRes.success) throw IOException(cRes.message)
+                        destMain
+                    }
+                }
+            }
+            val mainEntryName = "${cleanBaseName}.$mainTargetExt"
+            tarEntries.add(mainEntryName to preparedMain)
+
+            // 2. Подготовка обновлений (Updates) и дополнений (DLC) -> .zcia
+            for ((eIdx, extraTriple) in extras.withIndex()) {
+                val (exFile, exTid, exRole) = extraTriple
+                val prefixTag = if (exRole == "UPDATE") "update" else if (exRole == "DLC") "dlc" else "extra"
+                val tidPart = if (exTid.isNotBlank()) "_$exTid" else "_${eIdx + 1}"
+                val targetZciaName = "${prefixTag}${tidPart}.zcia"
+                val isZ = isZ3dsFile(exFile)
+                if (isZ) {
+                    val uMagic = Z3dsReadHandle(exFile).use { it.header.underlyingMagicStr }
+                    if (uMagic != "CIA") {
+                        throw IOException("Дополнительный компонент ${exFile.name} должен быть .cia или .zcia (обнаружен $uMagic)")
+                    }
+                    tarEntries.add(targetZciaName to exFile)
+                } else {
+                    val (dMagic, _, _) = detectPlain3dsForZ3ds(exFile)
+                    if (String(dMagic, StandardCharsets.US_ASCII).trimEnd('\u0000') != "CIA") {
+                        throw IOException("Дополнительный компонент ${exFile.name} (Update/DLC) должен быть .cia или .zcia")
+                    }
+                    val destZcia = File(preparedDir, "extra_${eIdx}_$targetZciaName")
+                    val cRes = compressToZ3ds(exFile, destZcia, zstdLevel, 0, PreBuildCustomization(), onProgress)
+                    if (!cRes.success) throw IOException(cRes.message)
+                    tarEntries.add(targetZciaName to destZcia)
+                }
+            }
+
+            val mainMeta = Z3dsReadHandle(preparedMain).use { it.metadata }
+            return create3dsTarBundle(tarEntries, outputFile, mainEntryName, mainMeta, onProgress)
+        } catch (t: Throwable) {
+            return CompressionResult(false, inputFiles.first().absolutePath, "", inputFiles.sumOf { it.length() }, 0L, (System.currentTimeMillis() - startMs).coerceAtLeast(1L), 0, inputFiles.size, 18, zstdLevel, "Ошибка сборки .${bundleExt.uppercase()}: ${t.message}")
+        } finally {
+            try { tmpRoot.deleteRecursively() } catch (_: Throwable) {}
+        }
+    }
+
     fun processAndConvert3dsContainer(
         inputFile: File,
         outputDir: File,
@@ -5330,6 +6436,36 @@ object StormNczEngine {
     ): CompressionResult {
         val startMs = System.currentTimeMillis()
         outputDir.mkdirs()
+        val inExt = inputFile.extension.lowercase()
+
+        if (inExt in listOf("elf", "axf", "artic")) {
+            return CompressionResult(false, inputFile.absolutePath, "", inputFile.length(), 0L, 1L, 0, 1, 18, zstdLevel, "Формат .${inExt.uppercase()} предназначен только для анализа, инспекции и верификации")
+        }
+
+        // Бандлы (.bcci / .bcxi / .bcia)
+        if (targetFormatMode in 13..15) {
+            return build3dsBundlePackage(listOf(inputFile), outputDir, targetFormatMode, preBuildCustomization, zstdLevel, onProgress)
+        }
+        if (is3dsBundleFile(inputFile)) {
+            val info = read3dsTarBundle(inputFile)
+                ?: return CompressionResult(false, inputFile.absolutePath, "", inputFile.length(), 0L, 1L, 0, 1, 18, zstdLevel, "Повреждённый TAR-бандл 3DS")
+            val tmpExtract = File(outputDir, ".storm_bundle_in_${System.currentTimeMillis()}").apply { mkdirs() }
+            try {
+                val extracted = extract3dsTarBundle(inputFile, tmpExtract, onProgress)
+                val targetName = info.mainEntry?.name?.replace('\\', '/')?.substringAfterLast('/')
+                val mainExtracted = extracted.firstOrNull { it.name.equals(targetName, true) }
+                    ?: extracted.firstOrNull { it.extension.lowercase() in listOf("zcci", "zcxi", "cci", "3ds", "cxi", "zcia", "cia") }
+                    ?: extracted.firstOrNull()
+                    ?: return CompressionResult(false, inputFile.absolutePath, "", inputFile.length(), 0L, 1L, 0, 1, 18, zstdLevel, "В TAR-бандле отсутствует основной файл")
+                val effCustom = if (preBuildCustomization.enabled && preBuildCustomization.customOutputFileName.isNotBlank()) preBuildCustomization
+                    else preBuildCustomization.copy(enabled = true, customOutputFileName = extractCleanGameTitle(inputFile.name).ifBlank { inputFile.nameWithoutExtension })
+                return processAndConvert3dsContainer(mainExtracted, outputDir, targetFormatMode, effCustom, zstdLevel, onProgress)
+                    .copy(inputPath = inputFile.absolutePath, originalBytes = inputFile.length())
+            } finally {
+                try { tmpExtract.deleteRecursively() } catch (_: Throwable) {}
+            }
+        }
+
         val cleanName = extractCleanGameTitle(inputFile.name).ifBlank { inputFile.nameWithoutExtension }
         fun buildOutFile(extStr: String, suffix: String = ""): File {
             val fname = if (preBuildCustomization.enabled && preBuildCustomization.customOutputFileName.isNotBlank()) {
@@ -5343,7 +6479,7 @@ object StormNczEngine {
 
         // Handle Z3DS input
         if (isZ3dsFile(inputFile)) {
-            val zHeader = try { Z3dsReadHandle(inputFile).use { it.header } } catch (t: Throwable) { null }
+            val zHeader = try { Z3dsReadHandle(inputFile).use { it.header } } catch (_: Throwable) { null }
             val plainExtFromZ = zHeader?.recommendedPlainExt ?: "cci"
             val wantZ3ds = targetFormatMode in 8..12
             if (!wantZ3ds) {
@@ -5351,6 +6487,8 @@ object StormNczEngine {
                     4 -> "cci"
                     5 -> "3ds"
                     6 -> "cia"
+                    16 -> "cxi"
+                    17 -> "3dsx"
                     else -> plainExtFromZ
                 }
                 val isSamePlain = desiredPlainExt == plainExtFromZ || (plainExtFromZ == "cci" && desiredPlainExt == "3ds")
@@ -5358,31 +6496,33 @@ object StormNczEngine {
                     return decompressZ3ds(inputFile, buildOutFile(desiredPlainExt), onProgress)
                 }
             }
-            // Decompress Z3DS to temp file for re-conversion / re-compression
             val tmpPlain = File(outputDir, ".storm_z3_plain_${System.currentTimeMillis()}.$plainExtFromZ")
             try {
                 val decRes = decompressZ3ds(inputFile, tmpPlain, onProgress)
                 if (!decRes.success) return decRes
-                val convRes = processAndConvert3dsContainer(tmpPlain, outputDir, targetFormatMode, preBuildCustomization, zstdLevel, onProgress)
+                val effCustom = if (preBuildCustomization.enabled && preBuildCustomization.customOutputFileName.isNotBlank()) preBuildCustomization
+                    else preBuildCustomization.copy(enabled = true, customOutputFileName = cleanName)
+                val convRes = processAndConvert3dsContainer(tmpPlain, outputDir, targetFormatMode, effCustom, zstdLevel, onProgress)
                 return convRes.copy(inputPath = inputFile.absolutePath, originalBytes = inputFile.length())
             } finally {
                 try { if (tmpPlain.exists()) tmpPlain.delete() } catch (_: Throwable) {}
             }
         }
 
-        val inExt = inputFile.extension.lowercase()
-
         // Direct 3DSX Homebrew handling
         if (inExt == "3dsx") {
             return when (targetFormatMode) {
                 11, 12 -> compressToZ3ds(inputFile, buildOutFile("z3dsx"), zstdLevel, 0, preBuildCustomization, onProgress)
-                4, 5 -> {
+                4, 5, 17 -> {
                     val out3dsx = buildOutFile("3dsx")
                     if (inputFile.canonicalPath != out3dsx.canonicalPath) inputFile.copyTo(out3dsx, overwrite = true)
                     CompressionResult(true, inputFile.absolutePath, out3dsx.absolutePath, inputFile.length(), out3dsx.length(), (System.currentTimeMillis() - startMs).coerceAtLeast(1L), 1, 1, 18, 0, "Скопирован 3DSX: ${out3dsx.name}")
                 }
-                else -> CompressionResult(false, inputFile.absolutePath, "", inputFile.length(), 0L, 1L, 0, 1, 18, 0, "Homebrew .3DSX можно сжать только в .z3dsx")
+                else -> CompressionResult(false, inputFile.absolutePath, "", inputFile.length(), 0L, 1L, 0, 1, 18, 0, "Homebrew .3DSX можно конвертировать только в .z3dsx / .3dsx")
             }
+        }
+        if (targetFormatMode == 17) {
+            return CompressionResult(false, inputFile.absolutePath, "", inputFile.length(), 0L, 1L, 0, 1, 18, zstdLevel, "Целевой формат .3DSX поддерживается только для файлов Homebrew .3dsx / .z3dsx")
         }
 
         // Direct Z3DS compression modes (8=ZCCI, 9=ZCIA, 10=ZCXI, 11=Z3DSX, 12=Z3DS auto)
@@ -5409,10 +6549,10 @@ object StormNczEngine {
             if (matchesDirect) {
                 return compressToZ3ds(inputFile, buildOutFile(targetZext), zstdLevel, 0, preBuildCustomization, onProgress)
             }
-            if (detectedMagicStr == "CIA" && targetZext == "zcci") {
-                val tmpCci = File(outputDir, ".storm_cia2cci_${System.currentTimeMillis()}.cci")
+            if ((detectedMagicStr == "CIA" || detectedMagicStr == "NCCH") && targetZext == "zcci") {
+                val tmpCci = File(outputDir, ".storm_to_cci_${System.currentTimeMillis()}.cci")
                 try {
-                    val plainRes = processAndConvert3dsContainer(inputFile, outputDir, 4, preBuildCustomization.copy(customOutputFileName = tmpCci.name), zstdLevel, onProgress)
+                    val plainRes = processAndConvert3dsContainer(inputFile, outputDir, 4, preBuildCustomization.copy(enabled = true, customOutputFileName = tmpCci.name), zstdLevel, onProgress)
                     if (!plainRes.success) return plainRes
                     val compRes = compressToZ3ds(File(plainRes.outputPath), buildOutFile("zcci"), zstdLevel, 0, PreBuildCustomization(), onProgress)
                     return compRes.copy(inputPath = inputFile.absolutePath, originalBytes = inputFile.length())
@@ -5420,18 +6560,29 @@ object StormNczEngine {
                     try { if (tmpCci.exists()) tmpCci.delete() } catch (_: Throwable) {}
                 }
             }
-            return CompressionResult(false, inputFile.absolutePath, "", inputFile.length(), 0L, 1L, 0, 1, 18, zstdLevel, "Прямая конвертация $detectedMagicStr -> .$targetZext не поддерживается без пересборки CIA")
+            if ((detectedMagicStr == "NCSD" || detectedMagicStr == "CIA") && targetZext == "zcxi") {
+                val tmpCxi = File(outputDir, ".storm_to_cxi_${System.currentTimeMillis()}.cxi")
+                try {
+                    if (detectedMagicStr == "NCSD") extractNcsdPartition0ToCxi(inputFile, tmpCxi, onProgress)
+                    else extractCiaContent0ToCxi(inputFile, tmpCxi, onProgress)
+                    val compRes = compressToZ3ds(tmpCxi, buildOutFile("zcxi"), zstdLevel, 0, preBuildCustomization, onProgress)
+                    return compRes.copy(inputPath = inputFile.absolutePath, originalBytes = inputFile.length())
+                } finally {
+                    try { if (tmpCxi.exists()) tmpCxi.delete() } catch (_: Throwable) {}
+                }
+            }
+            return CompressionResult(false, inputFile.absolutePath, "", inputFile.length(), 0L, 1L, 0, 1, 18, zstdLevel, "Прямая конвертация $detectedMagicStr -> .$targetZext невозможна без пересборки CIA")
         }
 
         val targetExt = when (targetFormatMode) {
             4 -> "cci"
             5 -> "3ds"
             6 -> "cia"
-            else -> if (inExt == "cia") "cci" else if (inExt == "3ds") "cci" else "3ds"
+            16 -> "cxi"
+            else -> if (inExt == "cia" || inExt == "3ds" || inExt == "app" || inExt == "cxi") "cci" else "3ds"
         }
 
-        val outputFile = buildOutFile(targetExt, "_[Decrypted]")
-
+        val outputFile = buildOutFile(targetExt, if (targetExt == inExt) "_[Decrypted]" else "")
         onProgress(NczProgress(inputFile.name, 1, 1, 0L, inputFile.length(), 0.0, 10, "Анализ 3DS контейнера (${inExt.uppercase()} -> ${targetExt.uppercase()})..."))
 
         fun failResult(msg: String): CompressionResult {
@@ -5568,8 +6719,34 @@ object StormNczEngine {
                 if (decryptErr != null) {
                     return failResult(decryptErr)
                 }
+            } else if (magic == "NCSD" && targetExt == "cxi") {
+                raf.close()
+                extractNcsdPartition0ToCxi(inputFile, outputFile, onProgress)
+            } else if (inExt == "cia" && targetExt == "cxi") {
+                raf.close()
+                extractCiaContent0ToCxi(inputFile, outputFile, onProgress)
+            } else if (magic == "NCCH" && targetExt == "cxi") {
+                raf.seek(0L)
+                BufferedOutputStream(FileOutputStream(outputFile), 256 * 1024).use { bos ->
+                    val buf = ByteArray(256 * 1024)
+                    var rem = fileLen
+                    while (rem > 0L) {
+                        val r = raf.read(buf, 0, min(rem, buf.size.toLong()).toInt())
+                        if (r <= 0) break
+                        bos.write(buf, 0, r)
+                        rem -= r
+                    }
+                    bos.flush()
+                }
+                val dErr = decrypt3dsNcchPartitionsInPlace(outputFile, listOf(0L to outputFile.length()))
+                if (dErr != null) return failResult(dErr)
+            } else if (magic == "NCCH" && (targetExt == "cci" || targetExt == "3ds")) {
+                raf.close()
+                wrapCxiToCci(inputFile, outputFile, onProgress)
+            } else if (inExt == "cia" && targetExt == "cia") {
+                if (inputFile.canonicalPath != outputFile.canonicalPath) inputFile.copyTo(outputFile, overwrite = true)
             } else if ((magic == "NCSD" || magic == "NCCH") && targetExt == "cia") {
-                return failResult("Конвертация .3ds/.cci/.cxi -> .cia невозможна без подписанных Cert/Ticket/TMD. Выберите вывод в .3DS или .CCI")
+                return failResult("Конвертация .3ds/.cci/.cxi -> .cia невозможна без подписанных Cert/Ticket/TMD. Выберите .BCCI, .BCXI, .ZCCI, .CCI или .CXI")
             } else {
                 return failResult("Неподдерживаемая комбинация входного 3DS формата ($magic / $inExt) и цели ($targetExt)")
             }
@@ -6058,7 +7235,17 @@ object StormNczEngine {
         // Если входной файл относится к семейству Nintendo 3DS (или выбран выходной формат 3DS/CCI/CIA: 4, 5, 6),
         // направляем в нативный 3DS конвейер.
         val firstExt = inputFiles.first().extension.lowercase()
-        if (firstExt in listOf("3ds", "cci", "cia", "cxi", "cfa", "3dsx", "nds", "zcci", "zcxi", "zcia", "z3dsx", "z3ds") || targetFormatMode in 4..6 || targetFormatMode in 8..12) {
+        if (is3dsExtension(firstExt) || targetFormatMode in 4..6 || targetFormatMode in 8..17) {
+            if (targetFormatMode in 13..15) {
+                return build3dsBundlePackage(
+                    inputFiles = inputFiles,
+                    outputDir = outputDir,
+                    targetFormatMode = targetFormatMode,
+                    preBuildCustomization = preBuildCustomization,
+                    zstdLevel = zstdLevel,
+                    onProgress = onProgress
+                )
+            }
             return processAndConvert3dsContainer(
                 inputFile = inputFiles.first(),
                 outputDir = outputDir,
@@ -7237,7 +8424,7 @@ object StormNczEngine {
      * Аудитор библиотеки ROM: выявляет несжатые .nsp, необрезанные .xci/.3ds/.cci и дубликаты по TitleID.
      */
     fun auditLibraryFolder(folders: List<File>, recursive: Boolean = false): LibraryAuditReport {
-        val validExts = setOf("nsp", "nsz", "xci", "xcz", "3ds", "cci", "cia", "cxi", "cfa", "3dsx", "zcci", "zcxi", "zcia", "z3dsx")
+        val validExts = setOf("nsp", "nsz", "xci", "xcz", "nup", "bcci", "bcxi", "bcia", "zcci", "zcxi", "zcia", "z3dsx", "z3ds", "3ds", "cci", "cia", "cxi", "cfa", "app", "3dsx", "elf", "axf", "artic")
         val seenPaths = HashSet<String>()
         val allRomFiles = mutableListOf<File>()
         val scanDepth = if (recursive) 3 else 1
@@ -7351,12 +8538,75 @@ object StormNczEngine {
      * проверяет заголовки PFS0 / HFS0 / HEAD / NCSD / CIA, границы всех вложенных разделов NCA/NCZ,
      * таблицы NCZSECTN + NCZBLOCK и вычисляет контрольную сумму SHA-256.
      */
-    fun verifyContainerIntegrity(file: File, onProgress: (Int, String) -> Unit = { _, _ -> }): IntegrityReport {
-        if (!file.exists() || file.length() < 16L) {
-            return IntegrityReport(false, "UNKNOWN", 0, 0, 0, "", listOf("❌ Файл не существует или пуст"))
+    private fun computeFileSha256(file: File, onProgress: (Int, String) -> Unit): String {
+        val md = MessageDigest.getInstance("SHA-256")
+        val fileLen = file.length().coerceAtLeast(1L)
+        FileInputStream(file).use { fis ->
+            val buf = ByteArray(256 * 1024)
+            var readTotal = 0L
+            while (readTotal < fileLen) {
+                checkCancelled()
+                val r = fis.read(buf, 0, min(buf.size.toLong(), fileLen - readTotal).toInt())
+                if (r <= 0) break
+                md.update(buf, 0, r)
+                readTotal += r
+                val pct = ((readTotal * 100L) / fileLen).toInt().coerceIn(1, 100)
+                onProgress(pct, "Расчёт полного SHA-256 ($pct%)...")
+            }
         }
-        val entries = inspectContainer(file)
+        return md.digest().joinToString("") { "%02x".format(it) }.uppercase()
+    }
+
+    fun verifyContainerIntegrity(file: File, onProgress: (Int, String) -> Unit = { _, _ -> }): IntegrityReport {
+        if (!file.exists()) {
+            return IntegrityReport(false, "UNKNOWN", 0, 0, 0, "", listOf("❌ Файл не существует"))
+        }
         val ext = file.extension.uppercase()
+        if (ext == "ELF" || ext == "AXF") {
+            if (file.length() < 4L) {
+                return IntegrityReport(false, ext, 0, 0, 0, "", listOf("❌ Файл слишком мал для заголовка $ext"))
+            }
+            val magic4 = ByteArray(4)
+            RandomAccessFile(file, "r").use { it.readFully(magic4) }
+            val ok = magic4[0] == 0x7F.toByte() && magic4[1] == 'E'.code.toByte() && magic4[2] == 'L'.code.toByte() && magic4[3] == 'F'.code.toByte()
+            val sha = computeFileSha256(file, onProgress)
+            return IntegrityReport(ok, ext, 1, 0, 0, sha, listOf(if (ok) "✔ Корректный ARM11 $ext (0x7F ELF)" else "❌ Повреждён заголовок $ext"))
+        }
+        if (ext == "ARTIC") {
+            val uri = try { file.readText(StandardCharsets.UTF_8).trim() } catch (_: Throwable) { "" }
+            val ok = uri.startsWith("articbase://", true) || uri.startsWith("articinio://", true) || uri.startsWith("articinin://", true)
+            val sha = computeFileSha256(file, onProgress)
+            return IntegrityReport(ok, ext, 1, 0, 0, sha, listOf(if (ok) "✔ Artic Base URI: $uri" else "❌ Некорректный Artic Base URI"))
+        }
+        if (file.length() < 16L) {
+            return IntegrityReport(false, ext.ifBlank { "UNKNOWN" }, 0, 0, 0, "", listOf("❌ Файл слишком мал или пуст"))
+        }
+        if (is3dsBundleFile(file)) {
+            val (ok, msg) = verify3dsTarBundle(file)
+            val bInfo = read3dsTarBundle(file)
+            val sha = computeFileSha256(file, onProgress)
+            return IntegrityReport(ok, ext.ifBlank { "BUNDLE" }, bInfo?.entries?.size ?: 1, 0, 0, sha, msg.split("; "))
+        }
+        if (isZ3dsFile(file)) {
+            return try {
+                val detailsZ = mutableListOf<String>()
+                var frameCount = 0
+                var uMagicDisplay = ext
+                Z3dsReadHandle(file).use { zh ->
+                    frameCount = zh.seekTable.size
+                    uMagicDisplay = zh.header.underlyingFormatDisplay
+                    val probe = zh.readAt(0L, min(zh.header.uncompressedSize, 4096L).toInt())
+                    detailsZ.add("✔ Z3DS v${zh.header.version} ($uMagicDisplay), $frameCount кадров, проверка кадра #0 (${probe.size} Б) OK")
+                }
+                val sha = computeFileSha256(file, onProgress)
+                IntegrityReport(true, "Z3DS/$uMagicDisplay", frameCount, 0, frameCount, sha, detailsZ)
+            } catch (t: Throwable) {
+                val sha = computeFileSha256(file, onProgress)
+                IntegrityReport(false, ext, 0, 0, 0, sha, listOf("❌ Повреждён Z3DS: ${t.message}"))
+            }
+        }
+
+        val entries = inspectContainer(file)
         val details = mutableListOf<String>()
         var ncaCount = 0
         var nczCount = 0

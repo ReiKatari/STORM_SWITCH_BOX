@@ -131,19 +131,21 @@ namespace StormSwitchBox.Models
         partial void OnIs3dsTaskChanged(bool value)
         {
             AvailableTargetFormats = value
-                ? new List<string> { "3DS", "CIA", "CXI", "3DS + CIA", "ZCCI", "ZCIA", "ZCXI", "Z3DSX", "Z3DS (Авто)", "3DS + ZCCI" }
+                ? new List<string> { "BCCI", "BCXI", "BCIA", "ZCCI", "ZCXI", "ZCIA", "Z3DSX", "Z3DS", "Z3DS (Авто)", "CCI", "3DS", "CXI", "CIA", "3DSX", "3DS + CIA", "3DS + ZCCI" }
                 : new List<string> { "NSP", "NSZ", "XCI", "XCZ", "NUP", "NSP + NSZ", "XCI + XCZ" };
 
-            if (_targetFormat == "3DS" || _targetFormat == "CIA" || _targetFormat == "CXI" || _targetFormat == "3DS + CIA"
+            if (_targetFormat == "BCCI" || _targetFormat == "BCXI" || _targetFormat == "BCIA"
+                || _targetFormat == "3DS" || _targetFormat == "CIA" || _targetFormat == "CXI" || _targetFormat == "3DS + CIA"
                 || _targetFormat == "ZCCI" || _targetFormat == "ZCIA" || _targetFormat == "ZCXI" || _targetFormat == "Z3DSX"
-                || _targetFormat == "Z3DS (Авто)" || _targetFormat == "3DS + ZCCI" || _targetFormat == "3DSX" || _targetFormat == "CCI")
+                || _targetFormat == "Z3DS" || _targetFormat == "Z3DS (Авто)" || _targetFormat == "3DS + ZCCI"
+                || _targetFormat == "3DSX" || _targetFormat == "CCI")
             {
                 if (!value) TargetFormat = "NSZ";
             }
             else if (_targetFormat == "NSP" || _targetFormat == "NSZ" || _targetFormat == "XCI" || _targetFormat == "XCZ"
                 || _targetFormat == "NUP" || _targetFormat == "NSP + NSZ" || _targetFormat == "XCI + XCZ")
             {
-                if (value) TargetFormat = "3DS";
+                if (value) TargetFormat = "BCCI";
             }
         }
 
@@ -169,6 +171,9 @@ namespace StormSwitchBox.Models
                 "XCI" => ".xci",
                 "XCZ" => ".xcz",
                 "NUP" => ".nup",
+                "BCCI" => ".bcci",
+                "BCXI" => ".bcxi",
+                "BCIA" => ".bcia",
                 "3DS" => ".3ds",
                 "CCI" => ".cci",
                 "CIA" => ".cia",
@@ -178,6 +183,7 @@ namespace StormSwitchBox.Models
                 "ZCIA" => ".zcia",
                 "ZCXI" => ".zcxi",
                 "Z3DSX" => ".z3dsx",
+                "Z3DS" => ".z3ds",
                 "Z3DS (Авто)" => ResolveAutoZ3dsExtension(),
                 _ => "." + (string.IsNullOrWhiteSpace(TargetFormat) ? "nsp" : TargetFormat.Trim().ToLowerInvariant())
             };
@@ -189,8 +195,8 @@ namespace StormSwitchBox.Models
             if (!string.IsNullOrEmpty(src))
             {
                 string ext = System.IO.Path.GetExtension(src).ToLowerInvariant();
-                if (ext == ".cia" || ext == ".zcia") return ".zcia";
-                if (ext == ".cxi" || ext == ".cfa" || ext == ".zcxi") return ".zcxi";
+                if (ext == ".cia" || ext == ".zcia" || ext == ".bcia") return ".zcia";
+                if (ext == ".cxi" || ext == ".cfa" || ext == ".app" || ext == ".zcxi" || ext == ".bcxi") return ".zcxi";
                 if (ext == ".3dsx" || ext == ".z3dsx") return ".z3dsx";
             }
             return ".zcci";

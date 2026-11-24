@@ -1815,6 +1815,7 @@ object RuTrackerCloudEngine {
         )
 
         for ((t, _) in matchedReal) {
+            if (results.size >= 80) break
             val tid = t["t"].toString()
             if (!seenTids.add(tid)) continue
             results.add(mapRealIndexTopicToItem(t, normMirror))
@@ -3928,7 +3929,7 @@ object RuTrackerCloudEngine {
         val ext = norm.substringAfterLast('.', "").lowercase()
         val allowedExts = setOf(
             "nsp", "nsz", "xci", "xcz", "nup", "zip", "rar", "7z",
-            "3ds", "cci", "cia", "cxi", "cfa", "3dsx", "zcci", "zcxi", "zcia", "z3dsx",
+            "bcci", "bcxi", "bcia", "3ds", "cci", "cia", "cxi", "cfa", "app", "3dsx", "elf", "axf", "artic", "zcci", "zcxi", "zcia", "z3dsx", "z3ds",
             "sav", "txt", "nfo", "md", "pdf"
         )
         if (ext !in allowedExts) return false
@@ -3975,7 +3976,7 @@ object RuTrackerCloudEngine {
         if (realFiles != null) {
             val allowedExts = setOf(
                 "nsp", "nsz", "xci", "xcz", "nup", "zip", "rar", "7z",
-                "3ds", "cci", "cia", "cxi", "cfa", "3dsx", "zcci", "zcxi", "zcia", "z3dsx",
+                "bcci", "bcxi", "bcia", "3ds", "cci", "cia", "cxi", "cfa", "app", "3dsx", "elf", "axf", "artic", "zcci", "zcxi", "zcia", "z3dsx", "z3ds",
                 "sav", "txt", "nfo", "md", "pdf"
             )
             val list = realFiles.filter {
@@ -5217,7 +5218,7 @@ object RuTrackerCloudEngine {
                     val ext = normPath.substringAfterLast('.', "")
                     val isSupportedExt = ext in setOf(
                         "nsp", "nsz", "xci", "xcz", "nup", "zip", "rar", "7z",
-                        "3ds", "cci", "cia", "cxi", "cfa", "3dsx", "zcci", "zcxi", "zcia", "z3dsx",
+                        "bcci", "bcxi", "bcia", "3ds", "cci", "cia", "cxi", "cfa", "app", "3dsx", "elf", "axf", "artic", "zcci", "zcxi", "zcia", "z3dsx", "z3ds",
                         "sav", "txt", "nfo", "md", "pdf"
                     )
                     if (!isSupportedExt) return@downloadTorrentWithDiagnostics false
@@ -5713,7 +5714,7 @@ object RuTrackerCloudEngine {
             return "СЭЙВЫ"
         }
 
-        val isContainer = ext in setOf("nsp", "nsz", "xci", "xcz", "nup", "3ds", "cci", "cia", "cxi", "cfa", "3dsx", "zcci", "zcxi", "zcia", "z3dsx")
+        val isContainer = ext in setOf("nsp", "nsz", "xci", "xcz", "nup", "bcci", "bcxi", "bcia", "3ds", "cci", "cia", "cxi", "cfa", "app", "3dsx", "zcci", "zcxi", "zcia", "z3dsx", "z3ds")
 
         // Папка или файл с переводом / русификатором (исключая тег языка [RUS] на корневой папке всей раздачи)
         val nonRootDirs = if (dirSegs.size > 1) dirSegs.drop(1) else dirSegs.filter { !it.trim().startsWith("[") }
@@ -6329,7 +6330,7 @@ object RuTrackerCloudEngine {
         files: List<File>,
         topicsOverride: List<TopicItem>? = null
     ): List<LibraryUpdateMatch> {
-        val validExts = setOf("nsp", "nsz", "xci", "xcz", "nup", "3ds", "cci", "cia", "zcci", "zcxi", "zcia", "z3dsx")
+        val validExts = setOf("nsp", "nsz", "xci", "xcz", "nup", "bcci", "bcxi", "bcia", "3ds", "cci", "cia", "cxi", "cfa", "app", "3dsx", "elf", "axf", "artic", "zcci", "zcxi", "zcia", "z3dsx", "z3ds")
         val matches = mutableListOf<LibraryUpdateMatch>()
         val seenKeys = HashSet<String>()
 

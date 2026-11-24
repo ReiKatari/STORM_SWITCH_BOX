@@ -2373,10 +2373,7 @@ namespace StormSwitchBox.Views.Dialogs
                 foreach (var f in slotFiles)
                 {
                     string rel = f.RelativePath ?? string.Empty;
-                    if (rel.EndsWith(".3ds", StringComparison.OrdinalIgnoreCase) ||
-                        rel.EndsWith(".cia", StringComparison.OrdinalIgnoreCase) ||
-                        rel.EndsWith(".cci", StringComparison.OrdinalIgnoreCase) ||
-                        rel.EndsWith(".cxi", StringComparison.OrdinalIgnoreCase))
+                    if (Nintendo3dsService.Is3dsExtension(System.IO.Path.GetExtension(rel)))
                     {
                         is3ds = true;
                     }

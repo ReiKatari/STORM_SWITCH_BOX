@@ -442,9 +442,9 @@ namespace StormSwitchBox.Views
                     Category = "Форматы",
                     Icon = "\uE8D4",
                     DescriptionText = "Быстрая потоковая и нативная конвертация форматов внутри соответствующих экосистем:\n\n" +
-                                      "• Экосистема Nintendo Switch: NSP ↔ XCI ↔ NSZ ↔ XCZ. Поддерживается прямое пасс-фру преобразование без потери качества и пересжатия видео/аудио.\n" +
-                                      "• Экосистема Nintendo 3DS: 3DS (CCI) ↔ CIA ↔ CXI ↔ 3DSX и сжатые Azahar Z3DS (ZCCI, ZCIA, ZCXI, Z3DSX). Форматы 3DS изолированы от форматов Switch.\n" +
-                                      "• Автоматическая дешифровка, обрезка пустых байтов (Trim 0xFF) и Seekable Zstandard сжатие Z3DS с таблицей Seek Table 0x8F92EAB1.",
+                                      "• Экосистема Nintendo Switch: NSP ↔ XCI ↔ NSZ ↔ XCZ ↔ NUP. Поддерживается прямое пасс-фру преобразование без потери качества и пересжатия видео/аудио.\n" +
+                                      "• Экосистема Nintendo 3DS (все 17+1 форматов): бандлы без установки BCCI / BCXI / BCIA, сжатые Azahar Z3DS (ZCCI, ZCIA, ZCXI, Z3DSX, Z3DS), классические 3DS / CCI / CIA / CXI / 3DSX, а также инспекция и проверка APP / CFA / ELF / AXF / ARTIC. Форматы 3DS изолированы от форматов Switch.\n" +
+                                      "• Автоматическая дешифровка, обрезка пустых байтов (Trim 0xFF), извлечение игрового раздела NCCH и Seekable Zstandard сжатие Z3DS с таблицей Seek Table 0x8F92EAB1.",
                     Tip = "XCI в NSP конвертируется без потери данных и без нагрузки на ЦП.",
                     SetupPreview = container => BuildFormatConverterInteractivePreview(container)
                 },
@@ -562,21 +562,21 @@ new TopicItem
                     Title = "Nintendo 3DS: Архитектура и Мульти-контент",
                     Category = "Nintendo 3DS",
                     Icon = "\uE7FC",
-                    DescriptionText = $"Полная поддержка экосистемы Nintendo 3DS (CTR/CCI/CIA/CXI/3DSX/Z3DS) и иконок SMDH в {App.AppVersionString}:\n\n" +
-                                      "1. Сборка Мульти-контента для 3DS (Игра + Обновление + DLC + Русификатор/Мод → 1 файл) - объединяет Базовую игру (.3ds/.cci/.cia/.cxi/.zcci/.zcxi/.zcia, TitleID High 00040000), Файл обновления (Патч .cia/.zcia, 0004000e), все Дополнения (DLC .cia, 0004008c) и Модификации/Русификаторы в единый файл .3ds, .cia, .cxi или сжатый Z3DS (.zcci / .zcia / .zcxi).\n" +
-                                      "2. Поддержка всех форматов русификаторов и модов 3DS - программа автоматически распознает и вшивает папки Luma3DS (luma/titles/<TID>/romfs и exefs), готовые образы romfs.bin / .romfs, распакованный код code.bin, бинарные патчи code.ips (IPS и IPS32) и дельта-патчи .bps.\n" +
-                                      "3. Прозрачное чтение Z3DS и SMDH - встроенный декодер Morton Z-order RGB565 извлекает иконки 48x48, метаданные TitleInfo и разделы RomFS напрямую из сжатых контейнеров .zcci, .zcia, .zcxi и .z3dsx.\n" +
-                                      "4. Нативная совместимость - полученный файл (.3ds / .cia / .zcci / .zcia) с автодешифровкой и обрезкой пустых байтов (Trim 0xFF) сразу запускается в Azahar (включая прямое чтение Z3DS без распаковки), Citra, Lime3DS и на реальной 3DS.",
-                    Tip = "Для Azahar выбирайте целевой формат ZCCI / ZCIA / ZCXI (экономия места с мгновенным запуском без распаковки), а для консоли 3DS - CIA!",
+                    DescriptionText = $"Полная поддержка всех 17+1 нативных форматов Nintendo 3DS / STORM 3DS / Azahar и бандлов .bcci / .bcxi / .bcia в {App.AppVersionString}:\n\n" +
+                                      "1. Главная особенность бандлов .bcci и .bcxi (всё в ОДНОМ файле без установки): одиночные .zcci, .zcxi и .zcia хранят только один Title ID, тогда как .bcci и .bcxi (TAR + Z3DS v1) упаковывают внутрь сразу Базовую игру (.zcci или .zcxi), все Официальные обновления (.zcia) и все Дополнения DLC (.zcia). Ядро STORM 3DS / Azahar (NCCHContainer + BundleCIAHandler) монтирует обновления и DLC на лету без распаковки и без двойного расхода места в sdmc!\n" +
+                                      "2. Вшивание русификаторов и модов: если подключены папки модов Luma3DS (luma/titles/<TID>/romfs и exefs), romfs.bin, code.bin, .ips/.bps, STORM SWITCH BOX вшивает мод внутрь основного NCCH-образа, сохраняет обновления/DLC нативными .zcia внутри того же .bcci / .bcxi и выдаёт 1 компактный автономный файл («Игра + Update + DLC + Мод»). Для быстрой смены модов можно также оставлять их в load/mods/<TitleID>/.\n" +
+                                      "3. Мгновенный режим без перепаковки RomFS: при сборке .bcci / .bcxi без модификаций (только База + Update + DLC) не запускается тяжёлая распаковка RomFS через ctrtool - даже 4 ГБ игры собираются за секунды!\n" +
+                                      "4. Прозрачное чтение Z3DS, TAR и SMDH: декодер Morton Z-order RGB565 извлекает иконки 48x48, метаданные TitleInfo и дерево файлов RomFS/Bundle напрямую из .bcci, .bcxi, .bcia, .zcci, .zcia, .zcxi, .z3dsx и .z3ds.",
+                    Tip = "★ Выбирайте BCCI (или BCXI для минимального веса), если хотите хранить Игру + Патчи + DLC + Мод в одном файле с мгновенным запуском без установки в sdmc!",
                     SetupPreview = container =>
                     {
                         var sp = new StackPanel { Spacing = 8 };
                         sp.Children.Add(new TextBlock { Text = $"🕹️ Комплект Nintendo 3DS Мульти-контента ({App.AppVersionString}):", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue) });
-                        sp.Children.Add(new TextBlock { Text = "1. [ИГРА] The Legend of Zelda (.3ds / .zcci / 00040000)", FontSize = 12, Foreground = GetSecondaryBrush() });
-                        sp.Children.Add(new TextBlock { Text = "2. [PATCH] Update v1.2 (.cia / .zcia / 0004000e)", FontSize = 12, Foreground = GetSecondaryBrush() });
-                        sp.Children.Add(new TextBlock { Text = "3. [DLC 1..N] Все разделы дополнений (.cia / 0004008c)", FontSize = 12, Foreground = GetSecondaryBrush() });
-                        sp.Children.Add(new TextBlock { Text = "4. [MOD] Русификатор: luma/titles/<TID>/romfs + code.ips / .bps", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) });
-                        sp.Children.Add(new TextBlock { Text = "✓ Итог: .3ds / .cia или сжатый Azahar Z3DS (.zcci / .zcia) без потерь", FontSize = 12, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) });
+                        sp.Children.Add(new TextBlock { Text = "1. [ИГРА] Базовая игра (.3ds / .cci / .cxi / .zcci / .zcxi / 00040000)", FontSize = 12, Foreground = GetSecondaryBrush() });
+                        sp.Children.Add(new TextBlock { Text = "2. [PATCH] Официальный патч (.cia / .zcia / 0004000e)", FontSize = 12, Foreground = GetSecondaryBrush() });
+                        sp.Children.Add(new TextBlock { Text = "3. [DLC 1..N] Все дополнения (.cia / .zcia / 0004008c)", FontSize = 12, Foreground = GetSecondaryBrush() });
+                        sp.Children.Add(new TextBlock { Text = "4. [MOD] Русификатор (опционально): romfs / exefs / code.ips / .bps", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) });
+                        sp.Children.Add(new TextBlock { Text = "★ Итог №1: .BCCI или .BCXI (всё в 1 файле, Seekable Zstd, 0 установки в sdmc!)", FontSize = 12, FontWeight = Microsoft.UI.Text.FontWeights.Bold, Foreground = new SolidColorBrush(Microsoft.UI.Colors.Gold) });
                         container.Children.Add(sp);
                     }
                 },
@@ -585,21 +585,35 @@ new TopicItem
                     Title = "Nintendo 3DS: Форматы и Сжатие",
                     Category = "Nintendo 3DS",
                     Icon = "\uE8D4",
-                    DescriptionText = "Полный разбор несжатых и сжатых форматов Nintendo 3DS (включая Azahar Z3DS v1):\n\n" +
-                                      "• 3DS / CCI (CTR Cartridge Image) - стандартный образ картриджа (NCSD). Поддерживает обрезку пустых байтов 0xFF (Trimming).\n" +
-                                      "• CIA (CTR Importable Archive) - установочный пакет для консоли 3DS (FBI / Custom Firmware) и эмуляторов.\n" +
-                                      "• CXI (CTR Executable Image) и 3DSX - исполняемый NCCH образ приложения и Homebrew-формат с расширением SMDH.\n" +
-                                      "• Z3DS (.zcci, .zcia, .zcxi, .z3dsx) - официальный сжатый стандарт эмулятора Azahar на базе Seekable Zstandard: 32-байтовый заголовок Z3DS (магия NCSD/NCCH/CIA\\0/3DSX, версия 1), 16-байтно выровненные метаданные (compressor, date, maxframesize, titleinfo 24 Б, smdh), независимые кадры (256 КиБ для NCSD/NCCH/3DSX и 32 МиБ для CIA) и таблица Seek Table (0x184D2A5E / 0x8F92EAB1) в конце файла.\n" +
-                                      "• Важное правило Z3DS: перед сжатием STORM SWITCH BOX автоматически расшифровывает NCCH (через KeyScrambler и SeedDB с флагом NoCrypto = 0x04) и обрезает хвостовые байты 0xFF картриджа, обеспечивая максимальное сжатие и мгновенный запуск в Azahar без полной распаковки!",
-                    Tip = "Для Azahar выбирайте ZCCI / ZCIA / ZCXI / Z3DSX (или «Z3DS (Авто)»); для Citra и консольной установки через FBI - CCI (.3ds) или CIA.",
+                    DescriptionText = "Полное описание и рекомендации по всем 17+1 нативным форматам Nintendo 3DS / STORM 3DS / Azahar:\n\n" +
+                                      "★ 1. Бандлы STORM 3DS / Azahar (лучший выбор «всё в 1 файле»):\n" +
+                                      "• .BCCI (Bundle CCI) - лидер №1! Контейнер microtar + Z3DS (игра .zcci + обновления .zcia + DLC .zcia). Мгновенный запуск, ноль установки в sdmc, ноль 2x расхода памяти.\n" +
+                                      "• .BCXI (Bundle CXI) - сверхкомпактный бандл (основная игра в .zcxi без лишних разделов мануала/DLP/обновления прошивки + .zcia патчей и DLC). Часто ещё на 5-15% меньше .bcci.\n" +
+                                      "• .BCIA (Bundle CIA) - бандл инсталляторов .cia/.zcia для пакетной установки в sdmc (занимает двойное место).\n\n" +
+                                      "★ 2. Сжатые одиночные Z3DS v1 (Seekable Zstandard, запуск без распаковки):\n" +
+                                      "• .ZCCI (Decrypted) - лучший формат для одиночной игры без DLC/обновлений (в 1.5-3 раза меньше, старт мгновенный). Намного лучше .zcia для игр!\n" +
+                                      "• .ZCXI (Decrypted) - абсолютный минимум размера для одиночной игры (только Partition 0 NCCH + Z3DS).\n" +
+                                      "• .ZCIA - сжатый установочный архив (оптимален только для отдельных Updates и DLC, т.к. игры из .zcia распаковываются в sdmc и тратят 2x места).\n" +
+                                      "• .Z3DSX - сжатый Homebrew-формат для Azahar / STORM 3DS.\n" +
+                                      "• .Z3DS - универсальное расширение того же контейнера Z3DS (для совместимости выбирайте точные .zcci/.zcxi/.zcia).\n\n" +
+                                      "3. Несжатые игровые и консольные форматы (максимум совместимости):\n" +
+                                      "• .CCI / .3DS (Decrypted + Trim 0xFF) - стандарт картриджа NCSD; работает везде (Citra, Citra MMJ, RetroArch, Lime3DS, Azahar).\n" +
+                                      "• .CXI - чистый исполняемый раздел Partition 0 NCCH без обёртки картриджа.\n" +
+                                      "• .CIA - обязательный установочный формат для реальной консоли 3DS (FBI / Luma3DS) и старых версий Citra.\n" +
+                                      "• .3DSX / .APP / .CFA - Homebrew-исполняемый файл (.3dsx), установленный контент SDMC (.app) и архив данных/DLC/мануалов NCCH (.cfa).\n\n" +
+                                      "4. Прочие поддерживаемые форматы (анализ и проверка):\n" +
+                                      "• .ELF / .AXF - отладочные ARM11 бинарники (0x7F ELF); .ARTIC - указатель стриминга с реальной 3DS по сети (Artic Base).\n\n" +
+                                      "• Важно: перед Z3DS программа автоматически расшифровывает ROM (NoCrypto) и обрезает 0xFF, а хранить 3DS-игры в .zip/.7z/.rar не рекомендуется (медленный старт и износ памяти).",
+                    Tip = "Для STORM 3DS и Azahar выбирайте BCCI или BCXI («всё в 1») либо ZCCI / ZCXI (одна игра); для старой Citra MMJ - CCI (.3ds); для реальной 3DS - CIA.",
                     SetupPreview = container =>
                     {
                         var sp = new StackPanel { Spacing = 6 };
-                        sp.Children.Add(new TextBlock { Text = "Сравнение форматов 3DS и Z3DS:", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
-                        sp.Children.Add(new TextBlock { Text = "• ZCCI / ZCIA / ZCXI / Z3DSX: Azahar Z3DS v1 (Seekable Zstd 256 КиБ / 32 МиБ, без распаковки)", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.MediumSpringGreen) });
-                        sp.Children.Add(new TextBlock { Text = "• 3DS / CCI: Картридж без сжатия (Citra, Lime3DS, Azahar + Trim 0xFF)", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) });
-                        sp.Children.Add(new TextBlock { Text = "• CIA: Установка на консоль 3DS (Luma3DS / FBI)", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue) });
-                        sp.Children.Add(new TextBlock { Text = "• CXI / 3DSX: NCCH контейнер приложения и Homebrew формат", FontSize = 12, Foreground = GetSecondaryBrush() });
+                        sp.Children.Add(new TextBlock { Text = "Рейтинг форматов 3DS (от лучшего):", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+                        sp.Children.Add(new TextBlock { Text = "★ .BCCI / .BCXI: Идеал «Игра + Патч + DLC + Мод» в 1 файле (Seekable Zstd, без установки в sdmc)", FontSize = 12, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = new SolidColorBrush(Microsoft.UI.Colors.Gold) });
+                        sp.Children.Add(new TextBlock { Text = "★ .ZCCI / .ZCXI (Decrypted): Оптимум для 1 игры без DLC (сжатие 1.5-3x, мгновенный старт)", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.MediumSpringGreen) });
+                        sp.Children.Add(new TextBlock { Text = "• .ZCIA / .BCIA: Для обновлений/DLC или пакетной установки в sdmc", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue) });
+                        sp.Children.Add(new TextBlock { Text = "• .CCI / .3DS / .CXI (Trim 0xFF): Максимум совместимости (Citra MMJ / RetroArch / слабые ЦП)", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) });
+                        sp.Children.Add(new TextBlock { Text = "• .CIA / .3DSX / .APP / .CFA / .Z3DS / .ELF / .AXF / .ARTIC: Установка на 3DS, Homebrew и стриминг", FontSize = 12, Foreground = GetSecondaryBrush() });
                         container.Children.Add(sp);
                     }
                 },
@@ -963,17 +977,17 @@ new TopicItem
                     Title = "Format Conversion (Switch and 3DS)",
                     Category = "Formats",
                     Icon = "\uE8D4",
-                    DescriptionText = "Fast native and stream-based format conversion:\n\n" +
-                                      "• Nintendo Switch: NSP ↔ XCI ↔ NSZ ↔ XCZ with lossless pass-through.\n" +
-                                      "• Nintendo 3DS: 3DS (CCI) ↔ CIA ↔ CXI ↔ 3DSX and Azahar Z3DS compressed formats (ZCCI, ZCIA, ZCXI, Z3DSX).\n" +
-                                      "• Automatic decryption, 0xFF trimming, and Seekable Zstandard Z3DS packing (Seek Table 0x8F92EAB1).",
-                    Tip = "XCI to NSP converts losslessly without heavy CPU overhead; Z3DS enables random-access Zstd in Azahar.",
+                    DescriptionText = "Fast native and stream-based format conversion within isolated ecosystems:\n\n" +
+                                      "• Nintendo Switch Ecosystem: NSP ↔ XCI ↔ NSZ ↔ XCZ ↔ NUP with lossless pass-through.\n" +
+                                      "• Nintendo 3DS Ecosystem (all 17+1 formats): zero-install bundles BCCI / BCXI / BCIA, compressed Azahar Z3DS (ZCCI, ZCIA, ZCXI, Z3DSX, Z3DS), standard 3DS / CCI / CIA / CXI / 3DSX, plus inspection and verification for APP / CFA / ELF / AXF / ARTIC.\n" +
+                                      "• Automatic NCCH decryption, fast Partition 0 extraction, 0xFF SmartShrink Trimming, and Z3DS Seekable Zstandard (Seek Table 0x8F92EAB1).",
+                    Tip = "Choose BCCI/BCXI for all-in-one zero-install bundles or ZCCI/ZCXI for single-game compression in STORM 3DS / Azahar.",
                     SetupPreview = container =>
                     {
                         var sp = new StackPanel { Spacing = 8 };
                         sp.Children.Add(new TextBlock { Text = "Conversion Pipelines:", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
-                        sp.Children.Add(new TextBlock { Text = "• Switch: NSP ↔ XCI ↔ NSZ ↔ XCZ", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue) });
-                        sp.Children.Add(new TextBlock { Text = "• 3DS: 3DS ↔ CIA ↔ CXI ↔ 3DSX ↔ ZCCI / ZCIA / ZCXI / Z3DSX", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.Crimson) });
+                        sp.Children.Add(new TextBlock { Text = "• Switch: NSP ↔ XCI ↔ NSZ ↔ XCZ ↔ NUP", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue) });
+                        sp.Children.Add(new TextBlock { Text = "• 3DS (17+1): BCCI / BCXI / BCIA ↔ ZCCI / ZCIA / ZCXI / Z3DSX / Z3DS ↔ 3DS / CCI / CIA / CXI / 3DSX", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.Crimson) });
                         container.Children.Add(sp);
                     }
                 },
@@ -1091,21 +1105,21 @@ new TopicItem
                     Title = "Nintendo 3DS: Architecture and Multi-Content",
                     Category = "Nintendo 3DS",
                     Icon = "\uE7FC",
-                    DescriptionText = $"Complete Nintendo 3DS ecosystem support (CTR/CCI/CIA/CXI/3DSX/Z3DS) and SMDH icon extraction in {App.AppVersionString}:\n\n" +
-                                      "1. 3DS Multi-Content (Base + Update + DLC + Translation/Mod → 1 file) - Combines Base game (.3ds/.cci/.cia/.cxi/.zcci/.zcxi/.zcia, TitleID High 00040000), Update (.cia/.zcia, 0004000e), all DLC containers (.cia, 0004008c), and mods/translations into one trimmed .3ds, .cia, .cxi, or compressed Azahar Z3DS (.zcci/.zcia/.zcxi) file.\n" +
-                                      "2. Full Mod and Translation Support - Automatically detects and applies Luma3DS folders (luma/titles/<TID>/romfs and exefs), pre-built romfs.bin / .romfs images, code.bin, binary code.ips patches (IPS and IPS32), and .bps delta patches.\n" +
-                                      "3. Transparent Z3DS and SMDH Inspector - Decodes Morton Z-order RGB565 48x48 icons, TitleInfo metadata, and RomFS trees directly inside .zcci, .zcia, .zcxi, and .z3dsx containers.\n" +
-                                      "4. Native Compatibility - Works out of the box in Azahar (direct random-access Z3DS launch), Citra, Lime3DS, and real 3DS hardware.",
-                    Tip = "Choose ZCCI / ZCIA / ZCXI for Azahar random-access compression, or CIA for 3DS hardware FBI install!",
+                    DescriptionText = $"Complete support for all 17+1 native Nintendo 3DS / STORM 3DS / Azahar formats and .bcci / .bcxi / .bcia bundles in {App.AppVersionString}:\n\n" +
+                                      "1. Why .BCCI / .BCXI are #1 for All-in-One builds: Single .zcci, .zcxi, and .zcia files only store a single Title ID, whereas .bcci and .bcxi (microtar + Z3DS v1) bundle your compressed Base game (.zcci or .zcxi), official Updates (.zcia), and all DLCs (.zcia) into ONE file. STORM 3DS and Azahar mount bundled updates and DLC on the fly with zero sdmc installation and zero duplicate storage!\n" +
+                                      "2. Mod and Translation Baking: When Luma3DS folders (luma/titles/<TID>/romfs and exefs), romfs.bin, code.bin, or .ips/.bps patches are included, STORM SWITCH BOX bakes mods into the NCCH image while keeping Updates/DLCs native inside the .bcci / .bcxi bundle (1 self-contained file for Game + Update + DLC + Mod).\n" +
+                                      "3. Instant Zero-Unpack Bundle Mode: Building .bcci / .bcxi without RomFS/ExeFS mods skips heavy ctrtool RomFS extraction completely.\n" +
+                                      "4. Transparent Z3DS, TAR and SMDH Inspection: Extracts 48x48 icons, TitleInfo metadata, TAR contents, and RomFS trees directly inside .bcci, .bcxi, .bcia, .zcci, .zcxi, .zcia, .z3dsx, and .z3ds.",
+                    Tip = "★ Choose BCCI (or BCXI for smallest size) to keep Base + Update + DLC + Mod in one zero-install file for STORM 3DS / Azahar!",
                     SetupPreview = container =>
                     {
                         var sp = new StackPanel { Spacing = 8 };
                         sp.Children.Add(new TextBlock { Text = $"🕹️ Nintendo 3DS Multi-Content Package ({App.AppVersionString}):", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue) });
-                        sp.Children.Add(new TextBlock { Text = "1. [BASE] The Legend of Zelda (.3ds / .zcci / 00040000)", FontSize = 12, Foreground = GetSecondaryBrush() });
-                        sp.Children.Add(new TextBlock { Text = "2. [PATCH] Update v1.2 (.cia / .zcia / 0004000e)", FontSize = 12, Foreground = GetSecondaryBrush() });
-                        sp.Children.Add(new TextBlock { Text = "3. [DLC 1..N] All Add-on Content containers (.cia / 0004008c)", FontSize = 12, Foreground = GetSecondaryBrush() });
-                        sp.Children.Add(new TextBlock { Text = "4. [MOD] Luma RomFS / romfs.bin / code.ips / .bps", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) });
-                        sp.Children.Add(new TextBlock { Text = "✓ Output: .3ds / .cia or Azahar Z3DS (.zcci / .zcia) ready to boot", FontSize = 12, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) });
+                        sp.Children.Add(new TextBlock { Text = "1. [BASE] Base game (.3ds / .cci / .cxi / .zcci / .zcxi / 00040000)", FontSize = 12, Foreground = GetSecondaryBrush() });
+                        sp.Children.Add(new TextBlock { Text = "2. [PATCH] Official Update (.cia / .zcia / 0004000e)", FontSize = 12, Foreground = GetSecondaryBrush() });
+                        sp.Children.Add(new TextBlock { Text = "3. [DLC 1..N] All DLC packages (.cia / .zcia / 0004008c)", FontSize = 12, Foreground = GetSecondaryBrush() });
+                        sp.Children.Add(new TextBlock { Text = "4. [MOD] Optional Translation/Mod: Luma RomFS / romfs.bin / code.ips / .bps", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) });
+                        sp.Children.Add(new TextBlock { Text = "★ #1 Output: .BCCI or .BCXI (all in 1 file, Seekable Zstd, zero sdmc install!)", FontSize = 12, FontWeight = Microsoft.UI.Text.FontWeights.Bold, Foreground = new SolidColorBrush(Microsoft.UI.Colors.Gold) });
                         container.Children.Add(sp);
                     }
                 },
@@ -1114,21 +1128,34 @@ new TopicItem
                     Title = "Nintendo 3DS: Formats and Compression",
                     Category = "Nintendo 3DS",
                     Icon = "\uE8D4",
-                    DescriptionText = "Overview of Nintendo 3DS uncompressed and Azahar Z3DS v1 compressed formats:\n\n" +
-                                      "• 3DS / CCI (CTR Cartridge Image) - Standard NCSD cartridge dump with 0xFF Trimming support.\n" +
-                                      "• CIA (CTR Importable Archive) - Installable package for real 3DS hardware (FBI / Custom Firmware) and emulators.\n" +
-                                      "• CXI (CTR Executable Image) and 3DSX - Executable NCCH container and 3DSX homebrew format with extended SMDH.\n" +
-                                      "• Z3DS (.zcci, .zcia, .zcxi, .z3dsx) - Official Azahar Seekable Zstandard format: 32-byte Z3DS header (underlying magic NCSD/NCCH/CIA\\0/3DSX, version 1), 16-byte padded metadata (compressor, date, maxframesize, 24B titleinfo, smdh), independent Zstd frames (256 KiB for NCSD/NCCH/3DSX, 32 MiB for CIA), and trailing skippable Seek Table (0x184D2A5E / 0x8F92EAB1).\n" +
-                                      "• Mandatory Z3DS Pre-processing - STORM SWITCH BOX automatically decrypts NCCH partitions (KeyScrambler + SeedDB, NoCrypto = 0x04) and trims trailing 0xFF padding before compressing for maximum ratio and zero-unpack boot in Azahar.",
-                    Tip = "Select ZCCI / ZCIA / ZCXI / Z3DSX (or Auto Z3DS) for Azahar, and CCI (.3ds) or CIA for Citra and FBI hardware install.",
+                    DescriptionText = "Complete reference and recommendations for all 17+1 Nintendo 3DS / STORM 3DS / Azahar formats:\n\n" +
+                                      "★ 1. STORM 3DS / Azahar All-in-One Bundles:\n" +
+                                      "• .BCCI (Bundle CCI) - #1 overall choice: TAR bundle containing compressed game (.zcci) + updates (.zcia) + DLCs (.zcia). Instant boot, zero sdmc install, zero 2x space.\n" +
+                                      "• .BCXI (Bundle CXI) - Smallest all-in-one: same zero-install TAR bundle using stripped Partition 0 NCCH (.zcxi) without manual/DLP/firmware partitions (5-15% smaller than .bcci).\n" +
+                                      "• .BCIA (Bundle CIA) - Batch CIA/ZCIA installer bundle (installs sequentially to sdmc; takes 2x storage).\n\n" +
+                                      "★ 2. Compressed Single Z3DS v1 Formats (Seekable Zstandard):\n" +
+                                      "• .ZCCI (Decrypted) - Best single-game format without updates/DLC (1.5-3x smaller, instant direct launch; much better than .zcia for base games).\n" +
+                                      "• .ZCXI (Decrypted) - Smallest single-game format (Partition 0 NCCH + Z3DS).\n" +
+                                      "• .ZCIA - Compressed CIA archive (recommended only for standalone updates and DLCs since base games extract uncompressed into sdmc).\n" +
+                                      "• .Z3DSX / .Z3DS - Compressed 3DSX Homebrew and generic Z3DS extension (prefer specific .zcci/.zcxi/.zcia extensions for broader launcher detection).\n\n" +
+                                      "3. Uncompressed Standard & Console Formats:\n" +
+                                      "• .CCI / .3DS (Decrypted + Trim 0xFF) - Widest compatibility (Citra, Citra MMJ, RetroArch, Lime3DS, Azahar) and lowest CPU usage.\n" +
+                                      "• .CXI - Clean uncompressed Partition 0 NCCH executable.\n" +
+                                      "• .CIA - Mandatory format for real 3DS hardware installation (FBI / Luma3DS).\n" +
+                                      "• .3DSX / .APP / .CFA - Homebrew Launcher (.3dsx), installed sdmc content (.app), and non-executable NCCH archive (.cfa).\n\n" +
+                                      "4. Debug & Streaming Formats:\n" +
+                                      "• .ELF / .AXF - ARM11 ELF binaries (0x7F ELF); .ARTIC - Artic Base real-3DS network stream pointer.\n\n" +
+                                      "• Note: Always prefer Decrypted Z3DS (.bcci/.bcxi/.zcci/.zcxi) over .zip/.7z/.rar archives (archives prevent random seek and force full extraction on launch).",
+                    Tip = "Pick BCCI or BCXI for Game + Update + DLC + Mod in one file, ZCCI / ZCXI for standalone games, CCI (.3ds) for Citra MMJ, and CIA for real 3DS consoles.",
                     SetupPreview = container =>
                     {
                         var sp = new StackPanel { Spacing = 6 };
-                        sp.Children.Add(new TextBlock { Text = "3DS and Z3DS Format Comparison:", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
-                        sp.Children.Add(new TextBlock { Text = "• ZCCI / ZCIA / ZCXI / Z3DSX: Azahar Z3DS v1 (Seekable Zstd 256 KiB / 32 MiB, instant boot)", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.MediumSpringGreen) });
-                        sp.Children.Add(new TextBlock { Text = "• 3DS / CCI: Direct launch in Citra / Lime3DS (Trimming active)", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) });
-                        sp.Children.Add(new TextBlock { Text = "• CIA: Installation on 3DS console (Luma3DS / FBI)", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue) });
-                        sp.Children.Add(new TextBlock { Text = "• CXI / 3DSX: NCCH executable and 3DSX homebrew container", FontSize = 12, Foreground = GetSecondaryBrush() });
+                        sp.Children.Add(new TextBlock { Text = "3DS Format Ranking and Recommendations:", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+                        sp.Children.Add(new TextBlock { Text = "★ .BCCI / .BCXI: Best Game + Update + DLC + Mod in 1 file (Seekable Zstd, zero sdmc install)", FontSize = 12, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = new SolidColorBrush(Microsoft.UI.Colors.Gold) });
+                        sp.Children.Add(new TextBlock { Text = "★ .ZCCI / .ZCXI (Decrypted): Optimal for single games without DLC (1.5-3x smaller, instant boot)", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.MediumSpringGreen) });
+                        sp.Children.Add(new TextBlock { Text = "• .ZCIA / .BCIA: For standalone updates/DLC or batch sdmc installation", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue) });
+                        sp.Children.Add(new TextBlock { Text = "• .CCI / .3DS / .CXI (Trim 0xFF): Universal Citra / Citra MMJ / RetroArch compatibility", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) });
+                        sp.Children.Add(new TextBlock { Text = "• .CIA / .3DSX / .APP / .CFA / .Z3DS / .ELF / .AXF / .ARTIC: 3DS FBI install, Homebrew and Artic streaming", FontSize = 12, Foreground = GetSecondaryBrush() });
                         container.Children.Add(sp);
                     }
                 },
@@ -2097,7 +2124,7 @@ new TopicItem
                             "② Слияние RomFS: базовая игра + файлы патча обновления v1.1.\n" +
                             "③ Внедрение контента из DLC 1 и DLC 2.\n" +
                             "④ Наложение папки модификации romfs (русский перевод поверх обновленной игры).\n" +
-                            "⑤ Сборка через makerom/3dstool в монолитный .3ds (CCI) файл с Trimming (без пустого мусора). Итог: 1 рабочий файл!"
+                            "⑤ Сборка через makerom/3dstool или прямая упаковка DLC в .bcci / .bcxi (или монолитный .3ds/.zcci) с Trimming. Итог: 1 рабочий файл!"
             );
         }
 
@@ -2892,7 +2919,7 @@ new TopicItem
             var comboFrom = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, CornerRadius = new CornerRadius(6) };
             var comboTo = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, CornerRadius = new CornerRadius(6) };
 
-            string[] formats = new[] { "NSP", "NSZ", "XCI", "XCZ", "3DS (CCI)", "CIA", "CXI", "3DSX", "ZCCI", "ZCIA", "ZCXI", "Z3DSX" };
+            string[] formats = new[] { "NSP", "NSZ", "XCI", "XCZ", "BCCI", "BCXI", "BCIA", "ZCCI", "ZCXI", "ZCIA", "Z3DSX", "Z3DS", "3DS (CCI)", "CXI", "CIA", "3DSX" };
             foreach (var f in formats)
             {
                 comboFrom.Items.Add(new ComboBoxItem { Content = f });
@@ -2988,20 +3015,27 @@ new TopicItem
                         FontSize = 13, 
                         Foreground = new SolidColorBrush(Microsoft.UI.Colors.Crimson) 
                     });
-                    bool isZ3dsRoute = fromFmt.StartsWith("Z") || toFmt.StartsWith("Z");
+                    bool isBundleRoute = fromFmt.StartsWith("B") || toFmt.StartsWith("B");
+                    bool isZ3dsRoute = isBundleRoute || fromFmt.StartsWith("Z") || toFmt.StartsWith("Z");
                     detailSp.Children.Add(new TextBlock 
                     { 
-                        Text = isZ3dsRoute
-                            ? "• Движок: Azahar Z3DS v1 (Seekable Zstandard 256 КиБ / 32 МиБ, автодешифровка + Trim 0xFF, Seek Table 0x8F92EAB1)"
-                            : "• Движок: ctrtool + makerom + 3dstool с автодешифровкой и обрезкой пустых байтов (Trimming)", 
+                        Text = isBundleRoute
+                            ? "• Движок: microtar + Azahar Z3DS v1 (бандл без установки в sdmc + сохранение вложенных Update и DLC)"
+                            : (isZ3dsRoute
+                                ? "• Движок: Azahar Z3DS v1 (Seekable Zstandard 256 КиБ / 32 МиБ, автодешифровка + Trim 0xFF, Seek Table 0x8F92EAB1)"
+                                : "• Движок: нарезка разделов NCSD + makerom (-ignoresign) + 3dstool с автодешифровкой и Trim 0xFF"), 
                         FontSize = 12, 
                         Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) 
                     });
                     detailSp.Children.Add(new TextBlock 
                     { 
-                        Text = toFmt.StartsWith("Z")
-                            ? "• Цель: Сжатый формат Azahar Z3DS - мгновенный запуск с произвольным доступом без распаковки"
-                            : (toFmt == "CIA" ? "• Цель: Установка на реальную 3DS (FBI) или эмуляторы" : "• Цель: Прямой запуск в эмуляторах (Azahar, Citra, Lime3DS)"), 
+                        Text = (toFmt == "BCCI" || toFmt == "BCXI")
+                            ? "★ Цель: Лучший единый бандл для STORM 3DS / Azahar (мгновенный старт без установки и двойного места в sdmc)"
+                            : (toFmt == "BCIA"
+                                ? "• Цель: Пакетная установка игры, патчей и DLC в sdmc одним файлом"
+                                : (toFmt.StartsWith("Z")
+                                    ? "• Цель: Сжатый формат Azahar Z3DS - мгновенный запуск с произвольным доступом без распаковки"
+                                    : (toFmt == "CIA" ? "• Цель: Установка на реальную 3DS (FBI / Luma3DS) или эмуляторы" : "• Цель: Прямой запуск в эмуляторах (STORM 3DS, Azahar, Citra, Lime3DS)"))), 
                         FontSize = 12, 
                         Foreground = GetSecondaryBrush() 
                     });

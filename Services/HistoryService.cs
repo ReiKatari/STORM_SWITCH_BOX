@@ -457,17 +457,10 @@ public static string GetDeterministicSourceHash(ProcessingTask task)
                     // Проверка выходного файла
                     if (iconBytes == null && !string.IsNullOrEmpty(task.OutputFolder) && !string.IsNullOrEmpty(task.OutputFileName))
                     {
-                        string outNsp = Path.Combine(task.OutputFolder, task.OutputFileName + ".nsp");
-                        string outNsz = Path.Combine(task.OutputFolder, task.OutputFileName + ".nsz");
-                        string outXci = Path.Combine(task.OutputFolder, task.OutputFileName + ".xci");
-                        string outCia = Path.Combine(task.OutputFolder, task.OutputFileName + ".cia");
-                        string out3ds = Path.Combine(task.OutputFolder, task.OutputFileName + ".3ds");
-                        string outZcci = Path.Combine(task.OutputFolder, task.OutputFileName + ".zcci");
-                        string outZcia = Path.Combine(task.OutputFolder, task.OutputFileName + ".zcia");
-                        string outZcxi = Path.Combine(task.OutputFolder, task.OutputFileName + ".zcxi");
-                        string outZ3dsx = Path.Combine(task.OutputFolder, task.OutputFileName + ".z3dsx");
-
-                        string? existingOut = new[] { outNsp, outNsz, outXci, outCia, out3ds, outZcci, outZcia, outZcxi, outZ3dsx }.FirstOrDefault(File.Exists);
+                        string[] histExts = { ".nsp", ".nsz", ".xci", ".xcz", ".nup", ".bcci", ".bcxi", ".bcia", ".zcci", ".zcxi", ".zcia", ".z3dsx", ".z3ds", ".cci", ".3ds", ".cxi", ".cia", ".3dsx" };
+                        string? existingOut = histExts
+                            .Select(ext => Path.Combine(task.OutputFolder, task.OutputFileName + ext))
+                            .FirstOrDefault(File.Exists);
                         if (existingOut != null)
                         {
                             if (Nintendo3dsService.Is3dsExtension(Path.GetExtension(existingOut)))

@@ -1144,24 +1144,35 @@
                     <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8" Padding="20">
                         <StackPanel Spacing="16">
                             <!-- Выходной формат 3DS по умолчанию -->
-                            <Grid>
-                                <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
-                                    <TextBlock x:Name="ThreeDsFormatTitleTxt" Text="Выходной формат 3DS по умолчанию" FontWeight="Medium"/>
-                                    <TextBlock x:Name="ThreeDsFormatDescTxt" Text="Формат по умолчанию для конвертации и сборки (.3ds / .cci / сжатые Azahar Z3DS: .zcci, .zcia, .zcxi, .z3dsx, или .cia)" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
-                                </StackPanel>
-                                <ComboBox x:Name="Format3dsCombo" HorizontalAlignment="Right" Width="320" SelectionChanged="Format3dsCombo_SelectionChanged" VerticalAlignment="Center">
-                                    <ComboBoxItem Content="3DS (CCI - для эмуляторов)" Tag="3DS"/>
-                                    <ComboBoxItem Content="CIA (Установочный пакет)" Tag="CIA"/>
-                                    <ComboBoxItem Content="CXI (Исполняемый NCCH)" Tag="CXI"/>
-                                    <ComboBoxItem Content="3DS + CIA (Двойной вывод)" Tag="3DS + CIA"/>
-                                    <ComboBoxItem Content="ZCCI (Сжатый картридж Azahar Z3DS)" Tag="ZCCI"/>
-                                    <ComboBoxItem Content="ZCIA (Сжатый пакет CIA Z3DS)" Tag="ZCIA"/>
-                                    <ComboBoxItem Content="ZCXI (Сжатый NCCH Z3DS)" Tag="ZCXI"/>
-                                    <ComboBoxItem Content="Z3DSX (Сжатый Homebrew Z3DS)" Tag="Z3DSX"/>
-                                    <ComboBoxItem Content="Z3DS (Автовыбор по исходнику)" Tag="Z3DS (Авто)"/>
-                                    <ComboBoxItem Content="3DS + ZCCI (Двойной вывод)" Tag="3DS + ZCCI"/>
-                                </ComboBox>
-                            </Grid>
+                            <StackPanel Spacing="10">
+                                <Grid>
+                                    <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
+                                        <TextBlock x:Name="ThreeDsFormatTitleTxt" Text="Выходной формат 3DS по умолчанию" FontWeight="Medium"/>
+                                        <TextBlock x:Name="ThreeDsFormatDescTxt" Text="Рекомендуется: .bcci / .bcxi (бандлы STORM 3DS и Azahar «Игра + Update + DLC + Мод» без установки в sdmc), а также .zcci/.zcxi/.zcia/.z3dsx и .cci/.3ds/.cxi/.cia/.3dsx" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                    <ComboBox x:Name="Format3dsCombo" HorizontalAlignment="Right" Width="360" SelectionChanged="Format3dsCombo_SelectionChanged" VerticalAlignment="Center">
+                                        <ComboBoxItem Content="BCCI ★ (Бандл картридж + Update + DLC без установки)" Tag="BCCI"/>
+                                        <ComboBoxItem Content="BCXI ★ (Сверхкомпактный бандл NCCH + Update + DLC)" Tag="BCXI"/>
+                                        <ComboBoxItem Content="BCIA (Бандл-инсталлятор CIA/ZCIA пачкой в sdmc)" Tag="BCIA"/>
+                                        <ComboBoxItem Content="ZCCI ★ (Сжатый картридж Azahar Z3DS - для 1 игры)" Tag="ZCCI"/>
+                                        <ComboBoxItem Content="ZCXI (Сжатый NCCH Z3DS - минимум для 1 игры)" Tag="ZCXI"/>
+                                        <ComboBoxItem Content="ZCIA (Сжатый пакет CIA Z3DS - для обновлений и DLC)" Tag="ZCIA"/>
+                                        <ComboBoxItem Content="Z3DSX (Сжатый Homebrew Z3DS)" Tag="Z3DSX"/>
+                                        <ComboBoxItem Content="Z3DS (Универсальное расширение Z3DS v1)" Tag="Z3DS"/>
+                                        <ComboBoxItem Content="Z3DS (Автовыбор по исходнику)" Tag="Z3DS (Авто)"/>
+                                        <ComboBoxItem Content="CCI (Картридж NCSD Trim - максимум совместимости)" Tag="CCI"/>
+                                        <ComboBoxItem Content="3DS (CCI - для эмуляторов)" Tag="3DS"/>
+                                        <ComboBoxItem Content="CXI (Исполняемый NCCH)" Tag="CXI"/>
+                                        <ComboBoxItem Content="CIA (Установочный пакет)" Tag="CIA"/>
+                                        <ComboBoxItem Content="3DSX (Homebrew Launcher)" Tag="3DSX"/>
+                                        <ComboBoxItem Content="3DS + CIA (Двойной вывод)" Tag="3DS + CIA"/>
+                                        <ComboBoxItem Content="3DS + ZCCI (Двойной вывод)" Tag="3DS + ZCCI"/>
+                                    </ComboBox>
+                                </Grid>
+                                <Border Background="{ThemeResource SubtleFillColorSecondaryBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="6" Padding="12,8">
+                                    <TextBlock x:Name="Format3dsRecommendationTxt" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
+                                </Border>
+                            </StackPanel>
 
                             <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
 
@@ -1170,7 +1181,7 @@
                                 <Grid>
                                     <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
                                         <TextBlock x:Name="ThreeDsWatchTitleTxt" Text="«Умная» папка Nintendo 3DS" FontWeight="Medium"/>
-                                        <TextBlock x:Name="ThreeDsWatchDescTxt" Text="Автоматически обнаруживает файлы 3DS (.3ds, .cci, .cia, .cxi, .3dsx, Z3DS: .zcci/.zcxi/.zcia/.z3dsx, архивы .zip, .rar, .7z) и отправляет в задачи" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                                        <TextBlock x:Name="ThreeDsWatchDescTxt" Text="Автоматически обнаруживает все 17+1 форматов 3DS (.bcci, .bcxi, .bcia, .zcci/.zcxi/.zcia/.z3dsx/.z3ds, .3ds/.cci/.cxi/.cia/.cfa/.app/.3dsx/.elf/.axf/.artic, архивы .zip, .rar, .7z) и отправляет в задачи" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
                                     </StackPanel>
                                     <ToggleSwitch x:Name="WatchFolder3dsToggle" HorizontalAlignment="Right" IsOn="{x:Bind Settings.EnableWatchFolder3ds, Mode=TwoWay}" Toggled="WatchFolder3dsToggle_Toggled" VerticalAlignment="Center"/>
                                 </Grid>
@@ -1207,7 +1218,7 @@
                                             <ComboBoxItem Content="Проверка" Tag="4"/>
                                         </ComboBox>
 
-                                        <ComboBox x:Name="WatchFolderFormatCombo3ds" Grid.Column="2" Width="125" Margin="0,0,12,0" SelectionChanged="WatchFolderFormatCombo3ds_SelectionChanged" VerticalAlignment="Center">
+                                        <ComboBox x:Name="WatchFolderFormatCombo3ds" Grid.Column="2" Width="135" Margin="0,0,12,0" SelectionChanged="WatchFolderFormatCombo3ds_SelectionChanged" VerticalAlignment="Center">
                                             <ComboBoxItem Content="3DS" Tag="0"/>
                                             <ComboBoxItem Content="CIA" Tag="1"/>
                                             <ComboBoxItem Content="CXI" Tag="2"/>
@@ -1216,6 +1227,12 @@
                                             <ComboBoxItem Content="ZCXI" Tag="5"/>
                                             <ComboBoxItem Content="Z3DSX" Tag="6"/>
                                             <ComboBoxItem Content="Z3DS (Авто)" Tag="7"/>
+                                            <ComboBoxItem Content="BCCI ★" Tag="8"/>
+                                            <ComboBoxItem Content="BCXI ★" Tag="9"/>
+                                            <ComboBoxItem Content="BCIA" Tag="10"/>
+                                            <ComboBoxItem Content="CCI" Tag="11"/>
+                                            <ComboBoxItem Content="3DSX" Tag="12"/>
+                                            <ComboBoxItem Content="Z3DS" Tag="13"/>
                                         </ComboBox>
 
                                         <Button x:Name="ToggleWatchFolder3dsBtn" Grid.Column="3" Content="▶ Запустить отслеживание" Click="ToggleWatchFolder3dsBtn_Click" 
@@ -1235,7 +1252,7 @@
                                 </Grid.RowDefinitions>
                                 <StackPanel Grid.Row="0" Margin="0,0,0,8" Spacing="2">
                                     <TextBlock x:Name="ThreeDsOutFolderTitleTxt" Text="Выходная папка 3DS по умолчанию" FontWeight="Medium" VerticalAlignment="Center"/>
-                                    <TextBlock x:Name="ThreeDsOutFolderDescTxt" Text="Папка для сохранения обработанных файлов 3DS (.3ds / .cia / .cxi / .zcci / .zcia / .zcxi / .z3dsx). Можно перетащить папку сюда" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                                    <TextBlock x:Name="ThreeDsOutFolderDescTxt" Text="Папка для сохранения обработанных файлов 3DS (.bcci / .bcxi / .bcia / .zcci / .zcxi / .zcia / .z3dsx / .3ds / .cci / .cxi / .cia / .3dsx). Можно перетащить папку сюда" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
                                 </StackPanel>
                                 <Grid Grid.Row="1" AllowDrop="True" DragOver="OutputFolderBox3ds_DragOver" Drop="OutputFolderBox3ds_Drop">
                                     <Grid.ColumnDefinitions>

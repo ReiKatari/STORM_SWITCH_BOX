@@ -35,7 +35,7 @@ namespace StormSwitchBox.Services
         {
             if (!Directory.Exists(directoryPath)) return;
 
-            string[] extensions = { ".nsp", ".nsz", ".xci", ".xcz", ".3ds", ".cci", ".cia", ".cxi", ".3dsx", ".zcci", ".zcxi", ".zcia", ".z3dsx" };
+            string[] extensions = { ".nsp", ".nsz", ".xci", ".xcz", ".3ds", ".cci", ".cia", ".cxi", ".cfa", ".app", ".3dsx", ".elf", ".axf", ".artic", ".zcci", ".zcxi", ".zcia", ".z3dsx", ".z3ds", ".bcci", ".bcxi", ".bcia" };
             var enumOpts = new EnumerationOptions
             {
                 RecurseSubdirectories = recursive,
@@ -185,7 +185,7 @@ namespace StormSwitchBox.Services
             // Check if it already exists in the catalog to prevent duplicates
             if (catalog.Any(c => c.FilePath.Equals(filePath, StringComparison.OrdinalIgnoreCase))) return;
 
-            string[] extensions = { ".nsp", ".nsz", ".xci", ".xcz", ".3ds", ".cci", ".cia", ".cxi", ".3dsx", ".zcci", ".zcxi", ".zcia", ".z3dsx" };
+            string[] extensions = { ".nsp", ".nsz", ".xci", ".xcz", ".3ds", ".cci", ".cia", ".cxi", ".cfa", ".app", ".3dsx", ".elf", ".axf", ".artic", ".zcci", ".zcxi", ".zcia", ".z3dsx", ".z3ds", ".bcci", ".bcxi", ".bcia" };
             if (!extensions.Contains(System.IO.Path.GetExtension(filePath).ToLowerInvariant())) return;
 
             var item = new CatalogItem

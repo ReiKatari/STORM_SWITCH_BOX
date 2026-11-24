@@ -474,11 +474,19 @@ namespace StormSwitchBox.Views
                 picker.FileTypeFilter.Add(".xci");
                 picker.FileTypeFilter.Add(".xcz");
                 picker.FileTypeFilter.Add(".nro");
+                picker.FileTypeFilter.Add(".bcci");
+                picker.FileTypeFilter.Add(".bcxi");
+                picker.FileTypeFilter.Add(".bcia");
                 picker.FileTypeFilter.Add(".3ds");
                 picker.FileTypeFilter.Add(".cci");
                 picker.FileTypeFilter.Add(".cia");
                 picker.FileTypeFilter.Add(".cxi");
+                picker.FileTypeFilter.Add(".cfa");
+                picker.FileTypeFilter.Add(".app");
                 picker.FileTypeFilter.Add(".3dsx");
+                picker.FileTypeFilter.Add(".elf");
+                picker.FileTypeFilter.Add(".axf");
+                picker.FileTypeFilter.Add(".artic");
                 picker.FileTypeFilter.Add(".zcci");
                 picker.FileTypeFilter.Add(".zcxi");
                 picker.FileTypeFilter.Add(".zcia");
@@ -651,11 +659,20 @@ namespace StormSwitchBox.Views
         {
             if (sender is ComboBox cb && cb.SelectedItem is ComboBoxItem item)
             {
-                string format = item.Content?.ToString() ?? "3DS";
+                string format = item.Tag?.ToString() ?? item.Content?.ToString() ?? "BCCI";
                 ViewModel.SelectedFormatIndex3ds = cb.SelectedIndex;
                 App.Settings.Current.SelectedFormatIndex3ds = cb.SelectedIndex;
                 App.Settings.Current.DefaultFormat3ds = format;
                 _ = App.Settings.SaveAsync();
+            }
+        }
+
+        private void Format3dsGuideFlyout_Opening(object sender, object e)
+        {
+            if (Format3dsGuideTextBlock != null)
+            {
+                bool isRu = string.Equals(App.Localization?.CurrentLanguage, "ru", StringComparison.OrdinalIgnoreCase);
+                Format3dsGuideTextBlock.Text = ThreeDsFormatCatalog.BuildFullGuideText(isRu);
             }
         }
 
@@ -750,20 +767,12 @@ namespace StormSwitchBox.Views
                      f.EndsWith(".nsz", StringComparison.OrdinalIgnoreCase) || 
                      f.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) ||
                      f.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase) ||
-                     f.EndsWith(".3ds", StringComparison.OrdinalIgnoreCase) ||
-                     f.EndsWith(".cci", StringComparison.OrdinalIgnoreCase) ||
-                     f.EndsWith(".cia", StringComparison.OrdinalIgnoreCase) ||
-                     f.EndsWith(".cxi", StringComparison.OrdinalIgnoreCase) ||
-                     f.EndsWith(".3dsx", StringComparison.OrdinalIgnoreCase) ||
-                     f.EndsWith(".zcci", StringComparison.OrdinalIgnoreCase) ||
-                     f.EndsWith(".zcxi", StringComparison.OrdinalIgnoreCase) ||
-                     f.EndsWith(".zcia", StringComparison.OrdinalIgnoreCase) ||
-                     f.EndsWith(".z3dsx", StringComparison.OrdinalIgnoreCase)));
+                     Nintendo3dsService.Is3dsExtension(Path.GetExtension(f))));
 
                 string? builtOutputFile = null;
                 if (!string.IsNullOrWhiteSpace(task.OutputFolder) && !string.IsNullOrWhiteSpace(task.OutputFileName))
                 {
-                    string[] candidateExts = new[] { task.GetPrimaryExtension(), ".nsz", ".nsp", ".xci", ".xcz", ".3ds", ".cia", ".cci", ".cxi", ".3dsx", ".zcci", ".zcia", ".zcxi", ".z3dsx" };
+                    string[] candidateExts = new[] { task.GetPrimaryExtension(), ".nsz", ".nsp", ".xci", ".xcz", ".bcci", ".bcxi", ".bcia", ".zcci", ".zcxi", ".zcia", ".z3dsx", ".z3ds", ".cci", ".3ds", ".cxi", ".cia", ".3dsx", ".app" };
                     foreach (var ext in candidateExts.Distinct(StringComparer.OrdinalIgnoreCase))
                     {
                         string candidatePath = Path.Combine(task.OutputFolder, task.OutputFileName + ext);
