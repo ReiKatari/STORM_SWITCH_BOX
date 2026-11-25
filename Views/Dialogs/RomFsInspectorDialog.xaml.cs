@@ -195,7 +195,7 @@ namespace StormSwitchBox.Views.Dialogs
                     if (isPng || isJpg)
                     {
                         using var ms = new MemoryStream(bytes);
-                        var bmp = new BitmapImage();
+                        var bmp = new BitmapImage { DecodePixelWidth = 256, DecodePixelType = Microsoft.UI.Xaml.Media.Imaging.DecodePixelType.Logical };
                         await bmp.SetSourceAsync(ms.AsRandomAccessStream());
                         PreviewImage.Source = bmp;
                         PreviewImage.Visibility = Visibility.Visible;

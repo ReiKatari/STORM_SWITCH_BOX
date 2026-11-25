@@ -144,6 +144,13 @@ namespace StormSwitchBox.Services
         private static readonly Regex StormTitleTripleRegex = new(
             @"\(\s*[vV]?\.?\s*(?<dv>\d{1,3}\.\d{1,4}(?:\.\d{1,6}){0,2}(?:[a-zA-Z]{1,2}|(?:[-_](?:hf|hotfix|fix|rev|rc|beta|alpha)[0-9a-zA-Z]{0,4}))?)\s*-\s*(?<iv>\d{5,10})\s*-\s*(?<tid>[0-9A-Fa-f]{16})\s*\)",
             RegexOptions.Compiled | RegexOptions.CultureInvariant);
+        private static readonly Regex NormalizeBracketRegex = new(@"\[[^\]]*\]|\([^)]*\)", RegexOptions.Compiled);
+        private static readonly Regex NormalizeEditionRegex = new(
+            @"\b(definitive|deluxe|complete|ultimate|gold|goty|edition|remastered|hd|collection|nintendo|switch|version|digital)\b",
+            RegexOptions.Compiled | RegexOptions.CultureInvariant);
+        private static readonly Regex NormalizeNonAlnumRegex = new(@"[^a-z0-9а-яё]+", RegexOptions.Compiled);
+        private static readonly Regex NormalizeWhitespaceRegex = new(@"\s+", RegexOptions.Compiled);
+        private static readonly Regex NormalizePlusWordRegex = new(@"\bplus\b", RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
         public TitleDbService()
         {
@@ -204,16 +211,13 @@ namespace StormSwitchBox.Services
                 .Replace("’", "'")
                 .ToLowerInvariant();
 
-            s = System.Text.RegularExpressions.Regex.Replace(s, @"\[[^\]]*\]|\([^)]*\)", " ");
+            s = NormalizeBracketRegex.Replace(s, " ");
             if (stripEditionWords)
             {
-                s = System.Text.RegularExpressions.Regex.Replace(
-                    s,
-                    @"\b(definitive|deluxe|complete|ultimate|gold|goty|edition|remastered|hd|collection|nintendo|switch|version|digital)\b",
-                    " ");
+                s = NormalizeEditionRegex.Replace(s, " ");
             }
-            s = System.Text.RegularExpressions.Regex.Replace(s, @"[^a-z0-9а-яё]+", " ");
-            s = System.Text.RegularExpressions.Regex.Replace(s, @"\s+", " ").Trim();
+            s = NormalizeNonAlnumRegex.Replace(s, " ");
+            s = NormalizeWhitespaceRegex.Replace(s, " ").Trim();
             return s;
         }
 
@@ -233,6 +237,16 @@ namespace StormSwitchBox.Services
                 if (_byCoreName.TryGetValue(core, out entry) && entry != null)
                     return true;
                 if (_byNormalizedName.TryGetValue(core, out entry) && entry != null)
+                    return true;
+            }
+
+            if (norm.Contains(" plus ", StringComparison.Ordinal))
+            {
+                string normNoPlus = NormalizeWhitespaceRegex.Replace(NormalizePlusWordRegex.Replace(norm, " "), " ").Trim();
+                if (normNoPlus.Length >= 3 && _byNormalizedName.TryGetValue(normNoPlus, out entry) && entry != null)
+                    return true;
+                string coreNoPlus = NormalizeWhitespaceRegex.Replace(NormalizePlusWordRegex.Replace(core, " "), " ").Trim();
+                if (coreNoPlus.Length >= 3 && (_byCoreName.TryGetValue(coreNoPlus, out entry) || _byNormalizedName.TryGetValue(coreNoPlus, out entry)) && entry != null)
                     return true;
             }
 

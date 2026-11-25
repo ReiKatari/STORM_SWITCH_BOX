@@ -1335,6 +1335,18 @@ namespace StormSwitchBox.Services
                 var hm = Regex.Match(topic.MagnetUri, @"btih:([0-9A-Fa-f]{40})", RegexOptions.IgnoreCase);
                 if (hm.Success) return hm.Groups[1].Value.ToUpperInvariant();
             }
+            if (!string.IsNullOrWhiteSpace(topic.TopicId))
+            {
+                lock (_indexLock)
+                {
+                    if (_topicsById.TryGetValue(topic.TopicId.Trim(), out var indexed) &&
+                        !string.IsNullOrWhiteSpace(indexed.InfoHash))
+                    {
+                        string ih = indexed.InfoHash.Trim().ToUpperInvariant();
+                        if (ih.Length == 40) return ih;
+                    }
+                }
+            }
             return string.Empty;
         }
 
@@ -2163,7 +2175,22 @@ namespace StormSwitchBox.Services
             foreach (var item in trackerResults)
             {
                 if (seenTids.Add(item.TopicId))
+                {
+                    lock (_indexLock)
+                    {
+                        if (!string.IsNullOrWhiteSpace(item.TopicId) &&
+                            _topicsById.TryGetValue(item.TopicId.Trim(), out var indexedMatch))
+                        {
+                            if (string.IsNullOrWhiteSpace(item.InfoHash) && !string.IsNullOrWhiteSpace(indexedMatch.InfoHash))
+                                item.InfoHash = indexedMatch.InfoHash.Trim().ToUpperInvariant();
+                            if (string.IsNullOrWhiteSpace(item.MagnetUri) && item.InfoHash.Length == 40)
+                                item.MagnetUri = BuildMagnetUri(item.InfoHash, item.Title);
+                            if (item.SizeBytes <= 0 && indexedMatch.SizeBytes > 0)
+                                item.SizeBytes = indexedMatch.SizeBytes;
+                        }
+                    }
                     combined.Add(item);
+                }
             }
 
             foreach (var item in indexResults)
@@ -3834,10 +3861,11 @@ namespace StormSwitchBox.Services
             string[] urls = new[]
             {
                 $"https://itorrents.net/torrent/{hash}.torrent",
-                $"https://itorrents.org/torrent/{hash}.torrent"
+                $"https://itorrents.org/torrent/{hash}.torrent",
+                $"https://torrage.info/torrent.php?h={hash}"
             };
 
-            using var raceCts = new CancellationTokenSource(TimeSpan.FromSeconds(3.2));
+            using var raceCts = new CancellationTokenSource(TimeSpan.FromSeconds(5.5));
             var rct = raceCts.Token;
 
             try
@@ -3885,7 +3913,7 @@ namespace StormSwitchBox.Services
                         return res;
                     }
                 }
-                _missedMirrorHashes[hash] = DateTimeOffset.UtcNow.ToUnixTimeSeconds() + 45;
+                _missedMirrorHashes[hash] = DateTimeOffset.UtcNow.ToUnixTimeSeconds() + 15;
                 return null;
             }
             finally
@@ -3918,6 +3946,10 @@ namespace StormSwitchBox.Services
             }
         }
 
+        private static readonly Regex ViewTorrentTokenRegex = new(
+            @"<li\b(?<liAttrs>[^>]*)>|\s*<div[^>]*>\s*<b>(?<dirName>[^<]+)</b>\s*</div>|\s*<div>\s*<span>(?<fileName>[^<]+)</span>\s*<i>(?<fileSize>\d+)</i>\s*</div>|<ul\b[^>]*>|</ul>",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.Singleline);
+
         private static List<(string Path, long Size)>? ParseViewTorrentHtmlTree(string? html)
         {
             if (string.IsNullOrWhiteSpace(html) || !html.Contains("ftree", StringComparison.OrdinalIgnoreCase))
@@ -3925,9 +3957,7 @@ namespace StormSwitchBox.Services
 
             var results = new List<(string Path, long Size)>();
             var dirStack = new List<string>();
-            var tokenRegex = new Regex(
-                @"<li\b(?<liAttrs>[^>]*)>|\s*<div[^>]*>\s*<b>(?<dirName>[^<]+)</b>\s*</div>|\s*<div>\s*<span>(?<fileName>[^<]+)</span>\s*<i>(?<fileSize>\d+)</i>\s*</div>|<ul\b[^>]*>|</ul>",
-                RegexOptions.IgnoreCase | RegexOptions.Singleline);
+            var tokenRegex = ViewTorrentTokenRegex;
 
             int ulDepth = 0;
             string? pendingDir = null;
@@ -4125,7 +4155,7 @@ namespace StormSwitchBox.Services
             // STEP 3 (~0.25s): Parallel race across .torrent cache mirrors + Direct HTTP viewtorrent.php + WebView2 handlers!
             using (var fastRaceCts = CancellationTokenSource.CreateLinkedTokenSource(ct))
             {
-                fastRaceCts.CancelAfter(TimeSpan.FromSeconds(3.6));
+                fastRaceCts.CancelAfter(TimeSpan.FromSeconds(6.0));
                 var rct = fastRaceCts.Token;
 
                 Task<byte[]?> mirrorTorrentTask = (hash.Length == 40 && !string.IsNullOrEmpty(cachedTorrentPath))
@@ -4372,6 +4402,40 @@ namespace StormSwitchBox.Services
             if (mag == null)
                 return null;
 
+            _missedMirrorHashes.TryRemove(hash, out _);
+            string bgCachePath = GetCachedTorrentFilePath(hash);
+            if (!string.IsNullOrEmpty(bgCachePath))
+            {
+                try
+                {
+                    using var mirrorCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                    mirrorCts.CancelAfter(TimeSpan.FromSeconds(6.0));
+                    byte[]? fetchedBytes = await TryFetchTorrentFromCacheMirrorsAsync(hash, bgCachePath, mirrorCts.Token).ConfigureAwait(false);
+                    if (TryLoadValidatedTorrent(fetchedBytes, hash, out var fetchedTor) && fetchedTor != null)
+                    {
+                        var mirrorItems = fetchedTor.Files.Select(f => new TorrentFileSelectionItem
+                        {
+                            IsSelected = true,
+                            RelativePath = f.Path,
+                            Length = f.Length,
+                            CategoryBadge = ClassifyTorrentEntryBadge(f.Path),
+                            IsRealTorrentFile = true
+                        }).ToList();
+                        var detectedMirrorParts = DetectMultiGameTitlesFromRelease(topic.Title, topic.TopicId);
+                        SaveFileTreeCacheAsync(topic.TopicId, mirrorItems.Select(f => (f.RelativePath, f.Length)));
+                        PopulateDisplayPathsAndSmartSelection(mirrorItems);
+                        AutoAssignFilesToGameSlots(mirrorItems, detectedMirrorParts);
+                        if (string.Equals(_activeTopicId, topic.TopicId ?? string.Empty, StringComparison.OrdinalIgnoreCase))
+                        {
+                            _loadedTorrentBytes = fetchedBytes;
+                            _loadedTorrentHash = hash;
+                        }
+                        return mirrorItems;
+                    }
+                }
+                catch { }
+            }
+
             var bgItems = await ResolveMagnetMetadataViaSwarmAsync(mag, hash, timeout, ct).ConfigureAwait(false);
             if (bgItems != null && bgItems.Count > 0 && !ct.IsCancellationRequested)
             {
@@ -4393,6 +4457,47 @@ namespace StormSwitchBox.Services
             "Liberation", "Rogue", "DLC", "All DLC", "Season Pass", "Expansion",
             "Pass", "OST", "Soundtrack", "Artbook", "Bonus", "Pack", "Add-on", "Addon"
         };
+
+        private static readonly Regex LeadingReleaseTagsRegex = new(@"^(\s*\[[^\]]*\]|\s*\([^)]*\))+", RegexOptions.Compiled);
+        private static readonly Regex TrailingReleaseTagsRegex = new(@"(\s*\[[^\]]*\]|\s*\((?:NSP|NSZ|XCI|XCZ|RUS|ENG|Multi\d*|Update|DLC|v\d[^)]*)[^)]*\))+$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+        private static readonly Regex ReleaseRangeRegex = new(@"^(?<base>[A-Za-zА-Яа-яЁё0-9\s:'\-]+?)\s+(?<start>\d{1,2})\s*[\-\+&]\s*(?<end>\d{1,2})(?:\b|$)", RegexOptions.Compiled);
+        private static readonly Regex TrailingDlcAddonSuffixRegex = new(@"\s*\+\s*(?:\d+\s*)?(?:DLCs?|Updates?|Patches?|All\s+DLC|Season\s+Pass|Expansion\s+Pass).*$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static (int Latin, int Cyrillic) CountTitleScriptLetters(string? text)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return (0, 0);
+            string stripped = StripBalancedBracketsAndTags(text);
+            stripped = TrailingDlcAddonSuffixRegex.Replace(stripped, string.Empty);
+            int lat = 0, cyr = 0;
+            foreach (char ch in stripped)
+            {
+                if ((ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z')) lat++;
+                else if ((ch >= 'А' && ch <= 'Я') || (ch >= 'а' && ch <= 'я') || ch == 'Ё' || ch == 'ё') cyr++;
+            }
+            return (lat, cyr);
+        }
+
+        private static bool IsBilingualSingleGameSlashPair(List<string> slashParts, out string canonicalTitle)
+        {
+            canonicalTitle = string.Empty;
+            if (slashParts == null || slashParts.Count != 2) return false;
+            var (l0, c0) = CountTitleScriptLetters(slashParts[0]);
+            var (l1, c1) = CountTitleScriptLetters(slashParts[1]);
+
+            bool firstLat = l0 >= 2 && (c0 == 0 || l0 >= c0 * 3);
+            bool firstCyr = c0 >= 2 && (l0 == 0 || c0 >= l0 * 3);
+            bool secondLat = l1 >= 2 && (c1 == 0 || l1 >= c1 * 3);
+            bool secondCyr = c1 >= 2 && (l1 == 0 || c1 >= l1 * 3);
+
+            if ((firstLat && secondCyr) || (firstCyr && secondLat))
+            {
+                string preferred = firstLat ? slashParts[0] : slashParts[1];
+                string stripped = TrailingDlcAddonSuffixRegex.Replace(preferred, string.Empty).Trim(' ', '-', '+', '/');
+                canonicalTitle = !string.IsNullOrWhiteSpace(stripped) ? stripped : preferred.Trim();
+                return true;
+            }
+            return false;
+        }
 
         public static List<string> DetectMultiGameTitlesFromRelease(string? rawTitle, string? topicId = null)
         {
@@ -4420,13 +4525,13 @@ namespace StormSwitchBox.Services
             }
 
             // Очищаем от префиксов [Nintendo Switch], [NSP][RUS/Multi10], (обновлено) и т.д.
-            string cleaned = Regex.Replace(rawTitle, @"^(\s*\[[^\]]*\]|\s*\([^)]*\))+", "").Trim();
-            cleaned = Regex.Replace(cleaned, @"(\s*\[[^\]]*\]|\s*\((?:NSP|NSZ|XCI|XCZ|RUS|ENG|Multi\d*|Update|DLC|v\d[^)]*)[^)]*\))+$", "", RegexOptions.IgnoreCase).Trim();
+            string cleaned = LeadingReleaseTagsRegex.Replace(rawTitle, "").Trim();
+            cleaned = TrailingReleaseTagsRegex.Replace(cleaned, "").Trim();
             int pipeIdx = cleaned.IndexOf('|');
             if (pipeIdx > 3) cleaned = cleaned.Substring(0, pipeIdx).Trim();
 
             // 1. Паттерн диапазона номеров: "Aggelos 1-2", "Bayonetta 1-3", "Pikmin 1+2", "Final Fantasy I-VI"
-            var rangeMatch = Regex.Match(cleaned, @"^(?<base>[A-Za-zА-Яа-яЁё0-9\s:'\-]+?)\s+(?<start>\d{1,2})\s*[\-\+&]\s*(?<end>\d{1,2})(?:\b|$)");
+            var rangeMatch = ReleaseRangeRegex.Match(cleaned);
             if (rangeMatch.Success &&
                 int.TryParse(rangeMatch.Groups["start"].Value, out int startNum) &&
                 int.TryParse(rangeMatch.Groups["end"].Value, out int endNum) &&
@@ -4466,7 +4571,12 @@ namespace StormSwitchBox.Services
                     if (!string.IsNullOrEmpty(lastPart)) slashParts.Add(lastPart);
                 }
 
-                if (slashParts.Count >= 2 && slashParts.Count <= 15)
+                if (IsBilingualSingleGameSlashPair(slashParts, out string canonicalSingleTitle))
+                {
+                    // Двуязычное название одной игры ("English Title / Русское название + DLC") не должно делиться на 2 слота.
+                    cleaned = canonicalSingleTitle;
+                }
+                else if (slashParts.Count >= 2 && slashParts.Count <= 15)
                 {
                     string prefixBase = Regex.Replace(slashParts[0], @"\s+\d+$", "").Trim();
                     foreach (var sp in slashParts)
@@ -5462,30 +5572,31 @@ namespace StormSwitchBox.Services
             var skipIdxs = new List<int>();
             var skippedRelPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-            if (fileSelections != null)
+            var realSelections = fileSelections?.Where(f => f.IsRealTorrentFile).ToList();
+            if (realSelections == null || realSelections.Count == 0)
+                return (skipIdxs, skippedRelPaths);
+
+            foreach (var unsel in realSelections.Where(f => !f.IsSelected))
             {
-                foreach (var unsel in fileSelections.Where(f => !f.IsSelected))
+                foreach (var rp in unsel.GetEffectiveRelativePaths())
                 {
-                    foreach (var rp in unsel.GetEffectiveRelativePaths())
-                    {
-                        string normRp = rp.Replace('\\', '/').TrimStart('.', '/');
-                        if (!string.IsNullOrWhiteSpace(normRp))
-                            skippedRelPaths.Add(normRp);
-                    }
+                    string normRp = rp.Replace('\\', '/').TrimStart('.', '/');
+                    if (!string.IsNullOrWhiteSpace(normRp))
+                        skippedRelPaths.Add(normRp);
                 }
             }
 
-            if (parsedTorrent?.Files == null || parsedTorrent.Files.Count == 0 || fileSelections == null || fileSelections.Count == 0)
+            if (parsedTorrent?.Files == null || parsedTorrent.Files.Count == 0)
                 return (skipIdxs, skippedRelPaths);
 
-            var selectedEntries = fileSelections.Where(f => f.IsSelected).ToList();
+            var selectedEntries = realSelections.Where(f => f.IsSelected).ToList();
             bool treatUnmatchedAsSkipped = selectedEntries.Count > 0;
 
             for (int fi = 0; fi < parsedTorrent.Files.Count; fi++)
             {
                 var tf = parsedTorrent.Files[fi];
                 string fNorm = tf.Path.Replace('\\', '/').TrimStart('.', '/');
-                var matchedSel = MatchTorrentFileSelection(tf.Path, fileSelections);
+                var matchedSel = MatchTorrentFileSelection(tf.Path, realSelections);
                 bool shouldSkip = (matchedSel != null && !matchedSel.IsSelected) ||
                                   (treatUnmatchedAsSkipped && matchedSel == null && !IsVirtualPadFilePath(fNorm));
 

@@ -145,7 +145,7 @@ namespace StormSwitchBox.Views.Dialogs
                 if (displayBytes != null && displayBytes.Length > 0)
                 {
                     using var ms = new MemoryStream(displayBytes);
-                    var bmp = new BitmapImage();
+                    var bmp = new BitmapImage { DecodePixelWidth = 256, DecodePixelType = Microsoft.UI.Xaml.Media.Imaging.DecodePixelType.Logical };
                     bmp.SetSource(ms.AsRandomAccessStream());
                     GameIconImage.Source = bmp;
                 }

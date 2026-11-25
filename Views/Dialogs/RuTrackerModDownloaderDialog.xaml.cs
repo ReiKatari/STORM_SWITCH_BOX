@@ -45,6 +45,14 @@ namespace StormSwitchBox.Views.Dialogs
         private bool _activeTopicHasRealFiles;
         private bool _isTopicLoading;
 
+        private static readonly System.Text.RegularExpressions.Regex OldLegacyUpdatePathRegex = new(
+            @"(?i)(?:^|[\\/\s_\-\(\[])old(?:[\s_\-\/]*update|\b)|старое|устаревш",
+            System.Text.RegularExpressions.RegexOptions.Compiled);
+        private static readonly System.Text.RegularExpressions.Regex PatchCodeExtractRegex = new(
+            @"\[v?(?<iv>\d{5,10})\]|\(\s*[vV]?\.?\s*\d{1,3}\.\d{1,4}(?:\.\d{1,6}){0,2}(?:[a-zA-Z]{1,2}|(?:[-_](?:hf|hotfix|fix|rev|rc)[0-9a-zA-Z]{0,4}))?\s*-\s*(?<iv>\d{5,10})(?:\s*-\s*[0-9A-Fa-f]{16})?\s*\)",
+            System.Text.RegularExpressions.RegexOptions.Compiled | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+        private string _lastQueueVisKey = string.Empty;
         private string _workspaceMode = "Overview";
         private bool _isTopicsPanelCollapsed;
         private bool _isCloudPanelCollapsed;
@@ -1206,6 +1214,7 @@ namespace StormSwitchBox.Views.Dialogs
             RebuildGameSlotsForTopic(topic.Title, topic.TopicId);
 
             var instantCachedFiles = _service.TryGetInstantCachedTorrentFiles(topic);
+            _suppressGroupRebuild = true;
             if (instantCachedFiles != null && instantCachedFiles.Count > 0)
             {
                 _activeTopicHasRealFiles = instantCachedFiles.Any(f => f.IsRealTorrentFile);
@@ -1231,11 +1240,9 @@ namespace StormSwitchBox.Views.Dialogs
             else
             {
                 TorrentFilesHeader.Text = "Чтение списка файлов раздачи...";
-                RebuildFileAndLinkGroups();
             }
 
             var initialSlotTitles = _gameSlots.Select(s => s.GameTitle).ToList();
-            _suppressGroupRebuild = true;
             if (_torrentFiles.Count > 0)
                 RuTrackerModService.AutoAssignFilesToGameSlots(_torrentFiles, initialSlotTitles);
             if (_discussionLinks.Count > 0)
@@ -1255,16 +1262,18 @@ namespace StormSwitchBox.Views.Dialogs
             {
                 if (ct.IsCancellationRequested || mySeq != System.Threading.Interlocked.Read(ref _topicSelectionSeq))
                     return;
+                if (entries.Count == 0)
+                    return;
                 filesApplied = true;
 
                 bool hasReal = entries.Any(f => f.IsRealTorrentFile);
                 if (hasReal)
                     _activeTopicHasRealFiles = true;
 
+                _suppressGroupRebuild = true;
                 SyncGameSlotsWithDiscoveredFiles(entries);
                 PopulateTorrentFiles(entries);
                 var slotTitles = _gameSlots.Select(s => s.GameTitle).ToList();
-                _suppressGroupRebuild = true;
                 RuTrackerModService.AutoAssignFilesToGameSlots(_torrentFiles, slotTitles);
                 RuTrackerModService.AutoAssignLinksToGameSlots(_discussionLinks, slotTitles);
                 _suppressGroupRebuild = false;
@@ -1301,7 +1310,7 @@ namespace StormSwitchBox.Views.Dialogs
                         if (!t.IsCompletedSuccessfully || ct.IsCancellationRequested) return;
                         var entries = t.Result;
                         if (entries == null) return;
-                        App.RunOnUI(() => { if (!filesApplied) ApplyResolvedFilesOnUi(entries); });
+                        App.RunOnUI(() => { if (!filesApplied || (!_activeTopicHasRealFiles && entries.Any(f => f.IsRealTorrentFile))) ApplyResolvedFilesOnUi(entries); });
                     }, TaskScheduler.Default);
                 }
 
@@ -1348,7 +1357,7 @@ namespace StormSwitchBox.Views.Dialogs
                     try
                     {
                         var resolvedEntries = await filesTask;
-                        if (!filesApplied && resolvedEntries != null)
+                        if (resolvedEntries != null && (!filesApplied || (!_activeTopicHasRealFiles && resolvedEntries.Any(f => f.IsRealTorrentFile))))
                             ApplyResolvedFilesOnUi(resolvedEntries);
                     }
                     catch (OperationCanceledException) when (!ct.IsCancellationRequested)
@@ -1448,9 +1457,9 @@ namespace StormSwitchBox.Views.Dialogs
                     if (detailed.ExtractedModLinks.Count > 0)
                     {
                         topic.ExtractedModLinks = detailed.ExtractedModLinks;
+                        _suppressGroupRebuild = true;
                         PopulateDiscussionLinks(detailed.ExtractedModLinks);
                         var slotTitles = _gameSlots.Select(s => s.GameTitle).ToList();
-                        _suppressGroupRebuild = true;
                         RuTrackerModService.AutoAssignLinksToGameSlots(_discussionLinks, slotTitles);
                         _suppressGroupRebuild = false;
                         RebuildFileAndLinkGroups();
@@ -1495,6 +1504,7 @@ namespace StormSwitchBox.Views.Dialogs
                                         StringComparer.OrdinalIgnoreCase);
 
                                     topic.ExtractedModLinks = fullLinks;
+                                    _suppressGroupRebuild = true;
                                     PopulateDiscussionLinks(fullLinks);
                                     foreach (var lnk in _discussionLinks)
                                     {
@@ -1502,7 +1512,6 @@ namespace StormSwitchBox.Views.Dialogs
                                             lnk.IsSelected = true;
                                     }
                                     var slotTitles = _gameSlots.Select(s => s.GameTitle).ToList();
-                                    _suppressGroupRebuild = true;
                                     RuTrackerModService.AutoAssignLinksToGameSlots(_discussionLinks, slotTitles);
                                     _suppressGroupRebuild = false;
                                     RebuildFileAndLinkGroups();
@@ -1705,19 +1714,21 @@ namespace StormSwitchBox.Views.Dialogs
         private void CenteredInput_Loaded(object sender, RoutedEventArgs e)
         {
             if (sender is not DependencyObject root) return;
-            ApplyVerticalCenterToInputVisualTree(root);
-            if (sender is FrameworkElement fe)
+            bool hasContent = false, hasPlaceholder = false;
+            ApplyVerticalCenterToInputVisualTree(root, ref hasContent, ref hasPlaceholder);
+            if ((!hasContent || !hasPlaceholder) && sender is FrameworkElement fe)
             {
                 void OnFirstLayout(object? s, object? args)
                 {
                     fe.LayoutUpdated -= OnFirstLayout;
-                    ApplyVerticalCenterToInputVisualTree(fe);
+                    bool c = false, p = false;
+                    ApplyVerticalCenterToInputVisualTree(fe, ref c, ref p);
                 }
                 fe.LayoutUpdated += OnFirstLayout;
             }
         }
 
-        private static void ApplyVerticalCenterToInputVisualTree(DependencyObject parent)
+        private static void ApplyVerticalCenterToInputVisualTree(DependencyObject parent, ref bool foundContent, ref bool foundPlaceholder)
         {
             int count = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(parent);
             for (int i = 0; i < count; i++)
@@ -1725,7 +1736,9 @@ namespace StormSwitchBox.Views.Dialogs
                 var child = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(parent, i);
                 if (child is FrameworkElement fe)
                 {
-                    if (fe.Name == "ContentElement" || fe.Name == "PlaceholderTextContentPresenter")
+                    bool isContent = fe.Name == "ContentElement";
+                    bool isPlaceholder = !isContent && fe.Name == "PlaceholderTextContentPresenter";
+                    if (isContent || isPlaceholder)
                     {
                         fe.VerticalAlignment = VerticalAlignment.Center;
                         fe.Margin = new Thickness(0);
@@ -1733,9 +1746,13 @@ namespace StormSwitchBox.Views.Dialogs
                             ctrl.Padding = new Thickness(ctrl.Padding.Left, 0, ctrl.Padding.Right, 0);
                         if (fe is ContentPresenter cp)
                             cp.Padding = new Thickness(cp.Padding.Left, 0, cp.Padding.Right, 0);
+                        if (isContent) foundContent = true;
+                        else foundPlaceholder = true;
+                        if (foundContent && foundPlaceholder) return;
                     }
                 }
-                ApplyVerticalCenterToInputVisualTree(child);
+                ApplyVerticalCenterToInputVisualTree(child, ref foundContent, ref foundPlaceholder);
+                if (foundContent && foundPlaceholder) return;
             }
         }
 
@@ -2415,20 +2432,14 @@ namespace StormSwitchBox.Views.Dialogs
 
                 static bool IsOldOrLegacyUpdatePath(string? relPath)
                 {
-                    if (string.IsNullOrWhiteSpace(relPath)) return false;
-                    return System.Text.RegularExpressions.Regex.IsMatch(
-                        relPath,
-                        @"(?i)(?:^|[\\/\s_\-\(\[])old(?:[\s_\-\/]*update|\b)|старое|устаревш");
+                    return !string.IsNullOrWhiteSpace(relPath) && OldLegacyUpdatePathRegex.IsMatch(relPath);
                 }
 
                 static int ExtractFilePatchCode(string? relPath)
                 {
                     if (string.IsNullOrWhiteSpace(relPath)) return 0;
                     int best = 0;
-                    foreach (System.Text.RegularExpressions.Match ivm in System.Text.RegularExpressions.Regex.Matches(
-                        relPath,
-                        @"\[v?(?<iv>\d{5,10})\]|\(\s*[vV]?\.?\s*\d{1,3}\.\d{1,4}(?:\.\d{1,6}){0,2}(?:[a-zA-Z]{1,2}|(?:[-_](?:hf|hotfix|fix|rev|rc)[0-9a-zA-Z]{0,4}))?\s*-\s*(?<iv>\d{5,10})(?:\s*-\s*[0-9A-Fa-f]{16})?\s*\)",
-                        System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                    foreach (System.Text.RegularExpressions.Match ivm in PatchCodeExtractRegex.Matches(relPath))
                     {
                         if (int.TryParse(ivm.Groups["iv"].Value, out int val) && val > best)
                             best = val;
@@ -6058,89 +6069,98 @@ namespace StormSwitchBox.Views.Dialogs
             }
             _lastObservedQueueCount = inList;
 
-            DownloadProgressBar.Visibility = Visibility.Collapsed;
-            SyncQueueVisibilityState();
+            if (DownloadProgressBar.Visibility != Visibility.Collapsed)
+                DownloadProgressBar.Visibility = Visibility.Collapsed;
 
             int tabQueueCount = totalInQueueAndFinished >= 0 ? totalInQueueAndFinished : inList;
+            string visKey = $"{inList}|{tabQueueCount}|{_workspaceMode}|{_isQueuePanelExpanded}|{seedingTotal}";
+            if (!string.Equals(_lastQueueVisKey, visKey, StringComparison.Ordinal))
+            {
+                _lastQueueVisKey = visKey;
+                SyncQueueVisibilityState();
+            }
+
             if (ModeDownloadsBtnText != null)
             {
                 string dlWord = App.Localization.TranslateText("Закачки");
-                ModeDownloadsBtnText.Text = (tabQueueCount, seedingTotal) switch
+                string nextDlText = (tabQueueCount, seedingTotal) switch
                 {
                     (> 0, > 0) => $"{dlWord} ({tabQueueCount} | \u2191{seedingTotal})",
                     (> 0, _) => $"{dlWord} ({tabQueueCount})",
                     (_, > 0) => $"{dlWord} (\u2191{seedingTotal})",
                     _ => dlWord
                 };
+                if (!string.Equals(ModeDownloadsBtnText.Text, nextDlText, StringComparison.Ordinal))
+                    ModeDownloadsBtnText.Text = nextDlText;
             }
 
             if (SeedingCountBadgeText != null)
             {
-                SeedingCountBadgeText.Text = seedingTotal.ToString();
+                string nextSeedBadge = seedingTotal.ToString();
+                if (!string.Equals(SeedingCountBadgeText.Text, nextSeedBadge, StringComparison.Ordinal))
+                    SeedingCountBadgeText.Text = nextSeedBadge;
             }
 
-            if (SeedingSummaryText != null)
+            if (SeedingSummaryText != null && (_workspaceMode == "Downloads" || seedingTotal > 0))
             {
                 string activeLbl = App.Localization.TranslateText("Активно:");
                 string upRateLbl = App.Localization.TranslateText("Отдача:");
                 string uploadedLbl = App.Localization.TranslateText("Отдано:");
                 string leechLbl = App.Localization.TranslateText("Личи:");
-                SeedingSummaryText.Text = $"{activeLbl} {seedingActive} / {seedingTotal} • {upRateLbl} {RuTrackerSeedingItem.FormatSpeedStatic(uploadSpeedBps)} • {uploadedLbl} {RuTrackerSeedingItem.FormatBytesStatic(totalUploadedBytes)} • {leechLbl} {seedingLeeches}";
+                string nextSeedSum = $"{activeLbl} {seedingActive} / {seedingTotal} • {upRateLbl} {RuTrackerSeedingItem.FormatSpeedStatic(uploadSpeedBps)} • {uploadedLbl} {RuTrackerSeedingItem.FormatBytesStatic(totalUploadedBytes)} • {leechLbl} {seedingLeeches}";
+                if (!string.Equals(SeedingSummaryText.Text, nextSeedSum, StringComparison.Ordinal))
+                    SeedingSummaryText.Text = nextSeedSum;
             }
 
+            string nextStageText;
+            Microsoft.UI.Xaml.Media.SolidColorBrush nextStageBrush;
             if (downloading > 0)
             {
-                StageBadgeText.Text = App.Localization.TranslateText($"АКТИВНО ({downloading})");
-                StageBadgeBorder.Background = BrushStageActive;
+                nextStageText = App.Localization.TranslateText($"АКТИВНО ({downloading})");
+                nextStageBrush = BrushStageActive;
             }
             else if (inQueue > 0)
             {
-                StageBadgeText.Text = App.Localization.TranslateText($"В ОЧЕРЕДИ ({inQueue})");
-                StageBadgeBorder.Background = BrushStageQueue;
+                nextStageText = App.Localization.TranslateText($"В ОЧЕРЕДИ ({inQueue})");
+                nextStageBrush = BrushStageQueue;
             }
             else if (finished > 0 || seedingTotal > 0)
             {
-                StageBadgeText.Text = App.Localization.TranslateText(seedingActive > 0 ? "РАЗДАЧА" : "ГОТОВО");
-                StageBadgeBorder.Background = BrushStageDone;
+                nextStageText = App.Localization.TranslateText(seedingActive > 0 ? "РАЗДАЧА" : "ГОТОВО");
+                nextStageBrush = BrushStageDone;
             }
             else
             {
-                StageBadgeText.Text = App.Localization.TranslateText("ГОТОВ К РАБОТЕ");
-                StageBadgeBorder.Background = BrushStageActive;
+                nextStageText = App.Localization.TranslateText("ГОТОВ К РАБОТЕ");
+                nextStageBrush = BrushStageActive;
             }
+            if (!string.Equals(StageBadgeText.Text, nextStageText, StringComparison.Ordinal))
+                StageBadgeText.Text = nextStageText;
+            if (!ReferenceEquals(StageBadgeBorder.Background, nextStageBrush))
+                StageBadgeBorder.Background = nextStageBrush;
 
             if (QueueSummaryText != null)
             {
-                if (_workspaceMode == "Downloads")
-                {
-                    QueueSummaryText.Text = tabQueueCount > 0
+                string nextSummary = _workspaceMode == "Downloads"
+                    ? (tabQueueCount > 0
                         ? App.Localization.TranslateText($"В списке: {tabQueueCount} • Качается: {downloading} • В очереди: {inQueue} • Готово: {finished}")
-                        : App.Localization.TranslateText("Активных закачек нет");
-                }
-                else
-                {
-                    QueueSummaryText.Text = inList > 0
+                        : App.Localization.TranslateText("Активных закачек нет"))
+                    : (inList > 0
                         ? App.Localization.TranslateText($"В списке: {inList} • Качается: {downloading} • В очереди: {inQueue}")
-                        : App.Localization.TranslateText("Активных закачек нет");
-                }
+                        : App.Localization.TranslateText("Активных закачек нет"));
+                if (!string.Equals(QueueSummaryText.Text, nextSummary, StringComparison.Ordinal))
+                    QueueSummaryText.Text = nextSummary;
             }
 
-            if (totalSpeedBps > 1024)
-            {
-                SpeedPeersText.Text = App.Localization.TranslateText($"Скорость: {totalSpeedBps / (1024.0 * 1024.0):F2} МБ/с | Сиды: {maxSeeds} • Пиры: {maxPeers}");
-            }
-            else if (downloading > 0)
-            {
-                SpeedPeersText.Text = App.Localization.TranslateText($"Поиск пиров DHT/P2P... | Сиды: {maxSeeds}");
-            }
-            else if (seedingActive > 0)
-            {
-                SpeedPeersText.Text = $"{App.Localization.TranslateText("Раздачи")}: {seedingActive} • \u2191 {RuTrackerSeedingItem.FormatSpeedStatic(uploadSpeedBps)}";
-            }
-            else
-            {
-                SpeedPeersText.Text = string.Empty;
-            }
+            string nextSpeedPeers = totalSpeedBps > 1024
+                ? App.Localization.TranslateText($"Скорость: {totalSpeedBps / (1024.0 * 1024.0):F2} МБ/с | Сиды: {maxSeeds} • Пиры: {maxPeers}")
+                : (downloading > 0
+                    ? App.Localization.TranslateText($"Поиск пиров DHT/P2P... | Сиды: {maxSeeds}")
+                    : (seedingActive > 0
+                        ? $"{App.Localization.TranslateText("Раздачи")}: {seedingActive} • \u2191 {RuTrackerSeedingItem.FormatSpeedStatic(uploadSpeedBps)}"
+                        : string.Empty));
+            if (!string.Equals(SpeedPeersText.Text, nextSpeedPeers, StringComparison.Ordinal))
+                SpeedPeersText.Text = nextSpeedPeers;
         }
 
         private void TogglePauseQueueItem_Click(object sender, RoutedEventArgs e)

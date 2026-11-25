@@ -642,7 +642,7 @@
                                                          FontSize="10.5" Height="26" MinHeight="26" Padding="8,0,8,0"
                                                          VerticalAlignment="Center" VerticalContentAlignment="Center"
                                                          Loaded="CenteredInput_Loaded" CornerRadius="5"/>
-                                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" Margin="0,0,14,0" VerticalAlignment="Center">
                                                     <Button Click="CopySlotTitleId_Click" Tag="{Binding}"
                                                             Visibility="{Binding TitleIdChipVisibility}"
                                                             Height="24" MinHeight="24" Padding="6,0" CornerRadius="4"
@@ -655,11 +655,12 @@
                                                         </StackPanel>
                                                     </Button>
                                                     <Button Click="CopySlotVersion_Click" Tag="{Binding}"
-                                                            Height="24" MinHeight="24" Padding="6,0" CornerRadius="4"
+                                                            Height="24" MinHeight="24" MinWidth="112" Padding="10,0" CornerRadius="4"
+                                                            HorizontalContentAlignment="Center"
                                                             Background="#172554" BorderBrush="#2563EB" BorderThickness="1"
                                                             VerticalAlignment="Center"
                                                             ToolTipService.ToolTip="Нажмите, чтобы скопировать версию (без v)">
-                                                        <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                                                        <StackPanel Orientation="Horizontal" Spacing="5" VerticalAlignment="Center">
                                                             <TextBlock Text="{Binding CleanVersionDisplay}" FontSize="10" FontFamily="Consolas" Foreground="#93C5FD" FontWeight="SemiBold" VerticalAlignment="Center"/>
                                                             <FontIcon Glyph="&#xE8C8;" FontSize="9" Foreground="#60A5FA" VerticalAlignment="Center"/>
                                                         </StackPanel>
@@ -691,7 +692,8 @@
                                                 </StackPanel>
                                             </Button>
                                             <Button Click="CopySlotVersion_Click" Tag="{Binding}"
-                                                    Height="22" MinHeight="22" Padding="6,0" CornerRadius="4"
+                                                    Height="22" MinHeight="22" MinWidth="92" Padding="10,0" CornerRadius="4"
+                                                    HorizontalContentAlignment="Center"
                                                     Background="#172554" BorderBrush="#2563EB" BorderThickness="1"
                                                     ToolTipService.ToolTip="Нажмите, чтобы скопировать версию (без v)">
                                                 <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">

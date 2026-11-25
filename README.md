@@ -37,8 +37,8 @@ STORM SWITCH BOX - комплексная оболочка и комбайн к�
 
 ## **Установка и запуск**
 1. Перейдите в раздел **Releases** на GitHub.
-2. Для **Windows 10/11 (x64)**: скачайте установщик `STORM_SWITCH_BOX_8.2.2_Setup.exe` (установка в систему, ярлыки, деинсталлятор и сертификат `STORM_Certificate.cer`) или портативный архив `STORM_SWITCH_BOX_8.2.2.zip` / `STORM_SWITCH_BOX_8.2.2_win-x64.zip` (100% тот же функционал без установки и без записей в реестр).
-3. Для **Android**: скачайте **`STORM_SWITCH_BOX_8.2.2.apk`** для устройств на Android 8.0+ (`minSdk 26`, `arm64-v8a` и `x86_64`, подпись v2/v3).
+2. Для **Windows 10/11 (x64)**: скачайте установщик `STORM_SWITCH_BOX_8.2.3_Setup.exe` (установка в систему, ярлыки, деинсталлятор и сертификат `STORM_Certificate.cer`) или портативный архив `STORM_SWITCH_BOX_8.2.3.zip` / `STORM_SWITCH_BOX_8.2.3_win-x64.zip` (100% тот же функционал без установки и без записей в реестр).
+3. Для **Android**: скачайте **`STORM_SWITCH_BOX_8.2.3.apk`** для устройств на Android 8.0+ (`minSdk 26`, `arm64-v8a` и `x86_64`, подпись v2/v3).
    При первом запуске приложение создаст рабочую структуру папок в `/storage/emulated/0/STORM SWITCH BOX/`.
 4. На ПК запустите установщик или распакуйте архив. Все системные инструменты (`hactoolnet`, `yanu-cli`, `oxipng`, `3dstool`, `makerom`, `7za`) и сжатая база каталогов (`catalogs.zst`, `nutdb.json.zst`) уже включены в дистрибутив.
 5. Укажите файлы ключей `prod.keys` / `title.keys` (для Nintendo Switch), `ounce.keys` (для Nintendo Switch 2) и при необходимости `seeddb.bin` / `aes_keys.txt` (для Nintendo 3DS) во вкладке параметров.

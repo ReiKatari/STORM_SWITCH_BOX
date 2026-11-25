@@ -1,3 +1,46 @@
+## **8.2.3** (25.11.2026)
+
+> 💡 **Релиз 8.2.3** - *Исправление разбиения двуязычных раздач и скачивания через Magnet-заглушки (`Mario + Rabbids: Sparks of Hope`), расширенная строка версии в слоте и оптимизация плавности интерфейса*
+
+---
+
+### 🚀 Ключевые изменения и улучшения (STORM SWITCH BOX 8.2.3)
+
+- 🌟 **[Точное распознавание двуязычных раздач RuTracker (`RuTrackerModService.cs`, `TitleDbService.cs`)]**:
+  - Устранено ошибочное разделение двуязычных тем вида `[Nintendo Switch] English Title / Русское название + N DLC` (включая `Mario plus Rabbids Sparks of Hope / Марио и Кролики: Искры Надежды + 7 DLC`, `t=6271728`) на 2 отдельные игры: такие раздачи теперь корректно определяются как 1 игра, при этом реальные сборники (`Bayonetta / Bayonetta 2`, `South Park: Stick of Truth + Fractured But Whole / Южный парк...`) продолжают разделяться корректно.
+  - В `TitleDbService.TryFindTitleByName` добавлена нормализация слова `plus` и предкомпиляция регулярок, чтобы названия вроде `Mario plus Rabbids Sparks of Hope` сразу находили `TitleID` `0100317013770000` в локальной базе.
+- 🌟 **[Исправление скачивания раздач при активной Magnet-заглушке (`RuTrackerModService.cs`, `storm_lt_turbo.py`, `RuTrackerModDownloaderDialog.xaml.cs`)]**:
+  - Исправлена критическая ошибка в `ComputeSkippedTorrentEntries`: синтетические строки-заглушки (`IsRealTorrentFile = false`) больше не участвуют в фильтрации реальных файлов `.torrent`, из-за чего раньше могли пропускаться все файлы раздачи и загрузка не стартовала.
+  - Добавлено резервное зеркало кэша `.torrent` (`torrage.info`), увеличены таймауты гонки зеркал, гидратация `InfoHash` из локального индекса для живых результатов и защитная проверка в `storm_lt_turbo.py`.
+- 🌟 **[Обновлённая вёрстка слота игры (`RuTrackerModDownloaderDialog.xaml`)]**:
+  - Поле «Доп. облачные ссылки только для этой части» аккуратно сужено, бейджи `Title ID`, версии и внутренней версии сдвинуты левее, поле версии расширено для длинных буквенных версий, а ширина чипов `Title ID` и внутренней версии зафиксирована.
+- 🌟 **[Оптимизация скорости и плавности интерфейса (`RuTrackerDownloadQueueService.cs`, `RuTrackerModDownloaderDialog.xaml.cs`, `CatalogPage.xaml.cs`, `GameLibraryPage.xaml.cs`)]**:
+  - Исправлено лишнее срабатывание `OnPropertyChanged` в `CommitUiUpdates()`, включён пропуск тиков таймера очереди при полном простое, кеширование строк заголовка очереди, пакетное обновление `ItemsSource` в «Информации» и «Библиотеке игр», вынос `CoverCacheService.ResolveCoverUrl` в фон, ранний выход при центрировании полей ввода и `DecodePixelWidth` в диалогах превью.
+
+<details>
+
+<summary><b>📋 Полный список изменений (нажмите, чтобы развернуть)</b></summary>
+
+- 🔹 **[Services/RuTrackerModService.cs]**: Добавлена проверка `IsBilingualSingleGameSlashPair` в `DetectMultiGameTitlesFromRelease`, фолбэк `InfoHash` из `_topicsById` в `ExtractInfoHashHex` и `SearchTopicsAsync`, фильтр `f.IsRealTorrentFile` в `ComputeSkippedTorrentEntries`, третье зеркало `torrage.info` и обращение к зеркалам в начале `ResolveMagnetMetadataBackgroundAsync`.
+- 🔹 **[tools/nsz/storm_lt_turbo.py, Services/TitleDbService.cs]**: Защита от полного пропуска не-pad файлов в `storm_lt_turbo.py`, предкомпиляция регулярок и `plus`-фолбэк в `TitleDbService`.
+- 🔹 **[Views/Dialogs/RuTrackerModDownloaderDialog.xaml(.cs)]**: Расширена кнопка версии в слоте, сужено поле доп. ссылок, сокращены лишние вызовы `RebuildFileAndLinkGroups()`, добавлен кэш текста заголовка очереди и оптимизирован `CenteredInput_Loaded`.
+- 🔹 **[Оптимизация производительности и релиз 8.2.3]**: Оптимизированы `RuTrackerDownloadQueueService.cs`, `CatalogPage.xaml.cs`, `GameLibraryPage.xaml.cs`, `ControlEditorDialog.xaml.cs`, `DirectConsoleSenderDialog.xaml.cs`, `RomFsInspectorDialog.xaml.cs`; версия повышена до `8.2.3` (`versionCode = 8203`).
+
+</details>
+
+<details>
+
+<summary><b>🌐 English Changelog (click to expand)</b></summary>
+
+- 🔸 Fixed bilingual `English / Russian` RuTracker topic parsing (`DetectMultiGameTitlesFromRelease`) so single games like `Mario plus Rabbids Sparks of Hope / Марио и Кролики: Искры Надежды + 7 DLC` (`t=6271728`) are no longer split into 2 games, and improved TitleDB lookup for `plus` titles (`0100317013770000`).
+- 🔸 Fixed `ComputeSkippedTorrentEntries` and `storm_lt_turbo.py` so Magnet/DHT placeholder rows (`IsRealTorrentFile = false`) never cause all real torrent files to be skipped at download start, added `torrage.info` cache mirror, and improved live search hash hydration.
+- 🔸 Refined the GameSlot extra-links row layout in `RuTrackerModDownloaderDialog.xaml` (narrower extra-links box, wider version button, Title ID and internal version kept fixed and shifted slightly left).
+- 🔸 Improved app speed and UI smoothness (`RuTrackerDownloadQueueService`, `RuTrackerModDownloaderDialog`, `CatalogPage`, `GameLibraryPage`, and `DecodePixelWidth` in preview dialogs) and bumped version to `8.2.3` (`versionCode = 8203`).
+
+</details>
+
+---
+
 ## **8.2.2** (24.11.2026)
 
 > 💡 **Релиз 8.2.2** - *Мгновенное определение отображаемой версии игр в загрузчике RuTracker (включая буквенные версии вида `3.0.5b` без ввода имени) и переход на единую сборку Android*

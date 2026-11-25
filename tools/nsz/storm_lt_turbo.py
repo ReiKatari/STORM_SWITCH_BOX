@@ -1284,6 +1284,13 @@ def main():
         info = lt.torrent_info(args.torrent)
         ti_snapshot = info
         effective_skip_set = remap_skip_indices_for_pad_files(info, raw_skip_set)
+        try:
+            fs_check = info.files()
+            non_pad_total = sum(1 for i in range(fs_check.num_files()) if not is_pad_file(fs_check, i))
+            if non_pad_total > 0 and len(effective_skip_set) >= non_pad_total:
+                effective_skip_set = set()
+        except Exception:
+            pass
         atp = lt.add_torrent_params()
         atp.ti = info
         atp.save_path = args.save_dir
@@ -1526,6 +1533,13 @@ def main():
                 try:
                     if ti_snapshot is not None:
                         effective_skip_set = remap_skip_indices_for_pad_files(ti_snapshot, raw_skip_set)
+                        try:
+                            fs_check = ti_snapshot.files()
+                            non_pad_total = sum(1 for idx_p in range(fs_check.num_files()) if not is_pad_file(fs_check, idx_p))
+                            if non_pad_total > 0 and len(effective_skip_set) >= non_pad_total:
+                                effective_skip_set = set()
+                        except Exception:
+                            pass
                         num_files = ti_snapshot.num_files()
                         for i in range(num_files):
                             handle.file_priority(i, 0 if i in effective_skip_set else 4)

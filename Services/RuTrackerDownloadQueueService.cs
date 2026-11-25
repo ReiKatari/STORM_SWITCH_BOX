@@ -300,7 +300,8 @@ namespace StormSwitchBox.Services
                 ProgressDetails = RawDetails;
             if (SpeedAndPeersText != RawSpeedText)
                 SpeedAndPeersText = RawSpeedText;
-            if (StageBadge != RawStageBadge && !string.IsNullOrEmpty(RawStageBadge))
+            bool stageChanged = StageBadge != RawStageBadge && !string.IsNullOrEmpty(RawStageBadge);
+            if (stageChanged)
             {
                 StageBadge = RawStageBadge;
                 OnPropertyChanged(nameof(StageBadgeDisplay));
@@ -319,7 +320,7 @@ namespace StormSwitchBox.Services
             bool metricsChanged = Math.Abs(CurrentSpeedBps - RawSpeedBps) > 256.0 ||
                                   CurrentSeeds != RawSeeds ||
                                   CurrentPeers != RawPeers ||
-                                  StageBadge == RawStageBadge;
+                                  stageChanged;
             CurrentSpeedBps = RawSpeedBps;
             CurrentSeeds = RawSeeds;
             CurrentPeers = RawPeers;
@@ -528,8 +529,8 @@ namespace StormSwitchBox.Services
             Directory.CreateDirectory(localAppDataDir);
             _queueStatePath = Path.Combine(localAppDataDir, "rutracker_download_queue.json");
 
-            // UI-таймер 250 мс через System.Threading.Timer + App.RunOnUI
-            _uiTimer = new System.Threading.Timer(OnTimerCallback, null, TimeSpan.FromMilliseconds(250), TimeSpan.FromMilliseconds(250));
+            // UI-таймер 350 мс через System.Threading.Timer + ленивый пропуск при полном простое
+            _uiTimer = new System.Threading.Timer(OnTimerCallback, null, TimeSpan.FromMilliseconds(350), TimeSpan.FromMilliseconds(350));
 
             LoadPersistedState();
 
@@ -568,8 +569,29 @@ namespace StormSwitchBox.Services
             catch { }
         }
 
+        private bool _lastTimerWasIdle;
+
         private void OnTimerCallback(object? state)
         {
+            bool anyWork;
+            lock (_syncLock)
+            {
+                anyWork = _backingItems.Any(i =>
+                    i.IsActive ||
+                    !i.IsPipelineStarted && !i.IsPausedByUser && i.EffectiveStage is not ("ГОТОВО" or "ОТМЕНЕНО" or "ОШИБКА") ||
+                    i.ExecutionTask is { IsCompleted: true } && i.EffectiveStage is not ("ГОТОВО" or "ОТМЕНЕНО" or "ОШИБКА" or "ПАУЗА") ||
+                    i.StageBadge != i.RawStageBadge);
+            }
+            if (!anyWork && RuTrackerModDownloaderDialog.ActiveInstance == null && RuTrackerSeedingService.Instance.GetSummarySnapshot().ActiveSeedingCount == 0)
+            {
+                if (_lastTimerWasIdle) return;
+                _lastTimerWasIdle = true;
+            }
+            else
+            {
+                _lastTimerWasIdle = false;
+            }
+
             RunOnUiSyncOrAsync(() =>
             {
                 OnUiTimerTick();
@@ -628,13 +650,15 @@ namespace StormSwitchBox.Services
                     totalPeers += Math.Max(0, item.RawPeers);
                 }
 
-                // Синхронизируем состояние задач в TasksViewModel.Tasks
+                // Синхронизируем состояние задач в TasksViewModel.Tasks (только при реальном изменении)
                 foreach (var (t, _, _) in item.CreatedTasks)
                 {
                     if (item.StageBadge is "СКАЧИВАНИЕ" or "МОДЫ" or "МЕТАДАННЫЕ")
                     {
-                        t.Progress = Math.Clamp(item.RawPercent, 0, 100);
-                        if (!string.IsNullOrEmpty(item.RawSpeedText))
+                        double clampedPct = Math.Clamp(item.RawPercent, 0, 100);
+                        if (Math.Abs(t.Progress - clampedPct) > 0.05)
+                            t.Progress = clampedPct;
+                        if (!string.IsNullOrEmpty(item.RawSpeedText) && !string.Equals(t.Speed, item.RawSpeedText, StringComparison.Ordinal))
                             t.Speed = item.RawSpeedText;
                     }
                 }

@@ -611,6 +611,23 @@ namespace StormSwitchBox.Views
                         itemsCopy = itemsCopy.Where(i => i.HasRuTrackerUpdate).ToList();
                     }
 
+                    static List<(CatalogItem Item, string? ResolvedCoverUrl)> ResolveItemPairs(List<CatalogItem> source)
+                    {
+                        return source.Select(item =>
+                        {
+                            string? resolvedUrl = null;
+                            if (item.CoverImage == null && !string.IsNullOrEmpty(item.Intro))
+                            {
+                                try
+                                {
+                                    resolvedUrl = CoverCacheService.ResolveCoverUrl(item.Intro, item.Platform, item.TitleName, item.TitleId);
+                                }
+                                catch { }
+                            }
+                            return (Item: item, ResolvedCoverUrl: resolvedUrl);
+                        }).ToList();
+                    }
+
                     if (string.IsNullOrWhiteSpace(query))
                     {
                         if (itemsCopy.Count == 0 && _selectedPlatformFilter != 2 && !_showUpdatesOnly && App.Settings.Current.CatalogFolders.Count == 0)
@@ -636,7 +653,7 @@ namespace StormSwitchBox.Views
                                 itemsCopy.Add(newItem);
                             }
                         }
-                        return itemsCopy;
+                        return ResolveItemPairs(itemsCopy);
                     }
 
                     var local = itemsCopy.Where(i => 
@@ -705,27 +722,31 @@ namespace StormSwitchBox.Views
                             local.Add(newItem);
                         }
                     }
-                    return local;
+                    return ResolveItemPairs(local);
                 }, token);
 
                 if (!token.IsCancellationRequested)
                 {
-                    foreach (var item in filtered)
+                    CatalogGridView.ItemsSource = null;
+                    _displayedCatalogItems.Clear();
+                    foreach (var (fi, resolvedUrl) in filtered)
                     {
-                        if (item.CoverImage == null && !string.IsNullOrEmpty(item.Intro))
+                        if (fi.CoverImage == null && !string.IsNullOrEmpty(resolvedUrl))
                         {
                             try
                             {
-                                string resolved = CoverCacheService.ResolveCoverUrl(item.Intro, item.Platform, item.TitleName, item.TitleId);
-                                item.CoverImage = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage { DecodePixelWidth = 256, DecodePixelType = Microsoft.UI.Xaml.Media.Imaging.DecodePixelType.Logical, UriSource = new Uri(resolved) };
+                                fi.CoverImage = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage
+                                {
+                                    DecodePixelWidth = 256,
+                                    DecodePixelType = Microsoft.UI.Xaml.Media.Imaging.DecodePixelType.Logical,
+                                    UriSource = new Uri(resolvedUrl)
+                                };
                             }
                             catch { }
                         }
-                    }
-
-                    _displayedCatalogItems.Clear();
-                    foreach (var fi in filtered)
                         _displayedCatalogItems.Add(fi);
+                    }
+                    CatalogGridView.ItemsSource = _displayedCatalogItems;
                 }
             }
             catch (TaskCanceledException) { }

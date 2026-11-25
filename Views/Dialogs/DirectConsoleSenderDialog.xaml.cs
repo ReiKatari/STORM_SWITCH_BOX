@@ -125,7 +125,7 @@ namespace StormSwitchBox.Views.Dialogs
                 {
                     byte[] qrPng = DirectConsoleSenderService.GenerateQrCodePngBytes(shortUrl, scale: 8);
                     using var ms = new MemoryStream(qrPng);
-                    var bmp = new BitmapImage();
+                    var bmp = new BitmapImage { DecodePixelWidth = 256, DecodePixelType = Microsoft.UI.Xaml.Media.Imaging.DecodePixelType.Logical };
                     await bmp.SetSourceAsync(ms.AsRandomAccessStream());
                     QrCodeImage.Source = bmp;
                 }

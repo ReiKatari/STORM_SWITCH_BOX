@@ -613,6 +613,7 @@ namespace StormSwitchBox.Views
 
             _currentPage = Math.Clamp(_currentPage, 1, _totalPages);
 
+            if (GamesGridView != null) GamesGridView.ItemsSource = null;
             _pagedGames.Clear();
             var pageSlice = (_pageSize > 0)
                 ? _allFilteredGames.Skip((_currentPage - 1) * _pageSize).Take(_pageSize)
@@ -622,6 +623,7 @@ namespace StormSwitchBox.Views
             {
                 _pagedGames.Add(item);
             }
+            if (GamesGridView != null) GamesGridView.ItemsSource = _pagedGames;
 
             UpdatePaginationControls();
         }
