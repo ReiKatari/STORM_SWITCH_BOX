@@ -1,3 +1,42 @@
+## **8.2.4** (25.11.2026)
+
+> 💡 **Релиз 8.2.4** - *Мгновенная подгрузка `Title ID`, метаданных и списка `.torrent`-файлов по Magnet/HTTP (`Mario + Rabbids: Sparks of Hope`), всегда видимый чип `Title ID` слева от расширенной версии и глобальное ускорение загрузки тем RuTracker*
+
+---
+
+### 🚀 Ключевые изменения и улучшения (STORM SWITCH BOX 8.2.4)
+
+- 🌟 **[Мгновенное определение `Title ID`, издателя, обложки и `.torrent`-файлов (`RuTrackerModDownloaderDialog.xaml.cs`, `RuTrackerModService.cs`)]**:
+  - Устранено ошибочное чтение текста Magnet-заглушек (`IsRealTorrentFile = false`) в `EnrichGameSlotsFromFilesAndTitleDb`, из-за которого срывался мгновенный поиск в TitleDB; добавлен прямой фолбэк по `slot.GameTitle` и чистому заголовку темы (`Mario plus Rabbids Sparks of Hope` сразу определяет `0100317013770000`, `Ubisoft` и подтягивает версию).
+  - Исправлен баг в `LoadSelectedTopicAsync`: фоновый резолв метаданных (`StartMagnetMetadataBackground` с параллельной гонкой зеркал кэша `itorrents` + P2P `ut_metadata`) теперь запускается сразу по `!_activeTopicHasRealFiles`, не дожидаясь таймаутов HTML/Cloudflare страницы темы.
+- 🌟 **[Исправленная вёрстка строки слота с всегда видимым `Title ID` (`RuTrackerModDownloaderDialog.xaml`, `RuTrackerModService.cs`)]**:
+  - Добавлено свойство `TitleIdChipDisplay` - бейдж `Title ID` слева от версии больше никогда не пропадает; строка разнесена в 3-колоночную сетку (`1*`, `Auto`, `0.22*`), поле «Доп. облачные ссылки» стало заметно компактнее, `Title ID`, версия и внутренняя версия сдвинуты левее, поле версии расширено (`MinWidth="124"`), а ширина `Title ID` и внутренней версии оставлена фиксированной.
+- 🌟 **[Глобальное ускорение и стабильность загрузчика RuTracker (`RuTrackerModService.cs`, `StormHttpClientFactory.cs`)]**:
+  - Удалено нерабочее HTML-зеркало `torrage.info`, увеличен таймаут гонки кэша `.torrent` (`12` с), запрещено кэширование временных сетевых таймаутов как 404, убрана блокирующая UI 5.2-секундная пауза STEP 4 внутри `InspectTorrentFilesAsync`, `PrefetchTopicsMetadata` сохраняет дерево файлов заранее (топ-8 тем открываются мгновенно), `FetchValidatedTopicPageHtmlAsync` ведёт параллельную гонку с облачными рендерами и 5-минутным ТСПУ-кулдауном, а пул `StormHttpClientFactory` расширен до 64 соединений на сервер.
+
+<details>
+
+<summary><b>📋 Полный список изменений (нажмите, чтобы развернуть)</b></summary>
+
+- 🔹 **[Views/Dialogs/RuTrackerModDownloaderDialog.xaml.cs]**: Фильтр `f.IsRealTorrentFile` в `EnrichGameSlotsFromFilesAndTitleDb`, фолбэк поиска TitleDB по `slot.GameTitle`, запуск `StartMagnetMetadataBackground` по `!_activeTopicHasRealFiles`, предзагрузка топ-8 раздач.
+- 🔹 **[Services/RuTrackerModService.cs, Services/StormHttpClientFactory.cs]**: `TitleIdChipDisplay`, параллельный `ResolveMagnetMetadataBackgroundAsync`, прогрев `api.rutracker.cc` + кэш дерева файлов в `PrefetchTopicsMetadata`, 5-минутный ТСПУ-кулдаун и параллельная гонка `FetchValidatedTopicPageHtmlAsync`, `MaxConnectionsPerServer = 64`.
+- 🔹 **[Views/Dialogs/RuTrackerModDownloaderDialog.xaml]**: 3-колоночная строка дополнительных ссылок (`1*`, `Auto`, `0.22*`) со сдвигом группы чипов влево, суженным полем ссылок, всегда видимым фиксированным `Title ID` и расширенной кнопкой версии.
+- 🔹 **[Релиз 8.2.4]**: Обновлены версии Windows (`8.2.4`) и Android (`versionCode = 8204`, `versionName = "8.2.4"`) без Legacy APK.
+
+</details>
+
+<details>
+
+<summary><b>🌐 English Changelog (click to expand)</b></summary>
+
+- 🔸 Fixed `EnrichGameSlotsFromFilesAndTitleDb` ignoring Magnet/DHT placeholder strings (`IsRealTorrentFile = false`) with TitleDB fallback on `slot.GameTitle`, so `Mario + Rabbids: Sparks of Hope` (`t=6271728`) resolves `0100317013770000` and metadata immediately, and fixed `LoadSelectedTopicAsync` launching background torrent/BEP-9 resolution without waiting for RuTracker HTML/Cloudflare timeouts.
+- 🔸 Added always-visible `TitleIdChipDisplay` and converted the GameSlot extra-links row to a 3-column grid (`1*`, `Auto`, `0.22*`), narrowing the extra-links box, shifting `Title ID`, `Version`, and `Internal Version` leftward, widening `Version`, and keeping `Title ID` and `Internal Version` fixed.
+- 🔸 Sped up all RuTracker topic & torrent loads (`FetchTorrentFromCacheMirrorsCoreAsync`, `ResolveMagnetMetadataBackgroundAsync` parallel race, `PrefetchTopicsMetadata` filetree caching for top 8 results, `FetchValidatedTopicPageHtmlAsync` 5-minute TSPU cooldown, and `StormHttpClientFactory` 64 connections) and bumped version to `8.2.4` (`versionCode = 8204`).
+
+</details>
+
+---
+
 ## **8.2.3** (25.11.2026)
 
 > 💡 **Релиз 8.2.3** - *Исправление разбиения двуязычных раздач и скачивания через Magnet-заглушки (`Mario + Rabbids: Sparks of Hope`), расширенная строка версии в слоте и оптимизация плавности интерфейса*

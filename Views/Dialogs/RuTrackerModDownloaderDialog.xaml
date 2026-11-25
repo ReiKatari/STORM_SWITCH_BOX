@@ -634,28 +634,29 @@
 
                                             <Grid ColumnSpacing="6">
                                                 <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="1*"/>
                                                     <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="0.22*"/>
                                                 </Grid.ColumnDefinitions>
-                                                <TextBox Grid.Column="0" Text="{Binding ManualExtraLinks, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                <TextBox Grid.Column="0" MinWidth="185" Text="{Binding ManualExtraLinks, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                                          PlaceholderText="Доп. облачные ссылки только для этой части (русификатор, обновление или DLC - через пробел или запятую)..."
                                                          FontSize="10.5" Height="26" MinHeight="26" Padding="8,0,8,0"
                                                          VerticalAlignment="Center" VerticalContentAlignment="Center"
                                                          Loaded="CenteredInput_Loaded" CornerRadius="5"/>
-                                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" Margin="0,0,14,0" VerticalAlignment="Center">
+                                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="5" VerticalAlignment="Center">
                                                     <Button Click="CopySlotTitleId_Click" Tag="{Binding}"
-                                                            Visibility="{Binding TitleIdChipVisibility}"
-                                                            Height="24" MinHeight="24" Padding="6,0" CornerRadius="4"
+                                                            Height="24" MinHeight="24" MinWidth="136" Padding="6,0" CornerRadius="4"
+                                                            HorizontalContentAlignment="Center"
                                                             Background="#1E1B4B" BorderBrush="#4F46E5" BorderThickness="1"
                                                             VerticalAlignment="Center"
                                                             ToolTipService.ToolTip="Нажмите, чтобы скопировать TitleID">
                                                         <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
-                                                            <TextBlock Text="{Binding TitleId}" FontSize="10" FontFamily="Consolas" Foreground="#C7D2FE" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                                            <TextBlock Text="{Binding TitleIdChipDisplay}" FontSize="10" FontFamily="Consolas" Foreground="#C7D2FE" FontWeight="SemiBold" VerticalAlignment="Center"/>
                                                             <FontIcon Glyph="&#xE8C8;" FontSize="9" Foreground="#818CF8" VerticalAlignment="Center"/>
                                                         </StackPanel>
                                                     </Button>
                                                     <Button Click="CopySlotVersion_Click" Tag="{Binding}"
-                                                            Height="24" MinHeight="24" MinWidth="112" Padding="10,0" CornerRadius="4"
+                                                            Height="24" MinHeight="24" MinWidth="124" Padding="10,0" CornerRadius="4"
                                                             HorizontalContentAlignment="Center"
                                                             Background="#172554" BorderBrush="#2563EB" BorderThickness="1"
                                                             VerticalAlignment="Center"
@@ -682,17 +683,17 @@
                                         <!-- Компактная строка быстрого копирования при свёрнутых деталях слота -->
                                         <StackPanel Visibility="{Binding CollapsedDetailsVisibility}" Orientation="Horizontal" Spacing="4" Padding="24,1,0,0">
                                             <Button Click="CopySlotTitleId_Click" Tag="{Binding}"
-                                                    Visibility="{Binding TitleIdChipVisibility}"
-                                                    Height="22" MinHeight="22" Padding="6,0" CornerRadius="4"
+                                                    Height="22" MinHeight="22" MinWidth="130" Padding="6,0" CornerRadius="4"
+                                                    HorizontalContentAlignment="Center"
                                                     Background="#1E1B4B" BorderBrush="#4338CA" BorderThickness="1"
                                                     ToolTipService.ToolTip="Нажмите, чтобы скопировать TitleID">
                                                 <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
-                                                    <TextBlock Text="{Binding TitleId}" FontSize="9.5" FontFamily="Consolas" Foreground="#C7D2FE" FontWeight="SemiBold"/>
+                                                    <TextBlock Text="{Binding TitleIdChipDisplay}" FontSize="9.5" FontFamily="Consolas" Foreground="#C7D2FE" FontWeight="SemiBold"/>
                                                     <FontIcon Glyph="&#xE8C8;" FontSize="8.5" Foreground="#818CF8"/>
                                                 </StackPanel>
                                             </Button>
                                             <Button Click="CopySlotVersion_Click" Tag="{Binding}"
-                                                    Height="22" MinHeight="22" MinWidth="92" Padding="10,0" CornerRadius="4"
+                                                    Height="22" MinHeight="22" MinWidth="96" Padding="10,0" CornerRadius="4"
                                                     HorizontalContentAlignment="Center"
                                                     Background="#172554" BorderBrush="#2563EB" BorderThickness="1"
                                                     ToolTipService.ToolTip="Нажмите, чтобы скопировать версию (без v)">

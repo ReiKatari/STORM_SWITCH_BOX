@@ -899,7 +899,7 @@ namespace StormSwitchBox.Views.Dialogs
 
             if (_topics.Count > 0)
             {
-                _service.PrefetchTopicsMetadata(_topics, maxCount: 6);
+                _service.PrefetchTopicsMetadata(_topics, maxCount: 8);
                 if (autoSelectFirst)
                 {
                     var firstTopic = _topics[0];
@@ -1394,7 +1394,10 @@ namespace StormSwitchBox.Views.Dialogs
                             }
                         };
                     ApplyResolvedFilesOnUi(fallbackEntries);
+                }
 
+                if (!_activeTopicHasRealFiles)
+                {
                     if (!string.IsNullOrWhiteSpace(topic.InfoHash))
                     {
                         StartMagnetMetadataBackground();
@@ -2476,6 +2479,8 @@ namespace StormSwitchBox.Views.Dialogs
                 {
                     foreach (var f in slotFiles)
                     {
+                        if (!f.IsRealTorrentFile)
+                            continue;
                         string fallbackFromAnyFile = RuTrackerModService.ExtractCleanGameTitleFromFilePath(f.RelativePath ?? string.Empty);
                         if (!string.IsNullOrWhiteSpace(fallbackFromAnyFile))
                         {
@@ -2513,11 +2518,24 @@ namespace StormSwitchBox.Views.Dialogs
                 {
                     dbEntry = tidEntry;
                 }
-                else if (App.TitleDb != null && App.TitleDb.TryFindTitleByName(cleanTitleFromFile, out var nameEntry) && nameEntry != null)
+                else if (App.TitleDb != null)
                 {
-                    dbEntry = nameEntry;
-                    if (string.IsNullOrEmpty(bestTid) && !string.IsNullOrWhiteSpace(nameEntry.Id))
-                        bestTid = RuTrackerModService.NormalizeSwitchBaseApplicationTitleId(nameEntry.Id.Trim().ToUpperInvariant());
+                    TitleDbEntry? nameEntry = null;
+                    if (!App.TitleDb.TryFindTitleByName(cleanTitleFromFile, out nameEntry) || nameEntry == null)
+                    {
+                        if (!App.TitleDb.TryFindTitleByName(slot.GameTitle, out nameEntry) || nameEntry == null)
+                        {
+                            string cleanSlot = RuTrackerModService.ExtractCleanTopicTitle(slot.GameTitle);
+                            if (!string.IsNullOrWhiteSpace(cleanSlot))
+                                App.TitleDb.TryFindTitleByName(cleanSlot, out nameEntry);
+                        }
+                    }
+                    if (nameEntry != null)
+                    {
+                        dbEntry = nameEntry;
+                        if (string.IsNullOrEmpty(bestTid) && !string.IsNullOrWhiteSpace(nameEntry.Id))
+                            bestTid = RuTrackerModService.NormalizeSwitchBaseApplicationTitleId(nameEntry.Id.Trim().ToUpperInvariant());
+                    }
                 }
 
                 // Извлекаем семантическую версию (строго без 'v', без выдуманной эвристики 1.{major}.0)
@@ -2961,9 +2979,12 @@ namespace StormSwitchBox.Views.Dialogs
 
         private void CopySlotTitleId_Click(object sender, RoutedEventArgs e)
         {
-            if (sender is FrameworkElement fe && fe.Tag is RuTrackerGameSlotItem slot && !string.IsNullOrWhiteSpace(slot.TitleId))
+            if (sender is FrameworkElement fe && fe.Tag is RuTrackerGameSlotItem slot)
             {
-                CopyTextToClipboardWithFeedback(slot.TitleId, "TitleID");
+                if (!string.IsNullOrWhiteSpace(slot.TitleId))
+                    CopyTextToClipboardWithFeedback(slot.TitleId, "TitleID");
+                else if (StatusText != null)
+                    StatusText.Text = "TitleID пока не определён";
             }
         }
 

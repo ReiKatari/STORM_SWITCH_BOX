@@ -11,8 +11,8 @@ namespace StormSwitchBox.Services
         {
             AutomaticDecompression = DecompressionMethods.All,
             PooledConnectionLifetime = TimeSpan.FromMinutes(5),
-            PooledConnectionIdleTimeout = TimeSpan.FromMinutes(2),
-            MaxConnectionsPerServer = 32,
+            PooledConnectionIdleTimeout = TimeSpan.FromMinutes(4),
+            MaxConnectionsPerServer = 64,
             ConnectTimeout = TimeSpan.FromSeconds(10),
             AllowAutoRedirect = true
         };
