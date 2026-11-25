@@ -1,3 +1,46 @@
+## **8.2.5** (25.11.2026)
+
+> 💡 **Релиз 8.2.5** - *Мгновенное получение списка файлов раздач RuTracker, обход лимитов HTTP 503 и ТСПУ через TLS ClientHello Split и Cloudflare Edge, FastResume скачивания и устранение простоев `0,00 МБ/с`*
+
+---
+
+### 🚀 Ключевые изменения и улучшения (STORM SWITCH BOX 8.2.5)
+
+- 🌟 **[Мгновенное получение списка `.torrent`-файлов и анти-503 защита (`RuTrackerModService.cs`, `RuTrackerModDownloaderDialog.xaml.cs`)]**:
+  - Устранена перегрузка зеркала `itorrents.net` (HTTP 503): предзагрузка ограничена до 4 тем с очередью 1 поток и 250 мс паузой, уступает активным запросам пользователя и уходит на 10-секундный бэкофф при 429/503; убрана двойная атака на `itorrents.org` (301 на `itorrents.net`).
+  - Добавлен аппаратный обход блокировок ТСПУ и лимитов `FetchItorrentsViaCloudflareEdgeTlsSplitAsync` (`TlsSplitStream`: фрагментация TLS ClientHello напрямую через граничные IP Cloudflare `188.114.96.3..98.3`).
+  - В `InspectTorrentFilesAsync` параллельно с HTTP-зеркалом через 1.0 с (или сразу при отказе HTTP) запускается быстрая гонка P2P BEP-9 `ut_metadata`; `TryGetInstantCachedTorrentFiles` использует локальный буфер без гонок при переключении тем; убран race в `LoadSelectedTopicAsync`.
+- 🌟 **[Мгновенное возобновление скачивания FastResume и встроенный обход ТСПУ трекеров (`storm_lt_turbo.py`, `RuTrackerDownloadQueueService.cs`)]**:
+  - В `storm_lt_turbo.py` внедрено сохранение и загрузка `--resume-file` (`.resume` каждые 25 с и мгновенно при паузе/остановке/закрытии), что полностью исключает многоминутный перехэш всех гигабайтных файлов на HDD после перезапуска программы.
+  - Во время дисковой проверки `checking_files` / `checking_resume_data` движок честно передаёт состояние `"checking"` (бейдж `ПРОВЕРКА`, слот учитывается в лимите одновременных закачек без плодения лишних процессов), а сразу по окончании проверки делает мгновенный залп подключений ко всем пирам.
+  - Внутрь `storm_lt_turbo.py` добавлен автономный обход ТСПУ методом Cloudflare HTTP/1.1 Pipelining (`harvest_cf_bt_peers`), который автоматически подключает живых сидов с `bt..bt4.t-ru.org`, если `seeds == 0` или не хватает пиров для BEP-9.
+- 🌟 **[Android-движок (`RuTrackerCloudEngine.kt`)]**:
+  - Обновлён порядок зеркал `.torrent` кэша на `itorrents.net` -> `itorrents.org` с удалением нерабочего `torrage.info`.
+
+<details>
+
+<summary><b>📋 Полный список изменений (нажмите, чтобы развернуть)</b></summary>
+
+- 🔹 **[Services/RuTrackerModService.cs]**: Анти-503 троттлинг `_mirrorFetchThrottle`/`_prefetchThrottle`, `TlsSplitStream` + `FetchItorrentsViaCloudflareEdgeTlsSplitAsync`, потокобезопасный `TryGetInstantCachedTorrentFiles`, гонка BEP-9 с 1.0с форой в `InspectTorrentFilesAsync`, распределение `bt..bt4.t-ru.org` по разным Cloudflare Edge IP, аргумент `--resume-file` и разбор состояния `"checking"`.
+- 🔹 **[Views/Dialogs/RuTrackerModDownloaderDialog.xaml.cs]**: Предзагрузка 4 тем без 503, удаление гонки `filesTask.ContinueWith`, защита активного заголовка P2P при `discoveredNewHash`.
+- 🔹 **[tools/nsz/storm_lt_turbo.py]**: Поддержка `--resume-file` (`read_resume_data`/`save_resume_data`), `hashing_threads = 2`, состояние `"checking"`, пост-проверочный реконнект пиров и автономный `harvest_cf_bt_peers` (Cloudflare HTTP/1.1 Pipelining).
+- 🔹 **[Services/RuTrackerDownloadQueueService.cs]**: Этап `ПРОВЕРКА`, корректный учёт в `CountsTowardConcurrencyLimit` и синхронизация прогресса.
+- 🔹 **[Релиз 8.2.5]**: Версии синхронизированы до `8.2.5` (`versionCode = 8205`), публикуются установщик Windows, портативный архив и APK для Android (без Legacy).
+
+</details>
+
+<details>
+
+<summary><b>🌐 English Changelog (click to expand)</b></summary>
+
+- 🔸 Eliminated `itorrents.net` HTTP 503 self-throttling via priority-aware foreground/background throttling (prefetch capped to 4 topics sequentially with foreground yield), removed redundant concurrent `itorrents.org` calls, and added a Cloudflare Edge TLS ClientHello fragmentation bypass (`TlsSplitStream`) plus a 1.0s-staggered BEP-9 `ut_metadata` race in `InspectTorrentFilesAsync` and race-free local torrent loading in `TryGetInstantCachedTorrentFiles`.
+- 🔸 Fixed active download `0.00 MB/s | 0 / 0` stalls on restart by adding full download FastResume (`--resume-file` saved periodically and on pause/exit) in `storm_lt_turbo.py`, honest `checking` state reporting (`ПРОВЕРКА` badge counted in queue concurrency slots), post-check peer burst connect, and built-in Cloudflare HTTP/1.1 Pipelining tracker peer harvesting (`bt..bt4.t-ru.org`).
+- 🔸 Removed dead `torrage.info` from Android (`RuTrackerCloudEngine.kt`, using `itorrents.net` -> `itorrents.org`), and bumped version to `8.2.5` (`versionCode = 8205`).
+
+</details>
+
+---
+
 ## **8.2.4** (25.11.2026)
 
 > 💡 **Релиз 8.2.4** - *Мгновенная подгрузка `Title ID`, метаданных и списка `.torrent`-файлов по Magnet/HTTP (`Mario + Rabbids: Sparks of Hope`), всегда видимый чип `Title ID` слева от расширенной версии и глобальное ускорение загрузки тем RuTracker*

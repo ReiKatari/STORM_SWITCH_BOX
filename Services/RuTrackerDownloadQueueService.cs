@@ -173,7 +173,7 @@ namespace StormSwitchBox.Services
             if (!IsActivelyDownloading)
                 return false;
 
-            if (RawSeeds > 0 || RawPercent >= 95.0)
+            if (string.Equals(EffectiveStage, "ПРОВЕРКА", StringComparison.OrdinalIgnoreCase) || RawSeeds > 0 || RawPercent >= 95.0)
                 return true;
 
             double elapsedSec = LastActivatedAtUtc == DateTime.MinValue
@@ -203,6 +203,8 @@ namespace StormSwitchBox.Services
                 string st = EffectiveStage;
                 if (st is "СКАЧИВАНИЕ" or "МЕТАДАННЫЕ")
                     return $"{(CurrentSpeedBps / (1024.0 * 1024.0)):F2} МБ/с";
+                if (st == "ПРОВЕРКА")
+                    return App.Localization.TranslateText("Проверка");
                 if (st == "МОДЫ")
                 {
                     if (!string.IsNullOrWhiteSpace(SpeedAndPeersText) && SpeedAndPeersText.Contains("МБ/с", StringComparison.OrdinalIgnoreCase))
@@ -642,7 +644,7 @@ namespace StormSwitchBox.Services
                 item.UpdateSmoothedSpeed();
                 item.CommitUiUpdates();
 
-                if (item.IsActive && item.EffectiveStage is "СКАЧИВАНИЕ" or "МОДЫ" or "МЕТАДАННЫЕ")
+                if (item.IsActive && item.EffectiveStage is "СКАЧИВАНИЕ" or "МОДЫ" or "МЕТАДАННЫЕ" or "ПРОВЕРКА")
                 {
                     runningCount++;
                     totalSpeedBps += item.RawSpeedBps;
@@ -653,7 +655,7 @@ namespace StormSwitchBox.Services
                 // Синхронизируем состояние задач в TasksViewModel.Tasks (только при реальном изменении)
                 foreach (var (t, _, _) in item.CreatedTasks)
                 {
-                    if (item.StageBadge is "СКАЧИВАНИЕ" or "МОДЫ" or "МЕТАДАННЫЕ")
+                    if (item.StageBadge is "СКАЧИВАНИЕ" or "МОДЫ" or "МЕТАДАННЫЕ" or "ПРОВЕРКА")
                     {
                         double clampedPct = Math.Clamp(item.RawPercent, 0, 100);
                         if (Math.Abs(t.Progress - clampedPct) > 0.05)
@@ -1793,6 +1795,28 @@ namespace StormSwitchBox.Services
             if (item.IsPausedByUser || item.IsPreemptedByQueue)
                 return;
             item.RawPercent = Math.Clamp(p.Percent, 0, 100);
+
+            if (p.IsCheckingPhase)
+            {
+                item.RawSpeedBps = 0;
+                item.RawSeeds = 0;
+                item.RawPeers = 0;
+                if (p.TotalBytes > 0)
+                {
+                    double dlMb = p.DownloadedBytes / (1024.0 * 1024.0);
+                    double totMb = p.TotalBytes / (1024.0 * 1024.0);
+                    item.RawDetails = $"Проверка: {dlMb:F1} / {totMb:F1} МБ ({p.Percent:F1}%)";
+                }
+                else
+                {
+                    item.RawDetails = $"Проверка файлов ({p.Percent:F1}%)...";
+                }
+                item.RawSpeedText = "Проверка диска";
+                item.RawStageBadge = "ПРОВЕРКА";
+                item.RawStageColor = Windows.UI.Color.FromArgb(255, 56, 189, 248);
+                return;
+            }
+
             item.RawSpeedBps = p.SpeedMbPerSec * 1024.0 * 1024.0;
             item.RawSeeds = p.Seeds;
             item.RawPeers = p.Peers;

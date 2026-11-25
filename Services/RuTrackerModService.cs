@@ -7,6 +7,7 @@ using System.IO.Compression;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Net.Security;
 using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
@@ -819,6 +820,7 @@ namespace StormSwitchBox.Services
         public long DownloadedBytes { get; set; }
         public long TotalBytes { get; set; }
         public bool IsMetadataPhase { get; set; }
+        public bool IsCheckingPhase { get; set; }
         public string StatusText { get; set; } = string.Empty;
     }
 
@@ -1319,7 +1321,10 @@ namespace StormSwitchBox.Services
         private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, long> _cloudProxyCooldownUntilUnix = new(StringComparer.OrdinalIgnoreCase);
         private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, long> _missedMirrorHashes = new(StringComparer.OrdinalIgnoreCase);
         private static long _directMirrorBlockedUntilUnix = 0;
-        private static readonly SemaphoreSlim _prefetchThrottle = new(4, 4);
+        private static readonly SemaphoreSlim _prefetchThrottle = new(1, 1);
+        private static readonly SemaphoreSlim _mirrorFetchThrottle = new(2, 2);
+        private static int _activeForegroundMirrorFetches = 0;
+        private static long _itorrentsRateLimitedUntilUnix = 0;
         private static readonly UTF8Encoding Utf8NoBom = new(encoderShouldEmitUTF8Identifier: false);
         private static int _fastWarmupStarted;
         private static volatile string _preferredCfEdgeIp = "188.114.96.3";
@@ -1395,15 +1400,16 @@ namespace StormSwitchBox.Services
             }
         }
 
-        public void PrefetchTopicsMetadata(IEnumerable<RuTrackerTopicItem>? topics, int maxCount = 8)
+        public void PrefetchTopicsMetadata(IEnumerable<RuTrackerTopicItem>? topics, int maxCount = 4)
         {
             if (topics == null || maxCount <= 0) return;
+            int clampedMax = Math.Min(maxCount, 4);
             var targets = new List<(string TopicId, string Hash, string CachedPath)>();
             string torrentCacheDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "STORM SWITCH BOX", "cache", "torrents");
 
             foreach (var t in topics)
             {
-                if (targets.Count >= maxCount) break;
+                if (targets.Count >= clampedMax) break;
                 string hash = ExtractInfoHashHex(t);
                 if (hash.Length != 40 || _memoryTorrentCache.ContainsKey(hash))
                     continue;
@@ -1416,29 +1422,39 @@ namespace StormSwitchBox.Services
             if (targets.Count == 0) return;
             try { Directory.CreateDirectory(torrentCacheDir); } catch { }
 
-            foreach (var (topicId, hash, cachedPath) in targets)
+            _ = Task.Run(async () =>
             {
-                _ = Task.Run(async () =>
+                foreach (var (topicId, hash, cachedPath) in targets)
                 {
                     bool entered = false;
                     try
                     {
-                        entered = await _prefetchThrottle.WaitAsync(2000).ConfigureAwait(false);
-                        if (!entered) return;
-                        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10.0));
-                        byte[]? bytes = await TryFetchTorrentFromCacheMirrorsAsync(hash, cachedPath, cts.Token).ConfigureAwait(false);
+                        if (Volatile.Read(ref _activeForegroundMirrorFetches) > 0)
+                            break;
+                        if (DateTimeOffset.UtcNow.ToUnixTimeSeconds() < Interlocked.Read(ref _itorrentsRateLimitedUntilUnix))
+                            break;
+
+                        entered = await _prefetchThrottle.WaitAsync(1500).ConfigureAwait(false);
+                        if (!entered) continue;
+                        if (Volatile.Read(ref _activeForegroundMirrorFetches) > 0 ||
+                            DateTimeOffset.UtcNow.ToUnixTimeSeconds() < Interlocked.Read(ref _itorrentsRateLimitedUntilUnix))
+                            break;
+
+                        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(6.0));
+                        byte[]? bytes = await TryFetchTorrentFromCacheMirrorsAsync(hash, cachedPath, cts.Token, isPrefetch: true).ConfigureAwait(false);
                         if (!string.IsNullOrWhiteSpace(topicId) && TryLoadValidatedTorrent(bytes, hash, out var parsed) && parsed != null)
                         {
                             SaveFileTreeCacheAsync(topicId, parsed.Files.Select(f => (f.Path, f.Length)));
                         }
+                        await Task.Delay(250).ConfigureAwait(false);
                     }
                     catch { }
                     finally
                     {
                         if (entered) _prefetchThrottle.Release();
                     }
-                });
-            }
+                }
+            });
         }
 
         public bool TryHydrateTopicFromParsedCache(RuTrackerTopicItem? topic)
@@ -3759,11 +3775,42 @@ namespace StormSwitchBox.Services
         public List<TorrentFileSelectionItem>? TryGetInstantCachedTorrentFiles(RuTrackerTopicItem topic)
         {
             if (topic == null) return null;
-            PrimeQuickTopicState(topic);
             string hash = ExtractInfoHashHex(topic);
+            byte[]? localTorBytes = null;
+            if (hash.Length == 40)
+            {
+                if (_memoryTorrentCache.TryGetValue(hash, out var memCached) && TryLoadValidatedTorrent(memCached, hash, out _))
+                {
+                    localTorBytes = memCached;
+                }
+                else
+                {
+                    try
+                    {
+                        string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                        string p1 = Path.Combine(localAppData, "STORM SWITCH BOX", "cache", "torrents", $"{hash}.torrent");
+                        string p2 = Path.Combine(localAppData, "STORM SWITCH BOX", "dht_cache", "metadata", $"{hash}.torrent");
+                        string? existing = File.Exists(p1) ? p1 : (File.Exists(p2) ? p2 : null);
+                        if (existing != null && new FileInfo(existing).Length > 64)
+                        {
+                            byte[] diskBytes = File.ReadAllBytes(existing);
+                            if (TryLoadValidatedTorrent(diskBytes, hash, out _))
+                            {
+                                localTorBytes = diskBytes;
+                                _memoryTorrentCache[hash] = diskBytes;
+                            }
+                        }
+                    }
+                    catch { }
+                }
+            }
+
+            PrimeQuickTopicState(topic, localTorBytes);
+            if (string.IsNullOrEmpty(hash))
+                hash = ExtractInfoHashHex(topic);
             var detectedParts = DetectMultiGameTitlesFromRelease(topic.Title, topic.TopicId);
 
-            if (TryLoadValidatedTorrent(_loadedTorrentBytes, hash, out var cachedTor) && cachedTor != null)
+            if (TryLoadValidatedTorrent(localTorBytes ?? _loadedTorrentBytes, hash, out var cachedTor) && cachedTor != null)
             {
                 var items = cachedTor.Files.Select(f => new TorrentFileSelectionItem
                 {
@@ -3817,7 +3864,191 @@ namespace StormSwitchBox.Services
             return null;
         }
 
-        private async Task<byte[]?> TryFetchTorrentFromCacheMirrorsAsync(string hash, string cachedTorrentPath, CancellationToken ct)
+        private sealed class TlsSplitStream : Stream
+        {
+            private readonly Stream _inner;
+            private bool _firstWrite = true;
+
+            public TlsSplitStream(Stream inner) => _inner = inner;
+            public override bool CanRead => _inner.CanRead;
+            public override bool CanSeek => false;
+            public override bool CanWrite => _inner.CanWrite;
+            public override long Length => throw new NotSupportedException();
+            public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+            public override void Flush() => _inner.Flush();
+            public override Task FlushAsync(CancellationToken cancellationToken) => _inner.FlushAsync(cancellationToken);
+            public override int Read(byte[] buffer, int offset, int count) => _inner.Read(buffer, offset, count);
+            public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) => _inner.ReadAsync(buffer, offset, count, cancellationToken);
+            public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) => _inner.ReadAsync(buffer, cancellationToken);
+            public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+            public override void SetLength(long value) => throw new NotSupportedException();
+
+            public override void Write(byte[] buffer, int offset, int count)
+            {
+                if (_firstWrite && count > 2)
+                {
+                    _firstWrite = false;
+                    _inner.Write(buffer, offset, 2);
+                    _inner.Flush();
+                    Thread.Sleep(8);
+                    _inner.Write(buffer, offset + 2, count - 2);
+                    return;
+                }
+                _firstWrite = false;
+                _inner.Write(buffer, offset, count);
+            }
+
+            public override async Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+            {
+                if (_firstWrite && count > 2)
+                {
+                    _firstWrite = false;
+                    await _inner.WriteAsync(buffer.AsMemory(offset, 2), cancellationToken).ConfigureAwait(false);
+                    await _inner.FlushAsync(cancellationToken).ConfigureAwait(false);
+                    await Task.Delay(8, cancellationToken).ConfigureAwait(false);
+                    await _inner.WriteAsync(buffer.AsMemory(offset + 2, count - 2), cancellationToken).ConfigureAwait(false);
+                    return;
+                }
+                _firstWrite = false;
+                await _inner.WriteAsync(buffer.AsMemory(offset, count), cancellationToken).ConfigureAwait(false);
+            }
+
+            public override async ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
+            {
+                if (_firstWrite && buffer.Length > 2)
+                {
+                    _firstWrite = false;
+                    await _inner.WriteAsync(buffer.Slice(0, 2), cancellationToken).ConfigureAwait(false);
+                    await _inner.FlushAsync(cancellationToken).ConfigureAwait(false);
+                    await Task.Delay(8, cancellationToken).ConfigureAwait(false);
+                    await _inner.WriteAsync(buffer.Slice(2), cancellationToken).ConfigureAwait(false);
+                    return;
+                }
+                _firstWrite = false;
+                await _inner.WriteAsync(buffer, cancellationToken).ConfigureAwait(false);
+            }
+
+            protected override void Dispose(bool disposing)
+            {
+                if (disposing) _inner.Dispose();
+                base.Dispose(disposing);
+            }
+        }
+
+        private static byte[] DecodeChunkedHttpBody(byte[] raw)
+        {
+            using var ms = new MemoryStream();
+            int pos = 0;
+            while (pos < raw.Length)
+            {
+                int crlf = Array.IndexOf(raw, (byte)'\n', pos);
+                if (crlf < 0) break;
+                string line = Encoding.ASCII.GetString(raw, pos, crlf - pos).Trim('\r', ' ');
+                int semi = line.IndexOf(';');
+                if (semi >= 0) line = line.Substring(0, semi).Trim();
+                if (!int.TryParse(line, System.Globalization.NumberStyles.HexNumber, null, out int chunkSize) || chunkSize <= 0)
+                    break;
+                pos = crlf + 1;
+                int avail = Math.Min(chunkSize, raw.Length - pos);
+                if (avail > 0) ms.Write(raw, pos, avail);
+                pos += chunkSize;
+                if (pos < raw.Length && raw[pos] == '\r') pos++;
+                if (pos < raw.Length && raw[pos] == '\n') pos++;
+            }
+            return ms.Length > 0 ? ms.ToArray() : raw;
+        }
+
+        private static async Task<byte[]?> MaybeDecompressTorrentAsync(byte[] bytes, string hash, CancellationToken ct)
+        {
+            if (bytes.Length > 2 && bytes[0] == 0x1F && bytes[1] == 0x8B)
+            {
+                using var gzStream = new GZipStream(new MemoryStream(bytes), CompressionMode.Decompress);
+                using var ms = new MemoryStream();
+                await gzStream.CopyToAsync(ms, ct).ConfigureAwait(false);
+                bytes = ms.ToArray();
+            }
+            return TryLoadValidatedTorrent(bytes, hash, out _) ? bytes : null;
+        }
+
+        private static async Task<byte[]?> FetchItorrentsViaCloudflareEdgeTlsSplitAsync(string hash, CancellationToken ct)
+        {
+            string[] edgeIps = new[] { _preferredCfEdgeIp, "188.114.96.3", "188.114.97.3", "188.114.98.3" }
+                .Where(ip => !string.IsNullOrWhiteSpace(ip))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+
+            foreach (var edgeIp in edgeIps)
+            {
+                if (ct.IsCancellationRequested) break;
+                try
+                {
+                    using var reqCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                    reqCts.CancelAfter(TimeSpan.FromSeconds(4.5));
+                    var tkn = reqCts.Token;
+
+                    using var tcp = new TcpClient { NoDelay = true };
+                    await tcp.ConnectAsync(IPAddress.Parse(edgeIp), 443, tkn).ConfigureAwait(false);
+                    using var split = new TlsSplitStream(tcp.GetStream());
+                    using var ssl = new SslStream(split, leaveInnerStreamOpen: false);
+                    await ssl.AuthenticateAsClientAsync(new SslClientAuthenticationOptions
+                    {
+                        TargetHost = "itorrents.net"
+                    }, tkn).ConfigureAwait(false);
+
+                    string reqStr =
+                        $"GET /torrent/{hash}.torrent HTTP/1.1\r\n" +
+                        "Host: itorrents.net\r\n" +
+                        "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\r\n" +
+                        "Accept: */*\r\n" +
+                        "Accept-Encoding: identity\r\n" +
+                        "Connection: close\r\n\r\n";
+                    byte[] reqBytes = Encoding.ASCII.GetBytes(reqStr);
+                    await ssl.WriteAsync(reqBytes, 0, reqBytes.Length, tkn).ConfigureAwait(false);
+                    await ssl.FlushAsync(tkn).ConfigureAwait(false);
+
+                    using var ms = new MemoryStream();
+                    byte[] buf = new byte[8192];
+                    while (ms.Length < 4 * 1024 * 1024)
+                    {
+                        int r = await ssl.ReadAsync(buf, 0, buf.Length, tkn).ConfigureAwait(false);
+                        if (r <= 0) break;
+                        ms.Write(buf, 0, r);
+                    }
+
+                    byte[] all = ms.ToArray();
+                    int hdrEnd = FindBytePatternOffset(all, "\r\n\r\n"u8.ToArray(), 0);
+                    if (hdrEnd < 0) continue;
+
+                    string hdr = Encoding.ASCII.GetString(all, 0, hdrEnd);
+                    if (!hdr.StartsWith("HTTP/1.1 200", StringComparison.OrdinalIgnoreCase) &&
+                        !hdr.StartsWith("HTTP/1.0 200", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (hdr.Contains(" 503 ") || hdr.Contains(" 429 "))
+                            Interlocked.Exchange(ref _itorrentsRateLimitedUntilUnix, DateTimeOffset.UtcNow.ToUnixTimeSeconds() + 10);
+                        continue;
+                    }
+
+                    int bodyOffset = hdrEnd + 4;
+                    int bodyLen = all.Length - bodyOffset;
+                    if (bodyLen <= 64) continue;
+                    byte[] body = new byte[bodyLen];
+                    Buffer.BlockCopy(all, bodyOffset, body, 0, bodyLen);
+                    if (hdr.Contains("Transfer-Encoding: chunked", StringComparison.OrdinalIgnoreCase))
+                        body = DecodeChunkedHttpBody(body);
+
+                    byte[]? valid = await MaybeDecompressTorrentAsync(body, hash, tkn).ConfigureAwait(false);
+                    if (valid != null)
+                    {
+                        _preferredCfEdgeIp = edgeIp;
+                        return valid;
+                    }
+                }
+                catch { }
+            }
+            return null;
+        }
+
+        private async Task<byte[]?> TryFetchTorrentFromCacheMirrorsAsync(string hash, string cachedTorrentPath, CancellationToken ct, bool isPrefetch = false)
         {
             hash = (hash ?? string.Empty).Trim().ToUpperInvariant();
             if (hash.Length != 40)
@@ -3830,14 +4061,19 @@ namespace StormSwitchBox.Services
                 DateTimeOffset.UtcNow.ToUnixTimeSeconds() < missedUntil)
                 return null;
 
-            Task<byte[]?> inFlight = _inFlightTorrentFetches.GetOrAdd(hash, h => FetchTorrentFromCacheMirrorsCoreAsync(h, cachedTorrentPath));
+            if (!isPrefetch) Interlocked.Increment(ref _activeForegroundMirrorFetches);
             try
             {
+                Task<byte[]?> inFlight = _inFlightTorrentFetches.GetOrAdd(hash, h => FetchTorrentFromCacheMirrorsCoreAsync(h, cachedTorrentPath, isPrefetch));
                 return await inFlight.WaitAsync(ct).ConfigureAwait(false);
             }
             catch
             {
                 return null;
+            }
+            finally
+            {
+                if (!isPrefetch) Interlocked.Decrement(ref _activeForegroundMirrorFetches);
             }
         }
 
@@ -3868,77 +4104,129 @@ namespace StormSwitchBox.Services
             return null;
         }
 
-        private static async Task<byte[]?> FetchTorrentFromCacheMirrorsCoreAsync(string hash, string cachedTorrentPath)
+        private static async Task<(byte[]? Bytes, bool ExplicitNotFound, bool RateLimited)> TryFetchSingleMirrorUrlAsync(string cacheUrl, string hash, CancellationToken ct)
         {
-            string[] urls = new[]
-            {
-                $"https://itorrents.net/torrent/{hash}.torrent",
-                $"https://itorrents.org/torrent/{hash}.torrent"
-            };
-
-            using var raceCts = new CancellationTokenSource(TimeSpan.FromSeconds(12.0));
-            var rct = raceCts.Token;
-
             try
             {
-                var tasks = urls.Select(async cacheUrl =>
+                using var resp = await SendWithCrossSchemeRedirectAsync(StormHttpClientFactory.Shared, cacheUrl, ct).ConfigureAwait(false);
+                if (resp == null) return (null, false, false);
+                if (resp.StatusCode == HttpStatusCode.NotFound || resp.StatusCode == HttpStatusCode.Gone)
+                    return (null, true, false);
+                int code = (int)resp.StatusCode;
+                if (code is 429 or 502 or 503 or 504)
+                {
+                    Interlocked.Exchange(ref _itorrentsRateLimitedUntilUnix, DateTimeOffset.UtcNow.ToUnixTimeSeconds() + 10);
+                    return (null, false, true);
+                }
+                if (!resp.IsSuccessStatusCode)
+                    return (null, false, false);
+
+                byte[] bytes = await resp.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
+                byte[]? valid = await MaybeDecompressTorrentAsync(bytes, hash, ct).ConfigureAwait(false);
+                return (valid, false, false);
+            }
+            catch
+            {
+                return (null, false, false);
+            }
+        }
+
+        private static void PersistFetchedTorrentToMemoryAndDisk(string hash, string cachedTorrentPath, byte[] bytes)
+        {
+            _missedMirrorHashes.TryRemove(hash, out _);
+            _memoryTorrentCache[hash] = bytes;
+            if (!string.IsNullOrEmpty(cachedTorrentPath))
+            {
+                _ = Task.Run(async () =>
                 {
                     try
                     {
-                        using var resp = await SendWithCrossSchemeRedirectAsync(StormHttpClientFactory.Shared, cacheUrl, rct).ConfigureAwait(false);
-                        if (resp == null) return (Bytes: (byte[]?)null, ExplicitNotFound: false);
-                        if (resp.StatusCode == HttpStatusCode.NotFound || resp.StatusCode == HttpStatusCode.Gone)
-                            return (Bytes: (byte[]?)null, ExplicitNotFound: true);
-                        if (!resp.IsSuccessStatusCode)
-                            return (Bytes: (byte[]?)null, ExplicitNotFound: false);
-
-                        byte[] bytes = await resp.Content.ReadAsByteArrayAsync(rct).ConfigureAwait(false);
-                        if (bytes.Length > 2 && bytes[0] == 0x1F && bytes[1] == 0x8B)
-                        {
-                            using var gzStream = new GZipStream(new MemoryStream(bytes), CompressionMode.Decompress);
-                            using var ms = new MemoryStream();
-                            await gzStream.CopyToAsync(ms, rct).ConfigureAwait(false);
-                            bytes = ms.ToArray();
-                        }
-
-                        if (TryLoadValidatedTorrent(bytes, hash, out _))
-                            return (Bytes: (byte[]?)bytes, ExplicitNotFound: false);
+                        string? dir = Path.GetDirectoryName(cachedTorrentPath);
+                        if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+                        await File.WriteAllBytesAsync(cachedTorrentPath, bytes, CancellationToken.None).ConfigureAwait(false);
                     }
                     catch { }
-                    return (Bytes: (byte[]?)null, ExplicitNotFound: false);
-                }).ToList();
+                });
+            }
+        }
 
-                bool allExplicitNotFound = true;
-                while (tasks.Count > 0)
+        private static async Task<byte[]?> FetchTorrentFromCacheMirrorsCoreAsync(string hash, string cachedTorrentPath, bool isPrefetch = false)
+        {
+            bool acquired = false;
+            try
+            {
+                if (isPrefetch && Volatile.Read(ref _activeForegroundMirrorFetches) > 0)
+                    return null;
+
+                acquired = await _mirrorFetchThrottle.WaitAsync(isPrefetch ? 1500 : 8000).ConfigureAwait(false);
+                if (!acquired && isPrefetch)
+                    return null;
+
+                // Phase A: Single clean request to itorrents.net (itorrents.org 301s to itorrents.net)
+                using (var pCts = new CancellationTokenSource(TimeSpan.FromSeconds(5.5)))
                 {
-                    var done = await Task.WhenAny(tasks).ConfigureAwait(false);
-                    tasks.Remove(done);
-                    var res = await done.ConfigureAwait(false);
+                    var res = await TryFetchSingleMirrorUrlAsync($"https://itorrents.net/torrent/{hash}.torrent", hash, pCts.Token).ConfigureAwait(false);
                     if (res.Bytes != null)
                     {
-                        _missedMirrorHashes.TryRemove(hash, out _);
-                        raceCts.Cancel();
-                        _memoryTorrentCache[hash] = res.Bytes;
-                        if (!string.IsNullOrEmpty(cachedTorrentPath))
-                        {
-                            _ = Task.Run(async () =>
-                            {
-                                try { await File.WriteAllBytesAsync(cachedTorrentPath, res.Bytes, CancellationToken.None).ConfigureAwait(false); } catch { }
-                            });
-                        }
+                        PersistFetchedTorrentToMemoryAndDisk(hash, cachedTorrentPath, res.Bytes);
                         return res.Bytes;
                     }
-                    if (!res.ExplicitNotFound)
-                        allExplicitNotFound = false;
+                    if (res.ExplicitNotFound)
+                    {
+                        _missedMirrorHashes[hash] = DateTimeOffset.UtcNow.ToUnixTimeSeconds() + 15;
+                        return null;
+                    }
+                    if (res.RateLimited && !isPrefetch)
+                    {
+                        await Task.Delay(350).ConfigureAwait(false);
+                        using var retryCts = new CancellationTokenSource(TimeSpan.FromSeconds(4.5));
+                        var retry = await TryFetchSingleMirrorUrlAsync($"https://itorrents.net/torrent/{hash}.torrent", hash, retryCts.Token).ConfigureAwait(false);
+                        if (retry.Bytes != null)
+                        {
+                            PersistFetchedTorrentToMemoryAndDisk(hash, cachedTorrentPath, retry.Bytes);
+                            return retry.Bytes;
+                        }
+                    }
                 }
 
-                // Никогда не помечаем хеш недоступным при таймауте или сетевой ошибке - только при явном 404/410
-                if (allExplicitNotFound)
-                    _missedMirrorHashes[hash] = DateTimeOffset.UtcNow.ToUnixTimeSeconds() + 15;
+                if (isPrefetch)
+                    return null;
+
+                // Phase B (foreground bypass): TLS ClientHello split directly to Cloudflare Edge IPs for itorrents.net + itorrents.org fallback
+                using (var bCts = new CancellationTokenSource(TimeSpan.FromSeconds(5.5)))
+                {
+                    var bt = bCts.Token;
+                    var cfTask = FetchItorrentsViaCloudflareEdgeTlsSplitAsync(hash, bt);
+                    var orgTask = TryFetchSingleMirrorUrlAsync($"https://itorrents.org/torrent/{hash}.torrent", hash, bt);
+
+                    byte[]? cfBytes = await cfTask.ConfigureAwait(false);
+                    if (cfBytes != null)
+                    {
+                        bCts.Cancel();
+                        PersistFetchedTorrentToMemoryAndDisk(hash, cachedTorrentPath, cfBytes);
+                        return cfBytes;
+                    }
+
+                    var orgRes = await orgTask.ConfigureAwait(false);
+                    if (orgRes.Bytes != null)
+                    {
+                        PersistFetchedTorrentToMemoryAndDisk(hash, cachedTorrentPath, orgRes.Bytes);
+                        return orgRes.Bytes;
+                    }
+                    if (orgRes.ExplicitNotFound)
+                    {
+                        _missedMirrorHashes[hash] = DateTimeOffset.UtcNow.ToUnixTimeSeconds() + 15;
+                    }
+                }
+                return null;
+            }
+            catch
+            {
                 return null;
             }
             finally
             {
+                if (acquired) _mirrorFetchThrottle.Release();
                 _inFlightTorrentFetches.TryRemove(hash, out _);
             }
         }
@@ -4044,12 +4332,9 @@ namespace StormSwitchBox.Services
             _activeTopicSeeds = topic.Seeds;
             _lastSwarmTotalPeers = 0;
 
-            string hash = (topic.InfoHash ?? "").Trim().ToUpperInvariant();
-            if (string.IsNullOrEmpty(hash) && !string.IsNullOrEmpty(topic.MagnetUri))
-            {
-                var hm = Regex.Match(topic.MagnetUri, @"btih:([0-9A-Fa-f]{40})", RegexOptions.IgnoreCase);
-                if (hm.Success) hash = hm.Groups[1].Value.ToUpperInvariant();
-            }
+            string hash = ExtractInfoHashHex(topic);
+            if (!string.IsNullOrEmpty(hash) && string.IsNullOrEmpty(topic.InfoHash))
+                topic.InfoHash = hash;
 
             if (!string.IsNullOrWhiteSpace(topic.MagnetUri) && MagnetLink.TryParse(topic.MagnetUri, out var earlyMagnet))
             {
@@ -4173,15 +4458,32 @@ namespace StormSwitchBox.Services
                 }
             }
 
-            // STEP 3 (~0.25s): Parallel race across .torrent cache mirrors + Direct HTTP viewtorrent.php + WebView2 handlers!
+            // STEP 3 (~0.35s-1.0s HTTP mirror / auth / viewtorrent + 1.0s delayed fast P2P BEP-9 race):
             using (var fastRaceCts = CancellationTokenSource.CreateLinkedTokenSource(ct))
             {
-                fastRaceCts.CancelAfter(TimeSpan.FromSeconds(8.0));
+                fastRaceCts.CancelAfter(TimeSpan.FromSeconds(6.5));
                 var rct = fastRaceCts.Token;
+                var mirrorFailedEarlySignal = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 
                 Task<byte[]?> mirrorTorrentTask = (hash.Length == 40 && !string.IsNullOrEmpty(cachedTorrentPath))
-                    ? TryFetchTorrentFromCacheMirrorsAsync(hash, cachedTorrentPath, rct)
+                    ? Task.Run(async () =>
+                    {
+                        try
+                        {
+                            var b = await TryFetchTorrentFromCacheMirrorsAsync(hash, cachedTorrentPath, rct, isPrefetch: false).ConfigureAwait(false);
+                            if (b == null) mirrorFailedEarlySignal.TrySetResult(true);
+                            return b;
+                        }
+                        catch
+                        {
+                            mirrorFailedEarlySignal.TrySetResult(true);
+                            return null;
+                        }
+                    }, rct)
                     : Task.FromResult<byte[]?>(null);
+
+                if (hash.Length != 40 || string.IsNullOrEmpty(cachedTorrentPath))
+                    mirrorFailedEarlySignal.TrySetResult(true);
 
                 Task<byte[]?> authTorrentTask = (!string.IsNullOrWhiteSpace(topic.TopicId) && (SameOriginTorrentBytesHandler != null || !string.IsNullOrWhiteSpace(App.Settings.Current.RuTrackerCookie)))
                     ? Task.Run(async () =>
@@ -4225,7 +4527,20 @@ namespace StormSwitchBox.Services
                     }, rct)
                     : Task.FromResult<List<(string Path, long Size)>?>(null);
 
-                var pending = new List<Task> { mirrorTorrentTask, authTorrentTask, httpVtTask, wvVtTask };
+                Task<List<TorrentFileSelectionItem>?> p2pMetaTask = (_loadedMagnet != null && hash.Length == 40)
+                    ? Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await Task.WhenAny(mirrorFailedEarlySignal.Task, Task.Delay(1000, rct)).ConfigureAwait(false);
+                            if (rct.IsCancellationRequested) return null;
+                            return await ResolveMagnetMetadataViaSwarmAsync(_loadedMagnet, hash, TimeSpan.FromSeconds(5.2), rct).ConfigureAwait(false);
+                        }
+                        catch { return null; }
+                    }, rct)
+                    : Task.FromResult<List<TorrentFileSelectionItem>?>(null);
+
+                var pending = new List<Task> { mirrorTorrentTask, authTorrentTask, httpVtTask, wvVtTask, p2pMetaTask };
                 List<(string Path, long Size)>? resolvedTree = null;
 
                 while (pending.Count > 0)
@@ -4236,7 +4551,21 @@ namespace StormSwitchBox.Services
                     var finished = await Task.WhenAny(pending).ConfigureAwait(false);
                     pending.Remove(finished);
 
-                    if (finished == mirrorTorrentTask || finished == authTorrentTask)
+                    if (finished == p2pMetaTask)
+                    {
+                        List<TorrentFileSelectionItem>? p2pItems = null;
+                        try { p2pItems = await p2pMetaTask.ConfigureAwait(false); }
+                        catch { continue; }
+                        if (p2pItems != null && p2pItems.Count > 0)
+                        {
+                            fastRaceCts.Cancel();
+                            SaveFileTreeCacheAsync(topic.TopicId, p2pItems.Select(f => (f.RelativePath, f.Length)));
+                            PopulateDisplayPathsAndSmartSelection(p2pItems);
+                            AutoAssignFilesToGameSlots(p2pItems, detectedParts);
+                            return p2pItems;
+                        }
+                    }
+                    else if (finished == mirrorTorrentTask || finished == authTorrentTask)
                     {
                         byte[]? torBytes = null;
                         try
@@ -7880,6 +8209,10 @@ namespace StormSwitchBox.Services
                             Directory.CreateDirectory(cacheParent);
                         argsList.Add($"--save-torrent \"{savedCachedTorrentPath}\"");
                     }
+                    string dlResumeDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "STORM SWITCH BOX", "cache", "download_resume");
+                    Directory.CreateDirectory(dlResumeDir);
+                    string dlResumeFile = Path.Combine(dlResumeDir, $"{hashLower}.resume");
+                    argsList.Add($"--resume-file \"{dlResumeFile}\"");
                 }
 
                 if (rawTorrent != null && rawTorrent.Length > 0)
@@ -8090,26 +8423,30 @@ namespace StormSwitchBox.Services
                             long doneBytes = root.TryGetProperty("done_bytes", out var dbEl) ? dbEl.GetInt64() : 0L;
                             long totalBytes = root.TryGetProperty("total_bytes", out var tbEl) ? tbEl.GetInt64() : 0L;
                             bool isMeta = root.TryGetProperty("is_meta", out var imEl) && imEl.GetBoolean();
+                            bool isChecking = string.Equals(state, "checking", StringComparison.OrdinalIgnoreCase);
 
-                            double speedMb = speedBps / (1024.0 * 1024.0);
+                            double speedMb = isChecking ? 0.0 : (speedBps / (1024.0 * 1024.0));
                             int swarmTotal = Math.Max(effectiveTopicSeeds, Math.Max(swarm, seeds + peers));
                             string seedsStr = swarmTotal > seeds ? $"Сиды: {seeds} (в рое: {swarmTotal})" : $"Сиды: {seeds}";
 
-                            string stateStr = isMeta
-                                ? $"{topicLabel}: получение метаданных Magnet от пиров (libtorrent)..."
-                                : $"{topicLabel}: скачивание {pct:F1}% ({speedMb:F2} МБ/с | {seedsStr}, Пиры: {peers}) [libtorrent]";
+                            string stateStr = isChecking
+                                ? $"{topicLabel}: проверка файлов на диске ({pct:F1}%)..."
+                                : (isMeta
+                                    ? $"{topicLabel}: получение метаданных Magnet от пиров (libtorrent)..."
+                                    : $"{topicLabel}: скачивание {pct:F1}% ({speedMb:F2} МБ/с | {seedsStr}, Пиры: {peers}) [libtorrent]");
 
                             progress?.Report(new TorrentDownloadProgress
                             {
                                 Percent = pct,
                                 SpeedMbPerSec = speedMb,
-                                Seeds = seeds,
+                                Seeds = isChecking ? 0 : seeds,
                                 SwarmTotal = swarmTotal,
-                                Peers = peers,
+                                Peers = isChecking ? 0 : peers,
                                 StatusText = stateStr,
                                 DownloadedBytes = doneBytes,
                                 TotalBytes = totalBytes,
-                                IsMetadataPhase = isMeta
+                                IsMetadataPhase = isMeta,
+                                IsCheckingPhase = isChecking
                             });
 
                             if (state == "finished")
@@ -10497,7 +10834,12 @@ namespace StormSwitchBox.Services
                 return null;
 
             int topCount = Math.Min(4, orderedEdgeIps.Count);
-            int idxA = Math.Abs(StringComparer.OrdinalIgnoreCase.GetHashCode(host)) % topCount;
+            int hostOrdinal = host.Equals("bt.t-ru.org", StringComparison.OrdinalIgnoreCase) ? 0
+                : host.Equals("bt2.t-ru.org", StringComparison.OrdinalIgnoreCase) ? 1
+                : host.Equals("bt3.t-ru.org", StringComparison.OrdinalIgnoreCase) ? 2
+                : host.Equals("bt4.t-ru.org", StringComparison.OrdinalIgnoreCase) ? 3
+                : Math.Abs(StringComparer.OrdinalIgnoreCase.GetHashCode(host));
+            int idxA = hostOrdinal % topCount;
             int idxB = topCount > 1 ? (idxA + 1) % topCount : -1;
 
             using (var raceCts = CancellationTokenSource.CreateLinkedTokenSource(ct))

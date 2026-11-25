@@ -126,7 +126,7 @@ def build_turbo_settings(listen_port=44859, metadata_only=False, download_limit=
         "peer_fingerprint": "-qB5000-",
         "user_agent": "qBittorrent/5.0.0",
         "aio_threads": 8,
-        "hashing_threads": 4,
+        "hashing_threads": 2,
         "dht_bootstrap_nodes": (
             "router.bittorrent.com:6881,"
             "dht.transmissionbt.com:6881,"
@@ -505,6 +505,132 @@ def save_dht_state_only(ses, dht_path):
         os.replace(tmp_path, dht_path)
     except Exception:
         pass
+
+
+def _pct_encode_info_hash(ih_hex):
+    try:
+        raw = bytes.fromhex((ih_hex or "").strip())
+    except Exception:
+        return ""
+    safe = set(b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.~")
+    return "".join(chr(b) if b in safe else f"%{b:02X}" for b in raw)
+
+
+def harvest_cf_bt_peers(info_hash_hex, listen_port=44859):
+    enc = _pct_encode_info_hash(info_hash_hex)
+    if not enc:
+        return []
+    edges = ("188.114.96.3", "188.114.97.3", "188.114.98.3", "188.114.99.3")
+    hosts = ("bt.t-ru.org", "bt2.t-ru.org", "bt3.t-ru.org", "bt4.t-ru.org")
+    port = int(listen_port) if listen_port and 1 <= int(listen_port) <= 65535 else 44859
+    found = set()
+    lock = threading.Lock()
+
+    def _query(idx):
+        host = hosts[idx]
+        edge = edges[idx]
+        pid = f"-qB5000-{os.getpid() % 1000:03d}{idx}abcdefgh"[:20]
+        payload = (
+            "GET / HTTP/1.1\r\n"
+            "Host: cloudflare.com\r\n\r\n"
+            f"GET /ann?magnet&info_hash={enc}&peer_id={pid}&port={port}&uploaded=0&downloaded=0&left=1073741824&compact=1&numwant=500&event=started HTTP/1.1\r\n"
+            f"Host: {host}\r\n"
+            "User-Agent: uTorrent/3550\r\n"
+            "Accept-Encoding: identity\r\n"
+            "Connection: close\r\n\r\n"
+        ).encode("ascii")
+        s = None
+        try:
+            s = socket.create_connection((edge, 80), timeout=2.5)
+            s.settimeout(2.5)
+            s.sendall(payload)
+            buf = b""
+            while len(buf) < 131072:
+                chunk = s.recv(8192)
+                if not chunk:
+                    break
+                buf += chunk
+                m = buf.find(b"5:peers")
+                if m >= 0:
+                    col = buf.find(b":", m + 7)
+                    if 0 < col <= m + 13:
+                        try:
+                            plen = int(buf[m + 7:col])
+                            if len(buf) >= col + 1 + plen:
+                                break
+                        except Exception:
+                            pass
+            m = buf.find(b"5:peers")
+            if m >= 0:
+                col = buf.find(b":", m + 7)
+                if 0 < col <= m + 13:
+                    plen = int(buf[m + 7:col])
+                    raw_peers = buf[col + 1:col + 1 + plen]
+                    batch = []
+                    for pos in range(0, len(raw_peers) - 5, 6):
+                        b0, b1, b2, b3 = raw_peers[pos], raw_peers[pos + 1], raw_peers[pos + 2], raw_peers[pos + 3]
+                        p_num = (raw_peers[pos + 4] << 8) | raw_peers[pos + 5]
+                        if b0 not in (0, 127) and p_num > 0:
+                            batch.append((f"{b0}.{b1}.{b2}.{b3}", p_num))
+                    if batch:
+                        with lock:
+                            found.update(batch)
+        except Exception:
+            pass
+        finally:
+            if s is not None:
+                try:
+                    s.close()
+                except Exception:
+                    pass
+
+    threads = [threading.Thread(target=_query, args=(i,), daemon=True) for i in range(4)]
+    for th in threads:
+        th.start()
+    for th in threads:
+        th.join(timeout=3.0)
+    return list(found)
+
+
+def save_download_resume_data(ses, handle, resume_file, wait_sec=2.0):
+    if not resume_file or ses is None or handle is None or not handle.is_valid():
+        return False
+    try:
+        flags = getattr(lt.save_resume_flags_t, "flush_disk_cache", None)
+        if flags is not None:
+            handle.save_resume_data(flags)
+        else:
+            handle.save_resume_data()
+    except Exception:
+        try:
+            handle.save_resume_data()
+        except Exception:
+            return False
+
+    deadline = time.time() + wait_sec
+    while time.time() < deadline:
+        try:
+            alerts = ses.pop_alerts()
+        except Exception:
+            break
+        for a in alerts:
+            if isinstance(a, lt.save_resume_data_alert):
+                try:
+                    buf = lt.write_resume_data_buf(a.params)
+                    parent = os.path.dirname(resume_file)
+                    if parent:
+                        os.makedirs(parent, exist_ok=True)
+                    tmp_path = f"{resume_file}.{os.getpid()}.tmp"
+                    with open(tmp_path, "wb") as rf:
+                        rf.write(buf)
+                    os.replace(tmp_path, resume_file)
+                    return True
+                except Exception:
+                    return False
+            elif hasattr(lt, "save_resume_data_failed_alert") and isinstance(a, lt.save_resume_data_failed_alert):
+                return False
+        time.sleep(0.05)
+    return False
 
 
 def apply_clean_trackers(handle, trackers):
@@ -1148,6 +1274,18 @@ def run_metadata_only(ses, args):
                 pass
 
         pump_peers(force=True)
+        ih_meta_hex = _handle_info_hash_hex(handle)
+        cf_meta_done = False
+
+        def _cf_meta_fallback():
+            if not ih_meta_hex or not handle.is_valid():
+                return
+            for ep in harvest_cf_bt_peers(ih_meta_hex, args.listen_port):
+                try:
+                    handle.connect_peer(ep)
+                except Exception:
+                    pass
+
         last_parent_check = 0.0
         started_meta_at = time.time()
         did_retry_meta = False
@@ -1161,6 +1299,9 @@ def run_metadata_only(ses, args):
                     break
 
             pump_peers(force=False)
+            if not cf_meta_done and (now_t - started_meta_at) >= 0.4 and len(ordered_peers) < 10 and ih_meta_hex:
+                cf_meta_done = True
+                threading.Thread(target=_cf_meta_fallback, daemon=True).start()
             if not did_retry_meta and (now_t - started_meta_at) >= 2.2 and ordered_peers:
                 did_retry_meta = True
                 for parsed in ordered_peers:
@@ -1227,6 +1368,7 @@ def main():
     parser.add_argument("--seed-daemon", action="store_true", help="Run persistent multi-torrent seeding daemon controlled via JSON stdin")
     parser.add_argument("--resume-dir", type=str, default=None, help="Directory for FastResume files in seed-daemon mode")
     parser.add_argument("--save-torrent", type=str, default=None, help="Save resolved .torrent file path")
+    parser.add_argument("--resume-file", type=str, default=None, help="Path to FastResume file for instant download resume")
     parser.add_argument("--download-limit", type=int, default=0, help="Initial download rate limit in bytes/sec (0 = unlimited)")
     parser.add_argument("--limit-file", type=str, default=None, help="Path to live download rate limit file in bytes/sec")
     parser.add_argument("--timeout", type=float, default=4.5, help="Metadata-only timeout in seconds")
@@ -1266,7 +1408,7 @@ def main():
 
     os.makedirs(args.save_dir, exist_ok=True)
     try:
-        ses.set_alert_mask(lt.alert.category_t.storage_notification)
+        ses.set_alert_mask(lt.alert.category_t.storage_notification | lt.alert.category_t.status_notification)
     except Exception:
         pass
 
@@ -1291,7 +1433,19 @@ def main():
                 effective_skip_set = set()
         except Exception:
             pass
-        atp = lt.add_torrent_params()
+        atp = None
+        if args.resume_file and os.path.isfile(args.resume_file) and os.path.getsize(args.resume_file) > 16:
+            try:
+                with open(args.resume_file, "rb") as rf:
+                    atp = lt.read_resume_data(rf.read())
+                if hasattr(lt.torrent_flags, "paused"):
+                    atp.flags &= ~lt.torrent_flags.paused
+                if hasattr(lt.torrent_flags, "auto_managed"):
+                    atp.flags &= ~lt.torrent_flags.auto_managed
+            except Exception:
+                atp = None
+        if atp is None:
+            atp = lt.add_torrent_params()
         atp.ti = info
         atp.save_path = args.save_dir
         try:
@@ -1418,6 +1572,48 @@ def main():
                 except Exception:
                     pass
 
+    dl_info_hash = _handle_info_hash_hex(handle)
+    cf_peers_lock = threading.Lock()
+    cf_pending_peers = []
+    cf_harvest_running = False
+    last_cf_harvest_at = 0.0
+    last_resume_save_at = time.time()
+    was_checking = False
+
+    def _trigger_cf_harvest_async():
+        nonlocal cf_harvest_running, last_cf_harvest_at
+        ih = dl_info_hash or _handle_info_hash_hex(handle)
+        if not ih or cf_harvest_running:
+            return
+        cf_harvest_running = True
+        last_cf_harvest_at = time.time()
+        def _worker():
+            nonlocal cf_harvest_running
+            try:
+                pts = harvest_cf_bt_peers(ih, args.listen_port)
+                if pts:
+                    with cf_peers_lock:
+                        cf_pending_peers.extend(pts)
+            finally:
+                cf_harvest_running = False
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _drain_cf_pending_peers():
+        batch = []
+        with cf_peers_lock:
+            if cf_pending_peers:
+                batch = list(cf_pending_peers)
+                cf_pending_peers.clear()
+        for parsed in batch:
+            key = f"{parsed[0]}:{parsed[1]}"
+            if key not in connected_peers:
+                connected_peers.add(key)
+                ordered_peers.append(parsed)
+            try:
+                handle.connect_peer(parsed)
+            except Exception:
+                pass
+
     last_parent_check = 0.0
     last_tracker_reannounce = time.time()
     endgame_stall_since = None
@@ -1427,7 +1623,6 @@ def main():
     finished_verified = False
     abort_exit_code = 4
     try:
-        inject_new_peers(force_now=True)
         while handle is not None and handle.is_valid():
             now_check = time.time()
             if args.parent_pid and (now_check - last_parent_check) >= 1.0:
@@ -1437,6 +1632,7 @@ def main():
                         handle.pause()
                     except Exception:
                         pass
+                    save_download_resume_data(ses, handle, args.resume_file, wait_sec=2.0)
                     flush_torrent_cache(ses, handle)
                     break
 
@@ -1465,6 +1661,7 @@ def main():
                             handle.pause()
                         except Exception:
                             pass
+                        save_download_resume_data(ses, handle, args.resume_file, wait_sec=2.0)
                         flush_torrent_cache(ses, handle)
                         emit_status(last_pct, 0, 0, 0, last_swarm, last_done, last_total, "stopped", is_meta=last_is_meta)
                         break
@@ -1475,6 +1672,7 @@ def main():
                         except Exception:
                             pass
                         handle.pause()
+                        save_download_resume_data(ses, handle, args.resume_file, wait_sec=1.5)
                     elif cmd == "RESUME" and was_paused:
                         was_paused = False
                         handle.resume()
@@ -1491,6 +1689,42 @@ def main():
                 continue
 
             st = handle.status()
+            has_meta = bool(getattr(st, "has_metadata", False))
+            is_checking = bool(has_meta and st.state in (
+                lt.torrent_status.states.checking_files,
+                lt.torrent_status.states.checking_resume_data,
+            ))
+
+            if is_checking:
+                was_checking = True
+                chk_total = int(getattr(st, "total_wanted", 0) or (ti_snapshot.total_size() if ti_snapshot is not None else 0))
+                chk_pct = min(99.9, max(0.0, float(getattr(st, "progress", 0.0)) * 100.0))
+                chk_done = int(chk_total * max(0.0, min(1.0, float(getattr(st, "progress", 0.0)))))
+                last_pct = chk_pct
+                last_done = chk_done
+                last_total = chk_total
+                emit_status(chk_pct, 0, 0, 0, last_swarm, chk_done, chk_total, "checking", is_meta=False)
+                time.sleep(0.3)
+                continue
+
+            if was_checking:
+                was_checking = False
+                inject_new_peers(force_now=True, current_rate=st.download_rate, current_seeds=st.num_seeds)
+                for parsed in ordered_peers[:300]:
+                    try:
+                        handle.connect_peer(parsed)
+                    except Exception:
+                        pass
+                try:
+                    handle.force_reannounce()
+                    handle.force_dht_announce()
+                except Exception:
+                    pass
+
+            _drain_cf_pending_peers()
+            if st.num_seeds == 0 and (now_check - last_cf_harvest_at) >= 15.0:
+                _trigger_cf_harvest_async()
+
             reannounce_interval = 12.0 if st.num_seeds == 0 else 35.0
             if (now_check - last_tracker_reannounce) >= reannounce_interval and (st.num_seeds == 0 or (st.download_rate < (30 * 1024 * 1024) and st.num_seeds < 30)):
                 last_tracker_reannounce = now_check
@@ -1501,7 +1735,10 @@ def main():
                     pass
             inject_new_peers(force_now=False, current_rate=st.download_rate, current_seeds=st.num_seeds)
 
-            has_meta = bool(getattr(st, "has_metadata", False))
+            if args.resume_file and has_meta and st.total_wanted_done > 0 and (now_check - last_resume_save_at) >= 25.0:
+                last_resume_save_at = now_check
+                save_download_resume_data(ses, handle, args.resume_file, wait_sec=0.8)
+
             non_seed_peers = max(0, int(st.num_peers) - int(st.num_seeds))
 
             if not has_meta:
@@ -1639,6 +1876,11 @@ def main():
                     sys.stderr.flush()
                     sys.exit(3)
 
+                if args.resume_file and os.path.isfile(args.resume_file):
+                    try:
+                        os.remove(args.resume_file)
+                    except Exception:
+                        pass
                 emit_status(100.0, 0, fin_seeds, non_seed_peers, swarm, total_wanted, total_wanted, "finished")
                 finished_verified = True
                 break
@@ -1648,6 +1890,7 @@ def main():
 
     except KeyboardInterrupt:
         if ses is not None and handle is not None:
+            save_download_resume_data(ses, handle, args.resume_file, wait_sec=1.5)
             flush_torrent_cache(ses, handle)
     except SystemExit:
         raise

@@ -899,7 +899,7 @@ namespace StormSwitchBox.Views.Dialogs
 
             if (_topics.Count > 0)
             {
-                _service.PrefetchTopicsMetadata(_topics, maxCount: 8);
+                _service.PrefetchTopicsMetadata(_topics, maxCount: 4);
                 if (autoSelectFirst)
                 {
                     var firstTopic = _topics[0];
@@ -1303,16 +1303,7 @@ namespace StormSwitchBox.Views.Dialogs
                 Task<RuTrackerTopicItem?> detailsTask = _service.FetchTopicDetailsAsync(topic.TopicId ?? string.Empty, ct, includeCommentPages: false);
                 string hashBeforeDetails = topic.InfoHash ?? string.Empty;
 
-                if (filesTask != null)
-                {
-                    _ = filesTask.ContinueWith(t =>
-                    {
-                        if (!t.IsCompletedSuccessfully || ct.IsCancellationRequested) return;
-                        var entries = t.Result;
-                        if (entries == null) return;
-                        App.RunOnUI(() => { if (!filesApplied || (!_activeTopicHasRealFiles && entries.Any(f => f.IsRealTorrentFile))) ApplyResolvedFilesOnUi(entries); });
-                    }, TaskScheduler.Default);
-                }
+                // Sequential await of filesTask below updates UI without ContinueWith race.
 
                 bool magnetBgStarted = false;
                 void StartMagnetMetadataBackground()
@@ -1542,7 +1533,7 @@ namespace StormSwitchBox.Views.Dialogs
                     try
                     {
                         var followUpEntries = await _service.InspectTorrentFilesAsync(topic, null, ct);
-                        if (followUpEntries != null && followUpEntries.Count > 0)
+                        if (followUpEntries != null && followUpEntries.Any(f => f.IsRealTorrentFile))
                             ApplyResolvedFilesOnUi(followUpEntries);
                     }
                     catch (OperationCanceledException) when (!ct.IsCancellationRequested)
@@ -1550,6 +1541,11 @@ namespace StormSwitchBox.Views.Dialogs
                     }
                     catch when (!ct.IsCancellationRequested)
                     {
+                    }
+                    if (!_activeTopicHasRealFiles && !string.IsNullOrWhiteSpace(topic.InfoHash) && !ct.IsCancellationRequested && mySeq == System.Threading.Interlocked.Read(ref _topicSelectionSeq))
+                    {
+                        magnetBgStarted = false;
+                        StartMagnetMetadataBackground();
                     }
                 }
 

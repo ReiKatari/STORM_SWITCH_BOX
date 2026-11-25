@@ -4156,8 +4156,8 @@ object RuTrackerCloudEngine {
         }
 
         val urls = listOf(
-            "https://itorrents.org/torrent/$hash.torrent",
-            "https://torrage.info/torrent.php?h=$hash"
+            "https://itorrents.net/torrent/$hash.torrent",
+            "https://itorrents.org/torrent/$hash.torrent"
         )
         for (u in urls) {
             try {
