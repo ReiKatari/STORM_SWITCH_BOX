@@ -4983,7 +4983,7 @@ object StormNczEngine {
 
     private fun extractZ3dsContainerMetadata(plainFile: File, underlyingMagic: ByteArray, frameSize: Int): LinkedHashMap<String, ByteArray> {
         val meta = LinkedHashMap<String, ByteArray>()
-        meta["compressor"] = "STORM SWITCH BOX 8.2.5".toByteArray(StandardCharsets.UTF_8)
+        meta["compressor"] = "STORM SWITCH BOX 8.2.6".toByteArray(StandardCharsets.UTF_8)
         val df = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US).apply {
             timeZone = java.util.TimeZone.getTimeZone("UTC")
         }
@@ -5811,7 +5811,7 @@ object StormNczEngine {
                 bundleMeta[k] = v
             }
         }
-        bundleMeta["bundler"] = "STORM SWITCH BOX 8.2.5".toByteArray(StandardCharsets.UTF_8)
+        bundleMeta["bundler"] = "STORM SWITCH BOX 8.2.6".toByteArray(StandardCharsets.UTF_8)
         val df = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US).apply {
             timeZone = java.util.TimeZone.getTimeZone("UTC")
         }

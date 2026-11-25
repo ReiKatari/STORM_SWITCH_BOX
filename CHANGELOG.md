@@ -1,3 +1,34 @@
+## **8.2.6** (25.11.2026)
+
+> 💡 **Релиз 8.2.6** - *Устранение перезаписи уже загруженных из кэша реальных `.torrent`-файлов синтетической заглушкой `MAGNET` в `LoadSelectedTopicAsync`*
+
+---
+
+### 🚀 Ключевые изменения и улучшения (STORM SWITCH BOX 8.2.6)
+
+- 🌟 **[Исправление бесконечного «Magnet-разрешение активно» при открытии кэшированных тем (`RuTrackerModDownloaderDialog.xaml.cs`)]**:
+  - Устранён критический баг в `LoadSelectedTopicAsync`: флаг `filesApplied` не инициализировался значением `instantCachedFiles != null && instantCachedFiles.Count > 0`. Из-за этого для любой раздачи из мгновенного кэша (включая `Mario Party Superstars`, `t=6126947`) `filesTask` пропускался, а блок `if (!filesApplied)` немедленно перезаписывал уже отображённые реальные файлы `.nsp`/`.nsz` фейковой строкой `MAGNET` и замораживал заголовок в состоянии «файлы будут получены через P2P».
+  - В `ApplyResolvedFilesOnUi`, `StartMagnetMetadataBackground` и резервный фолбэк добавлена жёсткая защита `if (_activeTopicHasRealFiles && !hasReal) return;`, гарантирующая, что реальный список файлов никогда не будет затёрт заглушкой `MAGNET`.
+
+<details>
+
+<summary><b>📋 Полный список изменений (нажмите, чтобы развернуть)</b></summary>
+
+- 🔹 **[Views/Dialogs/RuTrackerModDownloaderDialog.xaml.cs]**: Инициализация `filesApplied = instantCachedFiles != null && instantCachedFiles.Count > 0`, защита `_activeTopicHasRealFiles && !hasReal` в `ApplyResolvedFilesOnUi`, фильтр `Any(f => f.IsRealTorrentFile)` в `StartMagnetMetadataBackground` и условие `!filesApplied && !_activeTopicHasRealFiles`.
+- 🔹 **[Релиз 8.2.6]**: Обновлены версии Windows (`8.2.6`) и Android (`versionCode = 8206`, `versionName = "8.2.6"`), без Legacy APK.
+
+</details>
+
+<details>
+
+<summary><b>🌐 English Changelog (click to expand)</b></summary>
+
+- 🔸 Fixed a critical bug in `LoadSelectedTopicAsync` (`RuTrackerModDownloaderDialog.xaml.cs`) where `filesApplied` remained `false` when `instantCachedFiles` loaded real `.torrent` entries, causing the subsequent `if (!filesApplied)` fallback to overwrite all real `.nsp`/`.nsz` files with a synthetic `MAGNET` placeholder forever; guarded `ApplyResolvedFilesOnUi`, `StartMagnetMetadataBackground`, and the fallback branch against overwriting `_activeTopicHasRealFiles`, and bumped version to `8.2.6` (`versionCode = 8206`).
+
+</details>
+
+---
+
 ## **8.2.5** (25.11.2026)
 
 > 💡 **Релиз 8.2.5** - *Мгновенное получение списка файлов раздач RuTracker, обход лимитов HTTP 503 и ТСПУ через TLS ClientHello Split и Cloudflare Edge, FastResume скачивания и устранение простоев `0,00 МБ/с`*

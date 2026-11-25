@@ -1257,16 +1257,18 @@ namespace StormSwitchBox.Views.Dialogs
             else
                 StatusText.Text = $"Быстрая подгрузка файлов и ссылок темы [{topic.TopicId}]...";
 
-            bool filesApplied = false;
+            bool filesApplied = instantCachedFiles != null && instantCachedFiles.Count > 0;
             void ApplyResolvedFilesOnUi(List<TorrentFileSelectionItem> entries)
             {
                 if (ct.IsCancellationRequested || mySeq != System.Threading.Interlocked.Read(ref _topicSelectionSeq))
                     return;
                 if (entries.Count == 0)
                     return;
-                filesApplied = true;
 
                 bool hasReal = entries.Any(f => f.IsRealTorrentFile);
+                if (_activeTopicHasRealFiles && !hasReal)
+                    return;
+                filesApplied = true;
                 if (hasReal)
                     _activeTopicHasRealFiles = true;
 
@@ -1321,7 +1323,7 @@ namespace StormSwitchBox.Views.Dialogs
                             if (ct.IsCancellationRequested || mySeq != System.Threading.Interlocked.Read(ref _topicSelectionSeq))
                                 return;
 
-                            if (bgItems != null && bgItems.Count > 0)
+                            if (bgItems != null && bgItems.Any(f => f.IsRealTorrentFile))
                             {
                                 App.RunOnUI(() =>
                                 {
@@ -1361,7 +1363,7 @@ namespace StormSwitchBox.Views.Dialogs
                 if (ct.IsCancellationRequested || mySeq != System.Threading.Interlocked.Read(ref _topicSelectionSeq))
                     return;
 
-                if (!filesApplied)
+                if (!filesApplied && !_activeTopicHasRealFiles)
                 {
                     var fallbackParts = RuTrackerModService.DetectMultiGameTitlesFromRelease(topic.Title, topic.TopicId);
                     var fallbackEntries = fallbackParts.Count > 1
