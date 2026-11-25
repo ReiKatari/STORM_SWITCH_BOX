@@ -30,17 +30,15 @@ STORM SWITCH BOX - комплексная оболочка и комбайн к�
 - **Умная сборка модификаций и мульти-контента Switch и 3DS (4-в-1)**: автоматический выбор между склейкой контейнера PFS0 и физическим перепаковыванием разделов `Program` NCA (`HardPatch`) для Switch 1 и Switch 2, а также полная сборка `Игра + Обновление + Все DLC + Русификатор/Мод (RomFS/ExeFS/IPS/BPS)` в единый бандл без установки `.bcci` / `.bcxi` (рекомендуется для STORM 3DS и Azahar), `.bcia`, классический `.3ds` / `.cci` / `.cia` / `.cxi` или **Z3DS** (`.zcci`, `.zcia`, `.zcxi`, `.z3dsx`).
 
 ## **Поддерживаемые платформы и эмуляторы**
-- **Операционные системы**: Windows 10, Windows 11 (x64), Android 8.0-17+ (ARM64 / x86_64) и Android 5.0+ (Legacy ARMv7 / ARM64)
+- **Операционные системы**: Windows 10, Windows 11 (x64) и Android 8.0-17+ (ARM64 / x86_64)
 - **Поддерживаемые форматы**: NUP, NSP, NSZ, XCI, XCZ, NRO, NCA, CNMT, BCCI, BCXI, BCIA, ZCCI, ZCXI, ZCIA, Z3DSX, Z3DS, 3DS, CCI, CXI, CIA, CFA, APP, 3DSX, ELF, AXF, ARTIC
 - **Поддерживаемые консоли**: Nintendo Switch, Nintendo Switch 2 (Ounce / NVN2), Nintendo 3DS и база знаний 19 поколений систем Nintendo
 - **Поддерживаемые эмуляторы**: STORM SWITCH, Eden (включая sx2a), Citron, Eglantine, PokeDinner, Selevet, Sudachi, Yuzu, Ryujinx, Suyu, Torzu, Citra, Lime3DS, Azahar, STORM 3DS
 
 ## **Установка и запуск**
 1. Перейдите в раздел **Releases** на GitHub.
-2. Для **Windows 10/11 (x64)**: скачайте установщик `STORM_SWITCH_BOX_8.2.1_Setup.exe` (установка в систему, ярлыки, деинсталлятор и сертификат `STORM_Certificate.cer`) или портативный архив `STORM_SWITCH_BOX_8.2.1.zip` / `STORM_SWITCH_BOX_8.2.1_win-x64.zip` (100% тот же функционал без установки и без записей в реестр).
-3. Для **Android** (функционал обеих сборок полностью одинаков, отличаются минимальная версия Android, поддерживаемые архитектуры CPU и схема подписи):
-   - **`STORM_SWITCH_BOX_8.2.1.apk` (Modern, рекомендуется)**: для современных 64-битных устройств на Android 8.0+ (`minSdk 26`, `arm64-v8a` и `x86_64`, подпись v2/v3, почти вдвое меньше по размеру).
-   - **`STORM_SWITCH_BOX_8.2.1_LEGACY.apk` (Legacy, универсальная)**: для старых устройств на Android 5.0-7.1 и 32-битных прошивок (`minSdk 21`, все 4 ABI: `armeabi-v7a`, `arm64-v8a`, `x86`, `x86_64`, подпись v1/v2/v3).
+2. Для **Windows 10/11 (x64)**: скачайте установщик `STORM_SWITCH_BOX_8.2.2_Setup.exe` (установка в систему, ярлыки, деинсталлятор и сертификат `STORM_Certificate.cer`) или портативный архив `STORM_SWITCH_BOX_8.2.2.zip` / `STORM_SWITCH_BOX_8.2.2_win-x64.zip` (100% тот же функционал без установки и без записей в реестр).
+3. Для **Android**: скачайте **`STORM_SWITCH_BOX_8.2.2.apk`** для устройств на Android 8.0+ (`minSdk 26`, `arm64-v8a` и `x86_64`, подпись v2/v3).
    При первом запуске приложение создаст рабочую структуру папок в `/storage/emulated/0/STORM SWITCH BOX/`.
 4. На ПК запустите установщик или распакуйте архив. Все системные инструменты (`hactoolnet`, `yanu-cli`, `oxipng`, `3dstool`, `makerom`, `7za`) и сжатая база каталогов (`catalogs.zst`, `nutdb.json.zst`) уже включены в дистрибутив.
 5. Укажите файлы ключей `prod.keys` / `title.keys` (для Nintendo Switch), `ounce.keys` (для Nintendo Switch 2) и при необходимости `seeddb.bin` / `aes_keys.txt` (для Nintendo 3DS) во вкладке параметров.

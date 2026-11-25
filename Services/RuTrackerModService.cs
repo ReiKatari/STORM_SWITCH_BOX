@@ -1423,7 +1423,7 @@ namespace StormSwitchBox.Services
             string tid = (topic.TopicId ?? string.Empty).Trim();
             if (string.IsNullOrEmpty(tid)) return false;
 
-            if (!_topicParsedCache.TryGetValue(tid, out var cached) || cached == null || cached.SchemaVersion < 2)
+            if (!_topicParsedCache.TryGetValue(tid, out var cached) || cached == null || cached.SchemaVersion < 3)
                 return false;
 
             bool hydrated = false;
@@ -2960,10 +2960,12 @@ namespace StormSwitchBox.Services
                 string line = Regex.Replace(rawLine, @"[ \t\u00A0]+", " ").Trim();
                 if (line.Length == 0 || line.Length > 400) continue;
 
-                // 1. Primary header lines/segments: "Версия: 1.1.6", "Год выпуска: 2021 | Версия: 1.1.6 | Версия прошивки: 13.1.0"
+                const string verCore = @"(?<ver>\d{1,3}\.\d{1,4}(?:\.\d{1,6}){0,2}(?:[a-zA-Z]{1,2}|(?:[-_](?:hf|hotfix|fix|rev|rc)[0-9a-zA-Z]{0,4}))?)(?!\.\d)(?!\s*(?:GB|MB|KB|TB|GiB|MiB|KiB|ГБ|МБ|КБ|ТБ)\b)(?=$|[\s()\[\]/,;|+\-:!]|(?:\.(?!\d)))";
+
+                // 1. Primary header lines/segments: "Версия: 3.0.5b", "Год выпуска: 2020 Версия: 3.0.5b | Прошивка: 13.1.0"
                 foreach (Match headerMatch in Regex.Matches(
                     line,
-                    @"(?:^|[|\u2022;/])\s*(?:[-*\u25AA\u25CF]\s*)?(?:актуальная\s+)?(?:(?!(?:версия\s+(?:прошивк|систем|перевод|русификатор|мод|эмулятор)))(?:версия(?:\s+(?:игры|обновления|патча|файла|сборки|релиза))?|(?:game\s+|current\s+|latest\s+)?version|update(?:\s+version)?))(?:\s*[:\-=\u2013\u2014]\s*|\s+(?=[vV]?\.?\d))(?<val>[^|\r\n]+)",
+                    @"(?:^|(?<![\p{L}\d]))(?:[-*\u25AA\u25CF]\s*)?(?:актуальная\s+)?(?:(?!(?:версия\s+(?:прошивк|систем|перевод|русификатор|мод|эмулятор)))(?:версия(?:\s+(?:игры|обновления|патча|файла|сборки|релиза))?|(?:game\s+|current\s+|latest\s+)?version|update(?:\s+version)?|обновление|патч))(?:\s*[:\-=\u2013\u2014]\s*|\s+(?=[vV]?\.?\d))(?<val>[^|\r\n]+)",
                     RegexOptions.IgnoreCase))
                 {
                     string val = headerMatch.Groups["val"].Value;
@@ -2972,7 +2974,7 @@ namespace StormSwitchBox.Services
                     if (fwSplit.Success && fwSplit.Index > 0)
                         val = val.Substring(0, fwSplit.Index);
 
-                    foreach (Match vm in Regex.Matches(val, @"(?:^|[\s(\[/]|[vV]\.?\s*)(?<ver>\d{1,3}\.\d{1,4}(?:\.\d{1,6}){0,2})(?=$|[\s()\[\]/,;|+\-:.!])"))
+                    foreach (Match vm in Regex.Matches(val, @"(?:^|[\s(\[/]|[vV]\.?\s*)" + verCore))
                     {
                         string prefix = val.Substring(0, vm.Index);
                         int after = vm.Index + vm.Length;
@@ -2984,10 +2986,10 @@ namespace StormSwitchBox.Services
                     }
                 }
 
-                // 2. Explicit update lines in release notes / spoilers: "Обновлено до версии 1.1.6", "Updated to v1.2.0"
+                // 2. Explicit update lines in release notes / spoilers: "Обновлено до версии 3.0.5b", "Updated to v1.2.0a"
                 foreach (Match um in Regex.Matches(
                     line,
-                    @"(?:обновлено(?:\s+до)?(?:\s+версии)?|обновление(?:\s+до)?|updated?\s+to(?:\s+ver\.?)?|patch\s+to)\s*[vV]?\.?\s*(?<ver>\d{1,3}\.\d{1,4}(?:\.\d{1,6}){0,2})(?=$|[\s()\[\]/,;|+\-:.!])",
+                    @"(?:обновлено(?:\s+до)?(?:\s+версии)?|обновление(?:\s+до)?|updated?\s+to(?:\s+ver\.?)?|patch\s+to)\s*[vV]?\.?\s*" + verCore,
                     RegexOptions.IgnoreCase))
                 {
                     int after = um.Index + um.Length;
@@ -3007,7 +3009,7 @@ namespace StormSwitchBox.Services
                         string baseTid = NormalizeSwitchBaseApplicationTitleId(tidMatch.Groups[1].Value);
                         if (baseTid.Length == 16)
                         {
-                            foreach (Match vm in Regex.Matches(line, @"(?:^|[\s(\[/]|[vV]\.?\s*)(?<ver>\d{1,3}\.\d{1,4}(?:\.\d{1,6}){0,2})(?=$|[\s()\[\]/,;|+\-:.!])"))
+                            foreach (Match vm in Regex.Matches(line, @"(?:^|[\s(\[/]|[vV]\.?\s*)" + verCore))
                             {
                                 string prefix = line.Substring(0, vm.Index);
                                 int after = vm.Index + vm.Length;
@@ -3066,7 +3068,7 @@ namespace StormSwitchBox.Services
 
             if (_topicParsedCache.TryGetValue(tid, out var cachedParsed) &&
                 cachedParsed != null &&
-                cachedParsed.SchemaVersion >= 2 &&
+                cachedParsed.SchemaVersion >= 3 &&
                 (DateTimeOffset.UtcNow.ToUnixTimeSeconds() - cachedParsed.UpdatedUnix) < 86400 &&
                 (!includeCommentPages || cachedParsed.CommentsScanned))
             {
@@ -3097,9 +3099,9 @@ namespace StormSwitchBox.Services
                 var (parsedMainVer, parsedPerTitleVers) = ExtractGameVersionsFromTopicHtml(topicHtml);
                 item.ParsedGameVersion = !string.IsNullOrWhiteSpace(parsedMainVer)
                     ? parsedMainVer
-                    : (cachedParsed != null && cachedParsed.SchemaVersion >= 2 ? (cachedParsed.ParsedGameVersion ?? string.Empty) : string.Empty);
+                    : (cachedParsed != null && cachedParsed.SchemaVersion >= 3 ? (cachedParsed.ParsedGameVersion ?? string.Empty) : string.Empty);
                 item.ParsedTitleVersions = parsedPerTitleVers;
-                if (cachedParsed != null && cachedParsed.SchemaVersion >= 2 && cachedParsed.ParsedTitleVersions != null)
+                if (cachedParsed != null && cachedParsed.SchemaVersion >= 3 && cachedParsed.ParsedTitleVersions != null)
                 {
                     foreach (var kv in cachedParsed.ParsedTitleVersions)
                     {
@@ -3125,7 +3127,7 @@ namespace StormSwitchBox.Services
                 {
                     item.PosterUrl = WebUtility.HtmlDecode(!string.IsNullOrEmpty(posterMatch.Groups[1].Value) ? posterMatch.Groups[1].Value : posterMatch.Groups[2].Value);
                 }
-                else if (string.IsNullOrWhiteSpace(item.PosterUrl) && cachedParsed != null && cachedParsed.SchemaVersion >= 2 && !string.IsNullOrWhiteSpace(cachedParsed.PosterUrl))
+                else if (string.IsNullOrWhiteSpace(item.PosterUrl) && cachedParsed != null && cachedParsed.SchemaVersion >= 3 && !string.IsNullOrWhiteSpace(cachedParsed.PosterUrl))
                 {
                     item.PosterUrl = cachedParsed.PosterUrl;
                 }
@@ -3152,7 +3154,7 @@ namespace StormSwitchBox.Services
 
                 _topicParsedCache[tid] = new TopicParsedCacheEntry
                 {
-                    SchemaVersion = 2,
+                    SchemaVersion = 3,
                     Title = item.Title,
                     MagnetUri = item.MagnetUri,
                     InfoHash = item.InfoHash,
@@ -3166,7 +3168,7 @@ namespace StormSwitchBox.Services
                 };
                 ScheduleSaveTopicParsedCache();
             }
-            else if (cachedParsed != null && cachedParsed.SchemaVersion >= 2)
+            else if (cachedParsed != null && cachedParsed.SchemaVersion >= 3)
             {
                 if (!string.IsNullOrWhiteSpace(cachedParsed.Title) &&
                     (string.IsNullOrWhiteSpace(item.Title) || item.Title.StartsWith("Раздача RuTracker #", StringComparison.OrdinalIgnoreCase)))

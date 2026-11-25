@@ -917,10 +917,10 @@ namespace StormSwitchBox.Services
         #region Version Resolution (Ported from E:\STORM EDEN 3)
 
         private static readonly System.Text.RegularExpressions.Regex FnPairVerRegex =
-            new System.Text.RegularExpressions.Regex(@"\(([0-9]+\.[0-9]+(?:\.[0-9]+)*)\s*-\s*([0-9]+)", System.Text.RegularExpressions.RegexOptions.Compiled);
+            new System.Text.RegularExpressions.Regex(@"\(([0-9]+\.[0-9]+(?:\.[0-9]+)*(?:[a-zA-Z]{1,2})?)\s*-\s*([0-9]+)", System.Text.RegularExpressions.RegexOptions.Compiled);
 
         private static readonly System.Text.RegularExpressions.Regex FnVerRegex =
-            new System.Text.RegularExpressions.Regex(@"(?:[\(\[\s_]v?|\b)([0-9]+\.[0-9]+(?:\.[0-9]+)*)(?!\s*(?:GB|MB|KB|TB|ГБ|МБ|КБ|Б|B)\b)", System.Text.RegularExpressions.RegexOptions.Compiled);
+            new System.Text.RegularExpressions.Regex(@"(?:[\(\[\s_]v?|\b)([0-9]+\.[0-9]+(?:\.[0-9]+)*(?:[a-zA-Z]{1,2})?)(?!\.\d)(?!\s*(?:GB|MB|KB|TB|GiB|MiB|KiB|ГБ|МБ|КБ|ТБ|Б|B)\b)", System.Text.RegularExpressions.RegexOptions.Compiled);
 
         private static readonly System.Text.RegularExpressions.Regex FnVnumRegex =
             new System.Text.RegularExpressions.Regex(@"\[v([0-9]+)\]", System.Text.RegularExpressions.RegexOptions.Compiled);

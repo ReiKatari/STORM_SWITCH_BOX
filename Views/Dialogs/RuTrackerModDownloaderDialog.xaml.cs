@@ -1128,6 +1128,7 @@ namespace StormSwitchBox.Views.Dialogs
 
         private CancellationTokenSource? _topicSelectionCts;
         private long _topicSelectionSeq;
+        private readonly HashSet<string> _pendingOnlineVersionLookups = new(StringComparer.OrdinalIgnoreCase);
 
         private void TopicsListView_ItemClick(object sender, ItemClickEventArgs e)
         {
@@ -1173,6 +1174,10 @@ namespace StormSwitchBox.Views.Dialogs
             _activeLoadedTopicId = topic.TopicId ?? string.Empty;
             _activeTopicHasRealFiles = false;
             _isTopicLoading = true;
+            lock (_pendingOnlineVersionLookups)
+            {
+                _pendingOnlineVersionLookups.Clear();
+            }
             _currentTopicTitle = topic.Title;
             _currentTopicUrl = topic.TopicUrl;
             _currentTopicPosterUrl = topic.PosterUrl ?? string.Empty;
@@ -2422,7 +2427,7 @@ namespace StormSwitchBox.Views.Dialogs
                     int best = 0;
                     foreach (System.Text.RegularExpressions.Match ivm in System.Text.RegularExpressions.Regex.Matches(
                         relPath,
-                        @"\[v?(?<iv>\d{5,10})\]|\(\s*[vV]?\.?\s*\d{1,3}\.\d{1,4}(?:\.\d{1,6}){0,2}\s*-\s*(?<iv>\d{5,10})(?:\s*-\s*[0-9A-Fa-f]{16})?\s*\)",
+                        @"\[v?(?<iv>\d{5,10})\]|\(\s*[vV]?\.?\s*\d{1,3}\.\d{1,4}(?:\.\d{1,6}){0,2}(?:[a-zA-Z]{1,2}|(?:[-_](?:hf|hotfix|fix|rev|rc)[0-9a-zA-Z]{0,4}))?\s*-\s*(?<iv>\d{5,10})(?:\s*-\s*[0-9A-Fa-f]{16})?\s*\)",
                         System.Text.RegularExpressions.RegexOptions.IgnoreCase))
                     {
                         if (int.TryParse(ivm.Groups["iv"].Value, out int val) && val > best)
@@ -2536,7 +2541,7 @@ namespace StormSwitchBox.Views.Dialogs
                 {
                     foreach (System.Text.RegularExpressions.Match comboMatch in System.Text.RegularExpressions.Regex.Matches(
                         srcText,
-                        @"\(\s*[vV]?\.?\s*(?<dv>\d{1,3}\.\d{1,4}(?:\.\d{1,6}){0,2})\s*-\s*(?<iv>\d{1,10})(?:\s*-\s*[0-9A-Fa-f]{16})?\s*\)"))
+                        @"\(\s*[vV]?\.?\s*(?<dv>\d{1,3}\.\d{1,4}(?:\.\d{1,6}){0,2}(?:[a-zA-Z]{1,2}|(?:[-_](?:hf|hotfix|fix|rev|rc)[0-9a-zA-Z]{0,4}))?)\s*-\s*(?<iv>\d{1,10})(?:\s*-\s*[0-9A-Fa-f]{16})?\s*\)"))
                     {
                         bool hasIv = int.TryParse(comboMatch.Groups["iv"].Value, out int ivCombo);
                         if (scanPatchInt && hasIv && ivCombo > maxPatchVer)
@@ -2551,7 +2556,7 @@ namespace StormSwitchBox.Views.Dialogs
 
                     foreach (System.Text.RegularExpressions.Match vm in System.Text.RegularExpressions.Regex.Matches(
                         srcText,
-                        @"(?:[\[\(]\s*(?:[vV]\.?\s*)?|\b(?:[vV]\.?|Update|UPD|Patch)\s*)(?<sv>\d{1,3}\.\d{1,4}(?:\.\d{1,6}){0,2})(?=[\]\)\(\s,.;/+\-:]|$)",
+                        @"(?:[\[\(]\s*(?:[vV]\.?\s*)?|\b(?:[vV]\.?|Update|UPD|Patch)\s*)(?<sv>\d{1,3}\.\d{1,4}(?:\.\d{1,6}){0,2}(?:[a-zA-Z]{1,2}|(?:[-_](?:hf|hotfix|fix|rev|rc)[0-9a-zA-Z]{0,4}))?)(?!\.\d)(?=[\]\)\(\s,;/+\-:]|\.(?!\d)|$)",
                         System.Text.RegularExpressions.RegexOptions.IgnoreCase))
                     {
                         string cand = System.Text.RegularExpressions.Regex.Replace(vm.Groups["sv"].Value.Trim(), @"^[vV]+\.?\s*", "");
@@ -2638,6 +2643,21 @@ namespace StormSwitchBox.Views.Dialogs
                         maxPatchVer = mappedIv;
                 }
 
+                string lookupKey = !string.IsNullOrEmpty(bestTid) && maxPatchVer > 0 ? $"{bestTid}:{maxPatchVer}" : string.Empty;
+                bool shouldStartOnlineLookup = string.IsNullOrWhiteSpace(explicitSemanticVer) &&
+                                              !string.IsNullOrEmpty(lookupKey) &&
+                                              App.TitleDb != null;
+                bool isOnlineLookupInFlight = false;
+                if (!string.IsNullOrEmpty(lookupKey))
+                {
+                    lock (_pendingOnlineVersionLookups)
+                    {
+                        if (shouldStartOnlineLookup)
+                            shouldStartOnlineLookup = _pendingOnlineVersionLookups.Add(lookupKey);
+                        isOnlineLookupInFlight = _pendingOnlineVersionLookups.Contains(lookupKey);
+                    }
+                }
+
                 string displayVer;
                 if (!string.IsNullOrWhiteSpace(explicitSemanticVer))
                 {
@@ -2647,7 +2667,7 @@ namespace StormSwitchBox.Views.Dialogs
                 {
                     displayVer = "1.0.0";
                 }
-                else if (_isTopicLoading)
+                else if (_isTopicLoading || isOnlineLookupInFlight)
                 {
                     displayVer = "...";
                 }
@@ -2698,34 +2718,37 @@ namespace StormSwitchBox.Views.Dialogs
                 slot.Is3ds = is3ds;
                 slot.SetEnrichedMetadataSilently(bestTid, displayVer, internalVerStr, engTitle, rusTitle, publisher, cachedIcon);
 
-                if (displayVer == "?" && !_isTopicLoading && maxPatchVer > 0 && !string.IsNullOrEmpty(bestTid) && App.TitleDb != null)
+                if (shouldStartOnlineLookup && App.TitleDb != null)
                 {
                     long capturedSeq = System.Threading.Interlocked.Read(ref _topicSelectionSeq);
                     CancellationToken capturedCt = _topicSelectionCts?.Token ?? CancellationToken.None;
                     string capturedTid = bestTid;
                     int capturedPatch = maxPatchVer;
+                    string capturedLookupKey = lookupKey;
                     string capturedTitle = !string.IsNullOrWhiteSpace(engTitle) ? engTitle : slot.GameTitle;
                     _ = Task.Run(async () =>
                     {
                         try
                         {
-                            string? resolved = await App.TitleDb.TryResolveDisplayVersionOnlineAsync(
+                            await App.TitleDb.TryResolveDisplayVersionOnlineAsync(
                                 capturedTid, capturedPatch, capturedTitle, capturedCt).ConfigureAwait(false);
-                            if (!string.IsNullOrWhiteSpace(resolved) &&
-                                !capturedCt.IsCancellationRequested &&
-                                capturedSeq == System.Threading.Interlocked.Read(ref _topicSelectionSeq))
-                            {
-                                App.RunOnUI(() =>
-                                {
-                                    if (!capturedCt.IsCancellationRequested &&
-                                        capturedSeq == System.Threading.Interlocked.Read(ref _topicSelectionSeq))
-                                    {
-                                        EnrichGameSlotsFromFilesAndTitleDb();
-                                    }
-                                });
-                            }
                         }
                         catch { }
+                        finally
+                        {
+                            App.RunOnUI(() =>
+                            {
+                                lock (_pendingOnlineVersionLookups)
+                                {
+                                    _pendingOnlineVersionLookups.Remove(capturedLookupKey);
+                                }
+                                if (!capturedCt.IsCancellationRequested &&
+                                    capturedSeq == System.Threading.Interlocked.Read(ref _topicSelectionSeq))
+                                {
+                                    EnrichGameSlotsFromFilesAndTitleDb();
+                                }
+                            });
+                        }
                     }, capturedCt);
                 }
 

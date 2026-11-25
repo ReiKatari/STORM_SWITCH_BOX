@@ -1,3 +1,41 @@
+## **8.2.2** (24.11.2026)
+
+> 💡 **Релиз 8.2.2** - *Мгновенное определение отображаемой версии игр в загрузчике RuTracker (включая буквенные версии вида `3.0.5b` без ввода имени) и переход на единую сборку Android*
+
+---
+
+### 🚀 Ключевые изменения и улучшения (STORM SWITCH BOX 8.2.2)
+
+- 🌟 **[Точное и мгновенное определение версии игр в RuTracker (`TitleDbService.cs`, `RuTrackerModService.cs`, `RuTrackerModDownloaderDialog.xaml.cs`, `CatalogScannerService.cs`)]**:
+  - Устранено обрезание буквенных и хотфикс-версий вроде `3.0.5b` до `3.0`: обновлён парсер `ExtractGameVersionsFromTopicHtml`, `ScanVerTextSource`, `ExtractFilePatchCode`, `IsValidSemanticVersion`, `CompareSemanticVersions`, `StormTitleTripleRegex` и `CatalogScannerService` с запретом бэктрекинга на разделитель `.\d` и поддержкой суффиксов `[a-zA-Z]{1,2}` / `-hf...`.
+  - Поиск отображаемой версии через API `stormgamesworld.ru` (`TryResolveDisplayVersionOnlineAsync`) теперь стартует немедленно параллельно с чтением темы (сразу после получения списка файлов `.torrent`, не дожидаясь окончания загрузки HTML), ищет в первую очередь по точному `TitleID`, а затем по названию, и не блокирует повторные попытки при временных сетевых сбоях.
+  - Повышена версия схемы кэша тем RuTracker (`SchemaVersion = 3`), чтобы ранее кэшированные темы без версии или с усечённой версией автоматически перечитались.
+- 🌟 **[Единая сборка Android (`STORM_SWITCH_BOX_8.2.2.apk`)]**:
+  - Убрана лишняя устаревшая сборка `_LEGACY.apk`; в релизе публикуются установщик Windows, портативный архив Windows и актуальная сборка Android `8.2.2` (`versionCode = 8202`).
+
+<details>
+
+<summary><b>📋 Полный список изменений (нажмите, чтобы развернуть)</b></summary>
+
+- 🔹 **[Services/TitleDbService.cs]**: Добавлена поддержка буквенных/хотфикс-суффиксов (`3.0.5b`, `1.0.2a`, `1.2.3-hf1`) в `StormTitleTripleRegex`, `IsValidSemanticVersion`, `ParseSemanticParts` и `CompareSemanticVersions`; `TryResolveDisplayVersionOnlineAsync` переведена на поиск в первую очередь по `baseTid` с 30-секундным окном повтора вместо вечной блокировки ошибки.
+- 🔹 **[Services/RuTrackerModService.cs]**: Устранена ошибка бэктрекинга регулярных выражений в `ExtractGameVersionsFromTopicHtml`, расширено распознавание заголовков версий и повышена `SchemaVersion` кэша тем до `3`.
+- 🔹 **[Views/Dialogs/RuTrackerModDownloaderDialog.xaml.cs, Services/CatalogScannerService.cs]**: Обновлены `ScanVerTextSource`, `ExtractFilePatchCode`, `FnPairVerRegex`, `FnVerRegex`; добавлен параллельный запуск `TryResolveDisplayVersionOnlineAsync` через `_pendingOnlineVersionLookups` с индикатором `...` до завершения фонового запроса.
+- 🔹 **[Релиз и документация]**: Синхронизирована версия `8.2.2` (`versionCode = 8202`), обновлены `README.md`, `CHANGELOG.md` и `RELEASE_NOTES.md` под выпуск 3 основных сборок без `_LEGACY.apk`.
+
+</details>
+
+<details>
+
+<summary><b>🌐 English Changelog (click to expand)</b></summary>
+
+- 🔸 Fixed semantic version parsing and comparison (`TitleDbService`, `RuTrackerModService`, `RuTrackerModDownloaderDialog`, `CatalogScannerService`) so alphanumeric versions like `3.0.5b` never truncate back to `3.0`, and bumped RuTracker parsed topic cache `SchemaVersion` to `3`.
+- 🔸 Enabled immediate parallel `stormgamesworld.ru` TitleID version lookup in the RuTracker downloader right when torrent files arrive without waiting for manual output name input or HTML completion.
+- 🔸 Bumped version to `8.2.2` (`versionCode = 8202`) and streamlined Android releases to the Modern `STORM_SWITCH_BOX_8.2.2.apk` build only (no Legacy APK).
+
+</details>
+
+---
+
 ## **8.2.1** (24.11.2026)
 
 > 💡 **Релиз 8.2.1** - *Приоритет внутренних названий из метаданных игры во вкладке «Информация», адаптивная шапка без наложения поиска и обновлённый стилизованный справочник кодов ошибок*

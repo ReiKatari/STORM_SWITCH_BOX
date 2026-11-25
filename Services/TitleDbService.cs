@@ -140,9 +140,9 @@ namespace StormSwitchBox.Services
             "cache",
             "known_display_versions.json");
         private int _observedVersionsSaveScheduled = 0;
-        private readonly ConcurrentDictionary<string, byte> _stormOnlineLookupAttempted = new(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, long> _stormOnlineLookupRetryAfterUnix = new(StringComparer.OrdinalIgnoreCase);
         private static readonly Regex StormTitleTripleRegex = new(
-            @"\(\s*[vV]?\.?\s*(?<dv>\d{1,3}\.\d{1,4}(?:\.\d{1,6}){0,2})\s*-\s*(?<iv>\d{5,10})\s*-\s*(?<tid>[0-9A-Fa-f]{16})\s*\)",
+            @"\(\s*[vV]?\.?\s*(?<dv>\d{1,3}\.\d{1,4}(?:\.\d{1,6}){0,2}(?:[a-zA-Z]{1,2}|(?:[-_](?:hf|hotfix|fix|rev|rc|beta|alpha)[0-9a-zA-Z]{0,4}))?)\s*-\s*(?<iv>\d{5,10})\s*-\s*(?<tid>[0-9A-Fa-f]{16})\s*\)",
             RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
         public TitleDbService()
@@ -851,13 +851,30 @@ namespace StormSwitchBox.Services
         {
             if (string.IsNullOrWhiteSpace(version)) return false;
             string v = Regex.Replace(version.Trim(), @"^[vV]+\.?\s*", "");
-            var m = Regex.Match(v, @"^(?<maj>\d{1,3})\.(?<min>\d{1,4})(?:\.(?<pat>\d{1,6}))?(?:\.(?<bld>\d{1,6}))?$");
+            var m = Regex.Match(
+                v,
+                @"^(?<maj>\d{1,3})\.(?<min>\d{1,4})(?:\.(?<pat>\d{1,6}))?(?:\.(?<bld>\d{1,6}))?(?<suf>[a-zA-Z]{1,2}|(?:[-_](?:hf|hotfix|fix|rev|rc|beta|alpha)[0-9a-zA-Z]{0,4}))?$",
+                RegexOptions.IgnoreCase);
             if (!m.Success) return false;
+            string suf = m.Groups["suf"].Value.Trim().ToLowerInvariant();
+            if (suf == "gb" || suf == "mb" || suf == "kb" || suf == "tb" || suf == "hz" || suf == "px")
+                return false;
             if (!int.TryParse(m.Groups["maj"].Value, out int maj) || maj >= 100) return false;
             if (!m.Groups["bld"].Success && m.Groups["pat"].Success && m.Groups["pat"].Value.Length == 4 &&
                 int.TryParse(m.Groups["pat"].Value, out int y) && y >= 2015 && y <= 2099)
                 return false;
             return true;
+        }
+
+        private static (int[] Nums, string Suffix) ParseSemanticParts(string normalizedVer)
+        {
+            var m = Regex.Match(normalizedVer, @"^(?<nums>\d+(?:\.\d+)*)(?<suf>.*)$");
+            if (!m.Success) return (Array.Empty<int>(), normalizedVer);
+            string[] segs = m.Groups["nums"].Value.Split('.');
+            int[] nums = new int[segs.Length];
+            for (int i = 0; i < segs.Length; i++)
+                int.TryParse(segs[i], out nums[i]);
+            return (nums, m.Groups["suf"].Value.Trim());
         }
 
         public static int CompareSemanticVersions(string? a, string? b)
@@ -868,16 +885,19 @@ namespace StormSwitchBox.Services
             if (string.IsNullOrEmpty(va)) return -1;
             if (string.IsNullOrEmpty(vb)) return 1;
 
-            var pa = va.Split('.');
-            var pb = vb.Split('.');
+            var (pa, aSuf) = ParseSemanticParts(va);
+            var (pb, bSuf) = ParseSemanticParts(vb);
             int maxLen = Math.Max(pa.Length, pb.Length);
             for (int i = 0; i < maxLen; i++)
             {
-                int ia = (i < pa.Length && int.TryParse(Regex.Replace(pa[i], @"[^\d]", ""), out int vaNum)) ? vaNum : 0;
-                int ib = (i < pb.Length && int.TryParse(Regex.Replace(pb[i], @"[^\d]", ""), out int vbNum)) ? vbNum : 0;
+                int ia = i < pa.Length ? pa[i] : 0;
+                int ib = i < pb.Length ? pb[i] : 0;
                 if (ia != ib) return ia.CompareTo(ib);
             }
-            return 0;
+            if (aSuf.Length == 0 && bSuf.Length == 0) return 0;
+            if (aSuf.Length == 0) return -1;
+            if (bSuf.Length == 0) return 1;
+            return string.Compare(aSuf, bSuf, StringComparison.OrdinalIgnoreCase);
         }
 
         private void LoadObservedDisplayVersions()
@@ -1067,103 +1087,110 @@ namespace StormSwitchBox.Services
                 return null;
 
             string attemptKey = $"{baseTid}:{patchCode}";
-            if (!_stormOnlineLookupAttempted.TryAdd(attemptKey, 1))
+            long nowUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            if (_stormOnlineLookupRetryAfterUnix.TryGetValue(attemptKey, out long retryAfter) && nowUnix < retryAfter)
                 return null;
+            _stormOnlineLookupRetryAfterUnix[attemptKey] = nowUnix + 30;
 
             string rawHint = !string.IsNullOrWhiteSpace(gameTitleHint)
                 ? gameTitleHint
                 : (TryGetTitleInfo(baseTid, out var dbEntry) && !string.IsNullOrWhiteSpace(dbEntry?.Name) ? dbEntry.Name : string.Empty);
 
-            if (string.IsNullOrWhiteSpace(rawHint))
-                return null;
-
-            string cleanQuery = Regex.Replace(rawHint, @"\[[^\]]*\]|\([^)]*\)", " ");
-            cleanQuery = Regex.Replace(cleanQuery, @"[^\p{L}\p{Nd}\s:+&'.\-]", " ");
-            cleanQuery = Regex.Replace(cleanQuery, @"\s+", " ").Trim(' ', '-', ':');
-            if (cleanQuery.Length > 60)
-                cleanQuery = cleanQuery.Substring(0, 60).Trim();
-
-            if (cleanQuery.Length < 2)
-                return null;
-
-            try
+            var queries = new List<string> { baseTid };
+            if (!string.IsNullOrWhiteSpace(rawHint))
             {
-                using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                cts.CancelAfter(TimeSpan.FromSeconds(4.5));
+                string cleanQuery = Regex.Replace(rawHint, @"\[[^\]]*\]|\([^)]*\)", " ");
+                cleanQuery = Regex.Replace(cleanQuery, @"[^\p{L}\p{Nd}\s:+&'.\-]", " ");
+                cleanQuery = Regex.Replace(cleanQuery, @"\s+", " ").Trim(' ', '-', ':');
+                if (cleanQuery.Length > 60)
+                    cleanQuery = cleanQuery.Substring(0, 60).Trim();
 
-                string url = $"https://stormgamesworld.ru/api/games?search={Uri.EscapeDataString(cleanQuery)}";
-                using var req = new HttpRequestMessage(HttpMethod.Get, url);
-                req.Headers.TryAddWithoutValidation("Accept", "application/json");
-                using var resp = await StormHttpClientFactory.Shared.SendAsync(req, cts.Token).ConfigureAwait(false);
-                if (!resp.IsSuccessStatusCode)
-                    return null;
+                if (cleanQuery.Length >= 2 && !string.Equals(cleanQuery, baseTid, StringComparison.OrdinalIgnoreCase))
+                    queries.Add(cleanQuery);
+            }
 
-                string json = await resp.Content.ReadAsStringAsync(cts.Token).ConfigureAwait(false);
-                if (string.IsNullOrWhiteSpace(json))
-                    return null;
+            string? bestVer = null;
+            string[] candidateFields = new[] { "finalTitle", "title", "correctTitle", "correctTitle2" };
 
-                using var doc = JsonDocument.Parse(json);
-                JsonElement root = doc.RootElement;
-                JsonElement arrayEl = default;
-                if (root.ValueKind == JsonValueKind.Array)
+            foreach (var q in queries)
+            {
+                if (ct.IsCancellationRequested) break;
+                try
                 {
-                    arrayEl = root;
-                }
-                else if (root.ValueKind == JsonValueKind.Object)
-                {
-                    if (root.TryGetProperty("games", out var gEl) && gEl.ValueKind == JsonValueKind.Array)
-                        arrayEl = gEl;
-                    else if (root.TryGetProperty("items", out var iEl) && iEl.ValueKind == JsonValueKind.Array)
-                        arrayEl = iEl;
-                    else
-                        return null;
-                }
-                else
-                {
-                    return null;
-                }
+                    using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                    cts.CancelAfter(TimeSpan.FromSeconds(6.0));
 
-                string? bestVer = null;
-                string[] candidateFields = new[] { "finalTitle", "title", "correctTitle", "correctTitle2" };
+                    string url = $"https://stormgamesworld.ru/api/games?search={Uri.EscapeDataString(q)}";
+                    using var req = new HttpRequestMessage(HttpMethod.Get, url);
+                    req.Headers.TryAddWithoutValidation("Accept", "application/json");
+                    using var resp = await StormHttpClientFactory.Shared.SendAsync(req, cts.Token).ConfigureAwait(false);
+                    if (!resp.IsSuccessStatusCode)
+                        continue;
 
-                foreach (var item in arrayEl.EnumerateArray())
-                {
-                    if (item.ValueKind != JsonValueKind.Object) continue;
+                    string json = await resp.Content.ReadAsStringAsync(cts.Token).ConfigureAwait(false);
+                    if (string.IsNullOrWhiteSpace(json))
+                        continue;
 
-                    foreach (var fieldName in candidateFields)
+                    using var doc = JsonDocument.Parse(json);
+                    JsonElement root = doc.RootElement;
+                    JsonElement arrayEl = default;
+                    if (root.ValueKind == JsonValueKind.Array)
                     {
-                        if (!item.TryGetProperty(fieldName, out var fieldEl) || fieldEl.ValueKind != JsonValueKind.String)
+                        arrayEl = root;
+                    }
+                    else if (root.ValueKind == JsonValueKind.Object)
+                    {
+                        if (root.TryGetProperty("games", out var gEl) && gEl.ValueKind == JsonValueKind.Array)
+                            arrayEl = gEl;
+                        else if (root.TryGetProperty("items", out var iEl) && iEl.ValueKind == JsonValueKind.Array)
+                            arrayEl = iEl;
+                        else
                             continue;
+                    }
+                    else
+                    {
+                        continue;
+                    }
 
-                        string? titleVal = fieldEl.GetString();
-                        if (string.IsNullOrWhiteSpace(titleVal)) continue;
+                    foreach (var item in arrayEl.EnumerateArray())
+                    {
+                        if (item.ValueKind != JsonValueKind.Object) continue;
 
-                        foreach (Match m in StormTitleTripleRegex.Matches(titleVal))
+                        foreach (var fieldName in candidateFields)
                         {
-                            string foundTid = RuTrackerModService.NormalizeSwitchBaseApplicationTitleId(m.Groups["tid"].Value);
-                            if (!string.Equals(foundTid, baseTid, StringComparison.OrdinalIgnoreCase))
+                            if (!item.TryGetProperty(fieldName, out var fieldEl) || fieldEl.ValueKind != JsonValueKind.String)
                                 continue;
 
-                            if (!int.TryParse(m.Groups["iv"].Value, out int foundIv) || foundIv != patchCode)
-                                continue;
+                            string? titleVal = fieldEl.GetString();
+                            if (string.IsNullOrWhiteSpace(titleVal)) continue;
 
-                            string candVer = m.Groups["dv"].Value.Trim().TrimStart('v', 'V');
-                            if (!IsValidSemanticVersion(candVer))
-                                continue;
+                            foreach (Match m in StormTitleTripleRegex.Matches(titleVal))
+                            {
+                                string foundTid = RuTrackerModService.NormalizeSwitchBaseApplicationTitleId(m.Groups["tid"].Value);
+                                if (!string.Equals(foundTid, baseTid, StringComparison.OrdinalIgnoreCase))
+                                    continue;
 
-                            if (string.IsNullOrEmpty(bestVer) || CompareSemanticVersions(candVer, bestVer) > 0)
-                                bestVer = candVer;
+                                if (!int.TryParse(m.Groups["iv"].Value, out int foundIv) || foundIv != patchCode)
+                                    continue;
+
+                                string candVer = m.Groups["dv"].Value.Trim().TrimStart('v', 'V');
+                                if (!IsValidSemanticVersion(candVer))
+                                    continue;
+
+                                if (string.IsNullOrEmpty(bestVer) || CompareSemanticVersions(candVer, bestVer) > 0)
+                                    bestVer = candVer;
+                            }
                         }
                     }
-                }
 
-                if (!string.IsNullOrEmpty(bestVer))
-                {
-                    RecordObservedDisplayVersion(baseTid, patchCode.ToString(CultureInfo.InvariantCulture), bestVer, isAuthoritative: false);
-                    return bestVer;
+                    if (!string.IsNullOrEmpty(bestVer))
+                    {
+                        RecordObservedDisplayVersion(baseTid, patchCode.ToString(CultureInfo.InvariantCulture), bestVer, isAuthoritative: false);
+                        return bestVer;
+                    }
                 }
+                catch { }
             }
-            catch { }
 
             return null;
         }
