@@ -26,6 +26,42 @@ namespace StormSwitchBox.Services
         [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true, CharSet = System.Runtime.InteropServices.CharSet.Auto)]
         private static extern bool CreateHardLink(string lpFileName, string lpExistingFileName, IntPtr lpSecurityAttributes);
 
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential, CharSet = System.Runtime.InteropServices.CharSet.Auto)]
+        private struct MEMORYSTATUSEX
+        {
+            public uint dwLength;
+            public uint dwMemoryLoad;
+            public ulong ullTotalPhys;
+            public ulong ullAvailPhys;
+            public ulong ullTotalPageFile;
+            public ulong ullAvailPageFile;
+            public ulong ullTotalVirtual;
+            public ulong ullAvailVirtual;
+            public ulong ullAvailExtendedVirtual;
+        }
+
+        [System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Auto, SetLastError = true)]
+        private static extern bool GlobalMemoryStatusEx(ref MEMORYSTATUSEX lpBuffer);
+
+        private static long GetAvailableMemoryMb()
+        {
+            try
+            {
+                var mem = new MEMORYSTATUSEX
+                {
+                    dwLength = (uint)System.Runtime.InteropServices.Marshal.SizeOf<MEMORYSTATUSEX>()
+                };
+                if (!GlobalMemoryStatusEx(ref mem))
+                    return -1;
+                ulong availBytes = Math.Min(mem.ullAvailPhys, mem.ullAvailPageFile);
+                return (long)(availBytes / (1024UL * 1024UL));
+            }
+            catch
+            {
+                return -1;
+            }
+        }
+
         public static string SanitizeFileName(string fileName)
         {
             if (string.IsNullOrEmpty(fileName)) return fileName;
@@ -110,6 +146,31 @@ namespace StormSwitchBox.Services
             int minPerWorker = totalCores >= 2 ? 2 : 1;
             if (budget < minPerWorker) minPerWorker = budget;
             return Math.Clamp(budget / active, minPerWorker, budget);
+        }
+
+        public static int GetOptimalExternalNszThreads(bool isSolidMode, int compressionLevel)
+        {
+            int totalCores = Math.Max(1, Environment.ProcessorCount);
+            int baseThreads = GetOptimalCompressionThreads();
+            int configuredConcurrent = Math.Clamp(App.Settings?.Current?.ConcurrentTasks ?? 1, 1, 8);
+            int active = Math.Max(1, Volatile.Read(ref _activeCompressionWorkers));
+            int effectiveSlots = Math.Max(active, Math.Min(configuredConcurrent, 3));
+            int perTaskBudget = Math.Max(2, Math.Max(2, totalCores - 1) / effectiveSlots);
+            int maxPythonWorkers = isSolidMode
+                ? (compressionLevel >= 20 ? 4 : 8)
+                : Math.Clamp(totalCores / 2, 2, 8);
+            int threads = Math.Clamp(Math.Min(baseThreads, Math.Min(perTaskBudget, maxPythonWorkers)), 1, totalCores);
+
+            long availMb = GetAvailableMemoryMb();
+            if (availMb > 0)
+            {
+                long perWorkerMb = isSolidMode ? (compressionLevel >= 20 ? 768L : 256L) : 96L;
+                long headroomMb = Math.Max(0L, availMb - 2048L);
+                int ramAllowed = headroomMb > 0 ? Math.Max(1, (int)(headroomMb / perWorkerMb)) : 1;
+                threads = Math.Clamp(threads, 1, Math.Max(1, ramAllowed));
+            }
+
+            return threads;
         }
 
         public static (bool HasExistingNcz, bool HasCompressibleNca, bool HasSolidNcz, bool HasRedundantEntries) InspectPfsNczPassthrough(string containerPath, KeySet? keyset)
@@ -1349,12 +1410,13 @@ namespace StormSwitchBox.Services
                 }
 
                 int totalCores = Math.Max(1, Environment.ProcessorCount);
-                int threadsPerWorker = GetOptimalCompressionThreads();
+                int threadsPerWorker = GetOptimalExternalNszThreads(isSolidMode, level);
+                long availMb = GetAvailableMemoryMb();
 
                 App.RunOnUI(() =>
                 {
                     if (task != null)
-                        task.LogDetails += $"\n⚙️ [Worker Pool] Многопоточный пул: выделено {threadsPerWorker} потоков на задачу (Всего ядер: {totalCores})";
+                        task.LogDetails += $"\n⚙️ [Worker Pool] Многопоточный пул: выделено {threadsPerWorker} процессов nsz на задачу (Всего ядер: {totalCores}, свободно ОЗУ/commit: {(availMb > 0 ? availMb + " МБ" : "н/д")})";
                 });
 
                 string modeArgs = isSolidMode ? "-S" : "-B -s 20";

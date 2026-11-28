@@ -1,3 +1,38 @@
+## **8.2.7** (28.11.2026)
+
+> 💡 **Релиз 8.2.7** - *Устранение OOM-краша и вечного зависания `nsz.exe` при блочном сжатии NSZ на уровне 22 (снижение расхода памяти в 37 раз) и умное планирование воркеров*
+
+---
+
+### 🚀 Ключевые изменения и улучшения (STORM SWITCH BOX 8.2.7)
+
+- 🌟 **[Исправление OOM и deadlock в `BlockCompressor.py` (`tools/nsz/Lib/site-packages/nsz/BlockCompressor.py`)]**:
+  - В функции `compressBlockTask` добавлено кеширование экземпляра `ZstdCompressor` на процесс воркера и передача `source_size=blockSize` (1 МБ) в `ZstdCompressionParameters.from_level(...)`. На уровне сжатия 22 это снижает объём памяти контекста Zstd с `641.3 МБ` до `17.3 МБ` на процесс (в 37 раз меньше при идентичной степени сжатия блоков 1 МБ), полностью устраняя ошибки `zstd.ZstdError: not enough memory` и `MemoryError`.
+  - В `blockCompressContainer` размер очереди чанка `TasksPerChunk` ограничен до `max(threads * 4, 32)` (вместо `200` блоков на задачу), добавлены проверки живости процессов (`_wait_until_workers_ready` и `_put_work_checked`) и блок `finally` с корректным завершением воркеров и `manager.shutdown()`, что исключает вечное зависание при падении дочернего процесса.
+- 🌟 **[Умное планирование потоков и памяти для `nsz.exe` (`Services/NszCompressionService.cs`)]**:
+  - Добавлен расчёт свободной физической/виртуальной памяти (`GlobalMemoryStatusEx`) и метод `GetOptimalExternalNszThreads`, делящий квоту процессов `nsz.exe` с учётом `ConcurrentTasks`, уровня сжатия и доступного объёма ОЗУ (первая задача больше не занимает сразу 15 дочерних Python-процессов при `ConcurrentTasks > 1`).
+
+<details>
+
+<summary><b>📋 Полный список изменений (нажмите, чтобы развернуть)</b></summary>
+
+- 🔹 **[tools/nsz/Lib/site-packages/nsz/BlockCompressor.py]**: Кеширование `ZstdCompressor`, `source_size=blockSize`, ограничение `TasksPerChunk`, `_wait_until_workers_ready`, `_put_work_checked`, таймаут завершения и `try...finally` очистка процессов и `Manager`.
+- 🔹 **[Services/NszCompressionService.cs]**: Добавлены `MEMORYSTATUSEX` / `GlobalMemoryStatusEx`, `GetAvailableMemoryMb()`, `GetOptimalExternalNszThreads()` и информативное логирование выделенных процессов и доступной ОЗУ/commit.
+- 🔹 **[Релиз 8.2.7]**: Синхронизированы версии Windows (`8.2.7`) и Android (`versionCode = 8207`, `versionName = "8.2.7"`), без Legacy APK.
+
+</details>
+
+<details>
+
+<summary><b>🌐 English Changelog (click to expand)</b></summary>
+
+- 🔸 Fixed `nsz.exe` level-22 out-of-memory crashes and infinite worker-wait deadlocks in `BlockCompressor.py` by passing `source_size=blockSize` (1 MB) to `ZstdCompressionParameters.from_level` (cutting per-worker Zstd context RAM from `641.3 MB` to `17.3 MB` - 37x reduction), reusing per-worker `ZstdCompressor` instances, capping `TasksPerChunk`, adding `_wait_until_workers_ready` / `_put_work_checked` dead-worker guards, and cleaning up worker pools in `try...finally`.
+- 🔸 Added `GlobalMemoryStatusEx`-backed `GetOptimalExternalNszThreads` in `Services/NszCompressionService.cs` to budget external `nsz.exe` worker processes across `ConcurrentTasks` and available system RAM/commit headroom, and bumped version to `8.2.7` (`versionCode = 8207`).
+
+</details>
+
+---
+
 ## **8.2.6** (25.11.2026)
 
 > 💡 **Релиз 8.2.6** - *Устранение перезаписи уже загруженных из кэша реальных `.torrent`-файлов синтетической заглушкой `MAGNET` в `LoadSelectedTopicAsync`*
