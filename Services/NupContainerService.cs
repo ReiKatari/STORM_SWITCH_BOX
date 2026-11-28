@@ -483,10 +483,11 @@ namespace StormSwitchBox.Services
             var sw2Info = await Switch2DumpHelper.InspectSwitch2DumpDirectoryAsync(dumpRootDir);
             string baseTargetDir = sw2Info?.GameRootDir ?? dumpRootDir;
 
-            // Определяем пакеты: Base, Updates, DLC
+            // Определяем пакеты: Base, Updates, DLC (поддерживаются both base/basedata и update/updates/patch + dlc/dlcdata)
+            var (resolvedBaseDir, resolvedUpdates, resolvedDlcs) = Switch2DumpHelper.ResolveDumpComponents(baseTargetDir);
             var packagesToBuild = new List<DumpPackageSource>();
 
-            string baseDir = Directory.Exists(Path.Combine(baseTargetDir, "base")) ? Path.Combine(baseTargetDir, "base") : baseTargetDir;
+            string baseDir = resolvedBaseDir;
             ulong baseTid = 0;
             if (!string.IsNullOrEmpty(sw2Info?.TitleId) && ulong.TryParse(sw2Info.TitleId, System.Globalization.NumberStyles.HexNumber, null, out ulong bTid))
                 baseTid = bTid;
@@ -506,57 +507,48 @@ namespace StormSwitchBox.Services
             });
 
             // Updates
-            string updatesDir = Path.Combine(baseTargetDir, "updates");
-            if (Directory.Exists(updatesDir))
+            foreach (var (vDir, vStr, vParsedNum) in resolvedUpdates)
             {
-                foreach (var vDir in Directory.GetDirectories(updatesDir))
-                {
-                    string vName = Path.GetFileName(vDir);
-                    uint.TryParse(vName.TrimStart('v', 'V'), out uint verNum);
-                    ulong updTid = baseTid != 0 ? (baseTid | 0x800) : 0;
+                uint verNum = vParsedNum > 0 ? (uint)vParsedNum : 65536u;
+                ulong updTid = baseTid != 0 ? (baseTid | 0x800) : 0;
 
-                    packagesToBuild.Add(new DumpPackageSource
-                    {
-                        Kind = 1, // Update
-                        TitleId = updTid,
-                        Version = verNum,
-                        RootDir = vDir,
-                        ExeFsDir = Path.Combine(vDir, "exefs"),
-                        RomFsDir = Path.Combine(vDir, "romfs"),
-                        TitleName = sw2Info?.GameName ?? Path.GetFileName(dumpRootDir),
-                        Publisher = "Nintendo",
-                        DisplayVersion = $"v{verNum}"
-                    });
-                }
+                packagesToBuild.Add(new DumpPackageSource
+                {
+                    Kind = 1, // Update
+                    TitleId = updTid,
+                    Version = verNum,
+                    RootDir = vDir,
+                    ExeFsDir = Path.Combine(vDir, "exefs"),
+                    RomFsDir = Path.Combine(vDir, "romfs"),
+                    TitleName = sw2Info?.GameName ?? Path.GetFileName(dumpRootDir),
+                    Publisher = "Nintendo",
+                    DisplayVersion = $"v{vStr}"
+                });
             }
 
             // DLC
-            string dlcDir = Path.Combine(baseTargetDir, "dlc");
-            if (Directory.Exists(dlcDir))
+            foreach (var d in resolvedDlcs)
             {
-                foreach (var d in Directory.GetDirectories(dlcDir))
+                string dName = Path.GetFileName(d);
+                ulong dlcTid = 0;
+                if (ulong.TryParse(dName, System.Globalization.NumberStyles.HexNumber, null, out ulong parsedDlcTid))
+                    dlcTid = parsedDlcTid;
+
+                string dlcRomFs = Path.Combine(d, "romfs");
+                if (!Directory.Exists(dlcRomFs) && Directory.Exists(Path.Combine(d, "0", "romfs")))
+                    dlcRomFs = Path.Combine(d, "0", "romfs");
+
+                packagesToBuild.Add(new DumpPackageSource
                 {
-                    string dName = Path.GetFileName(d);
-                    ulong dlcTid = 0;
-                    if (ulong.TryParse(dName, System.Globalization.NumberStyles.HexNumber, null, out ulong parsedDlcTid))
-                        dlcTid = parsedDlcTid;
-
-                    string dlcRomFs = Path.Combine(d, "romfs");
-                    if (!Directory.Exists(dlcRomFs) && Directory.Exists(Path.Combine(d, "0", "romfs")))
-                        dlcRomFs = Path.Combine(d, "0", "romfs");
-
-                    packagesToBuild.Add(new DumpPackageSource
-                    {
-                        Kind = 2, // DLC
-                        TitleId = dlcTid,
-                        Version = 0,
-                        RootDir = d,
-                        RomFsDir = Directory.Exists(dlcRomFs) ? dlcRomFs : d,
-                        TitleName = (sw2Info?.GameName ?? Path.GetFileName(dumpRootDir)) + $" [DLC {dName}]",
-                        Publisher = "Nintendo",
-                        DisplayVersion = "1.0.0"
-                    });
-                }
+                    Kind = 2, // DLC
+                    TitleId = dlcTid,
+                    Version = 0,
+                    RootDir = d,
+                    RomFsDir = Directory.Exists(dlcRomFs) ? dlcRomFs : d,
+                    TitleName = (sw2Info?.GameName ?? Path.GetFileName(dumpRootDir)) + $" [DLC {dName}]",
+                    Publisher = "Nintendo",
+                    DisplayVersion = "1.0.0"
+                });
             }
 
             // Считываем реальные control.nacp (если есть) для TitleName / Publisher / DisplayVersion и TLV 0x0002
@@ -1699,7 +1691,12 @@ namespace StormSwitchBox.Services
 
         public async Task ConvertContainerToNupAsync(ProcessingTask task, string inputPath, string outDir, CancellationToken ct = default)
         {
-            string outNup = System.IO.Path.Combine(outDir, System.IO.Path.GetFileNameWithoutExtension(inputPath) + ".nup");
+            string outBaseName = !string.IsNullOrWhiteSpace(task.OutputFileName)
+                ? task.OutputFileName
+                : System.IO.Path.GetFileNameWithoutExtension(inputPath);
+            if (outBaseName.EndsWith(".nup", StringComparison.OrdinalIgnoreCase))
+                outBaseName = System.IO.Path.GetFileNameWithoutExtension(outBaseName);
+            string outNup = System.IO.Path.Combine(outDir, outBaseName + ".nup");
             var prog = new Progress<(double pct, string status)>(p =>
             {
                 App.RunOnUI(() =>
@@ -1709,13 +1706,18 @@ namespace StormSwitchBox.Services
                     task.LogDetails += $"\n[NUP] {p.status}";
                 });
             });
-            int level = App.Settings.Current.CompressionLevel;
+            int level = task.IsSwitch2Task ? App.Settings.Current.Switch2CompressionLevel : App.Settings.Current.CompressionLevel;
             await ConvertContainerToNupAsync(inputPath, outNup, level, prog, ct);
+            task.EnsureFinalMetricsPopulated(outNup);
             App.RunOnUI(() =>
             {
+                task.OutputFolder = outDir;
+                task.OutputFileName = System.IO.Path.GetFileNameWithoutExtension(outNup);
                 task.Progress = 100;
                 task.Status = "Успешно";
+                task.IsRunning = false;
                 task.LogDetails += $"\nСохранен: {outNup}";
+                HistoryService.AddToHistory(task);
             });
         }
 

@@ -1,3 +1,41 @@
+## **8.2.8** (28.11.2026)
+
+> 💡 **Релиз 8.2.8** - *Исправление определения папок `base` + `update` для Nintendo Switch 2 (NS2) и корректная сборка целевого формата `.nup` вместо `.nsp` на Windows и Android*
+
+---
+
+### 🚀 Ключевые изменения и улучшения (STORM SWITCH BOX 8.2.8)
+
+- 🌟 **[Распознавание `base` + `update` / `updates` / `patch` для Switch 2 (`Switch2DumpCompilerService.cs`, `NupContainerService.cs`, `TasksViewModel.cs`, `StormNczEngine.kt`)]**:
+  - Устранён баг, из-за которого при выборе папки с `base` и `update` подтягивался только `update` (или отбрасывался второй компонент на вкладке «Конвертация»): папка `update`/`patch` больше не может распознаваться как отдельный корень дампа, добавлен единый резолвер `ResolveDumpComponents(...)` с поддержкой `base`/`basedata`, `updates`/`update`/`patch`/`patches` (как прямых, так и версионных подпапок) и `dlc`/`dlcdata`.
+  - Для `.nsp`/`.nsz`-контейнеров внутри папок `base`/`update`/`dlc` в `TasksViewModel.cs` компоненты объединяются в одну задачу (`topFolder = "ROOT"`, с гарантированным порядком `Base` -> `Update` -> `DLC`), а ветка `Convert` при нескольких входных файлах корректно запускает мульти-сборку вместо взятия только первого файла.
+- 🌟 **[Исправление вывода в формат `NUP` вместо `.nsp` (`MultiContentService.cs`, `Switch2DumpCompilerService.cs`, `TasksViewModel.cs`, `StormNczEngine.kt`)]**:
+  - При выборе конечного формата `NUP` во всех режимах («Конвертация», «Упаковка», «Мульти-контент», Switch 2 дамп и `.nup` -> `.nup`) больше не остаётся/не выходит `.nsp` - выполняется прямая или промежуточная упаковка в `.nup` через `NupContainerService` (а в Android при `targetFormatMode == 7` - напрямую через `packToNupContainer`).
+
+<details>
+
+<summary><b>📋 Полный список изменений (нажмите, чтобы развернуть)</b></summary>
+
+- 🔹 **[Services/Switch2DumpCompilerService.cs]**: Добавлен `ResolveDumpComponents`, защита от ложного определения `update`/`patch`/`basedata`/`dlcdata` как корня дампа, прямая ветка `targetFormat == "NUP"` до сборки `.nsp` и поддержка `NUP -> NUP` в `CompileNupToSwitch2ContainerAsync`.
+- 🔹 **[Services/NupContainerService.cs]**: `PackSwitchDumpToNupAsync` переведён на `ResolveDumpComponents`, а `ConvertContainerToNupAsync` учитывает `OutputFileName`, настройки сжатия Switch 2 и финальные метрики задачи.
+- 🔹 **[Services/MultiContentService.cs]**: Добавлена полная поддержка `isTargetNup` (`ConvertIntermediateToNupAsync`) во все ветки завершения `BuildMultiContentAsync` с удалением временного `.nsp`.
+- 🔹 **[ViewModels/TasksViewModel.cs]**: Группировка `base`/`update`/`dlc`, сортировка `Application` -> `Patch`, `Pack` в `.nup`, а `Convert` с несколькими файлами маршрутизируется в `BuildMultiContentAsync`.
+- 🔹 **[Android (`StormNczEngine.kt`, `MainActivity.kt`)]**: Паритет по исключению подпапок компонентов (`update`/`base`/`dlc`), поддержка `update/` + `updates/` и прямой вывод `.nup` при `targetFormatMode == 7`.
+- 🔹 **[Релиз 8.2.8]**: Обновлены версии Windows (`8.2.8`) и Android (`versionCode = 8208`, `versionName = "8.2.8"`), без Legacy APK.
+
+</details>
+
+<details>
+
+<summary><b>🌐 English Changelog (click to expand)</b></summary>
+
+- 🔸 Fixed Switch 2 (`NS2`) folder detection when both `base` and `update` folders are present (`ResolveDumpComponents`, component subfolder guards preventing `update/` from being mistaken for the dump root, unified `ROOT` folder grouping and multi-file `Convert` routing in `TasksViewModel.cs`, plus Android parity in `StormNczEngine.kt` and `MainActivity.kt`).
+- 🔸 Fixed selecting `NUP` as the target output format producing `.nsp` instead of `.nup` across `Switch2DumpCompilerService.cs`, `MultiContentService.cs`, `NupContainerService.cs`, `TasksViewModel.cs`, and Android `StormNczEngine.kt`, and bumped version to `8.2.8` (`versionCode = 8208`).
+
+</details>
+
+---
+
 ## **8.2.7** (28.11.2026)
 
 > 💡 **Релиз 8.2.7** - *Устранение OOM-краша и вечного зависания `nsz.exe` при блочном сжатии NSZ на уровне 22 (снижение расхода памяти в 37 раз) и умное планирование воркеров*

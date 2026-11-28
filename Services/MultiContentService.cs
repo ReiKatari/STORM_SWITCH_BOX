@@ -36,6 +36,8 @@ namespace StormSwitchBox.Services
                                string.Equals(task.TargetFormat, "XCZ", StringComparison.OrdinalIgnoreCase) ||
                                string.Equals(task.TargetFormat, "XCI + XCZ", StringComparison.OrdinalIgnoreCase);
 
+            bool isTargetNup = string.Equals(task.TargetFormat, "NUP", StringComparison.OrdinalIgnoreCase);
+
             bool isDualFormat = string.Equals(task.TargetFormat, "NSP + NSZ", StringComparison.OrdinalIgnoreCase) || 
                                 string.Equals(task.TargetFormat, "XCI + XCZ", StringComparison.OrdinalIgnoreCase);
 
@@ -43,14 +45,15 @@ namespace StormSwitchBox.Services
                                       string.Equals(task.TargetFormat, "XCZ", StringComparison.OrdinalIgnoreCase) || 
                                       isDualFormat;
 
-            bool keepUncompressed = isDualFormat || (!string.Equals(task.TargetFormat, "NSZ", StringComparison.OrdinalIgnoreCase) && 
-                                                     !string.Equals(task.TargetFormat, "XCZ", StringComparison.OrdinalIgnoreCase));
+            bool keepUncompressed = !isTargetNup && (isDualFormat || (!string.Equals(task.TargetFormat, "NSZ", StringComparison.OrdinalIgnoreCase) && 
+                                                     !string.Equals(task.TargetFormat, "XCZ", StringComparison.OrdinalIgnoreCase)));
 
             string uncompressedExt = isTargetXci ? ".xci" : ".nsp";
             string compressedExt = isTargetXci ? ".xcz" : ".nsz";
             string intermediatePath = outPath;
             string finalUncompressedPath = string.Empty;
             string finalCompressedPath = string.Empty;
+            string finalNupPath = string.Empty;
             bool compressionSuccess = false;
             
             string tempDecompDir = string.Empty;
@@ -290,6 +293,7 @@ namespace StormSwitchBox.Services
                 string baseNameClean = System.IO.Path.GetFileNameWithoutExtension(outPath);
                 finalUncompressedPath = System.IO.Path.Combine(targetDir, baseNameClean + uncompressedExt);
                 finalCompressedPath = System.IO.Path.Combine(targetDir, baseNameClean + compressedExt);
+                finalNupPath = System.IO.Path.Combine(targetDir, baseNameClean + ".nup");
 
                 if (keepUncompressed)
                 {
@@ -297,7 +301,7 @@ namespace StormSwitchBox.Services
                 }
                 else
                 {
-                    // Для чистого сжатого формата (NSZ/XCZ) несжатый файл формируется исключительно во временном каталоге
+                    // Для сжатого формата (NSZ/XCZ) или NUP промежуточный NSP формируется во временном каталоге
                     intermediatePath = System.IO.Path.Combine(tempDecompDir, "inter_" + Guid.NewGuid().ToString("N").Substring(0, 6) + uncompressedExt);
                 }
 
@@ -529,8 +533,13 @@ namespace StormSwitchBox.Services
                                             SafeFileOperations.SafeDeleteFile(intermediatePath);
                                         }
                                     }
+                                    else if (isTargetNup)
+                                    {
+                                        await ConvertIntermediateToNupAsync(task, intermediatePath, finalNupPath, cancellationToken);
+                                        SafeFileOperations.SafeDeleteFile(intermediatePath);
+                                    }
 
-                                    string mainResultPath = keepUncompressed ? intermediatePath : finalCompressedPath;
+                                    string mainResultPath = isTargetNup ? finalNupPath : (keepUncompressed ? intermediatePath : finalCompressedPath);
                                     long b1Uncomp = 0, b1Comp = 0, b1Out = 0;
                                     string b1TargetSize = "-";
                                     string b1Diff = "-";
@@ -724,9 +733,17 @@ namespace StormSwitchBox.Services
                                 }
                             }
                         }
+                        else if (isTargetNup)
+                        {
+                            await ConvertIntermediateToNupAsync(task, intermediatePath, finalNupPath, cancellationToken);
+                            if (!isSamePath || isDecompressedTemp)
+                            {
+                                SafeFileOperations.SafeDeleteFile(intermediatePath);
+                            }
+                        }
                     }
 
-                    string mainResultPath = keepUncompressed ? intermediatePath : finalCompressedPath;
+                    string mainResultPath = isTargetNup ? finalNupPath : (keepUncompressed ? intermediatePath : finalCompressedPath);
                     long b2Uncomp = 0, b2Comp = 0, b2Out = 0;
                     string b2TargetSize = "-";
                     string b2Diff = "-";
@@ -1485,8 +1502,15 @@ namespace StormSwitchBox.Services
                         App.RunOnUI(() => task.LogDetails += "\n⚠️ [Внимание] Сжатие не удалось. Сохранен исходный образ.");
                     }
                 }
+                else if (isTargetNup)
+                {
+                    await ConvertIntermediateToNupAsync(task, intermediatePath, finalNupPath, cancellationToken);
+                    SafeFileOperations.SafeDeleteFile(intermediatePath);
+                }
 
-                string finalMainPath = keepUncompressed ? intermediatePath : (compressionSuccess ? finalCompressedPath : intermediatePath);
+                string finalMainPath = isTargetNup
+                    ? finalNupPath
+                    : (keepUncompressed ? intermediatePath : (compressionSuccess ? finalCompressedPath : intermediatePath));
                 long b3Uncomp = 0, b3Comp = 0, b3Out = 0;
                 string b3TargetSize = "-";
                 string b3Diff = "-";
@@ -1565,6 +1589,31 @@ namespace StormSwitchBox.Services
                 }
             }
         }
+        private static async Task ConvertIntermediateToNupAsync(ProcessingTask task, string intermediateNspPath, string finalNupPath, CancellationToken cancellationToken)
+        {
+            if (string.IsNullOrWhiteSpace(intermediateNspPath) || !File.Exists(intermediateNspPath))
+                throw new FileNotFoundException($"Промежуточный NSP для упаковки в NUP не найден: {intermediateNspPath}");
+
+            App.RunOnUI(() =>
+            {
+                task.Status = "Сборка NUP...";
+                task.LogDetails += $"\n📦 [NUP v1.0] Конвертация собранного контейнера в {System.IO.Path.GetFileName(finalNupPath)}...";
+            });
+
+            var nupProg = new Progress<(double pct, string status)>(p => App.RunOnUI(() =>
+            {
+                task.Progress = Math.Clamp(60 + (p.pct * 0.38), 60, 99);
+                if (!string.IsNullOrWhiteSpace(p.status))
+                    task.Status = p.status;
+            }));
+
+            int zstdLevel = Math.Clamp(task.IsSwitch2Task ? App.Settings.Current.Switch2CompressionLevel : App.Settings.Current.CompressionLevel, 1, 22);
+            await NupContainerService.ConvertContainerToNupAsync(intermediateNspPath, finalNupPath, zstdLevel, nupProg, cancellationToken);
+
+            if (!File.Exists(finalNupPath) || new FileInfo(finalNupPath).Length <= 0)
+                throw new InvalidOperationException($"Целевой файл NUP не создан: {finalNupPath}");
+        }
+
         [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true, CharSet = System.Runtime.InteropServices.CharSet.Auto)]
         static extern bool CreateHardLink(string lpFileName, string lpExistingFileName, IntPtr lpSecurityAttributes);
 

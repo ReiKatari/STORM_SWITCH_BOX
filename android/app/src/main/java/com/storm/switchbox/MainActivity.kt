@@ -6772,9 +6772,26 @@ class MainActivity : Activity() {
                 }
             }
         } else {
-            folder.walkTopDown().maxDepth(4).forEach { f ->
+            val visitedSwitch2Roots = mutableSetOf<String>()
+            folder.walkTopDown().maxDepth(4).onEnter { dir ->
+                val cp = dir.canonicalPath
+                if (visitedSwitch2Roots.any { cp.startsWith(it + File.separator) || cp == it }) {
+                    false
+                } else if (StormNczEngine.isSwitch2DumpDirectory(dir)) {
+                    visitedSwitch2Roots.add(cp)
+                    if (queuedFiles.none { it.canonicalPath == cp }) {
+                        queuedFiles.add(dir)
+                        added++
+                    }
+                    false
+                } else {
+                    true
+                }
+            }.forEach { f ->
                 if (f.isFile && f.extension.lowercase() in validExts) {
-                    if (queuedFiles.none { it.canonicalPath == f.canonicalPath }) {
+                    val cp = f.canonicalPath
+                    if (visitedSwitch2Roots.none { cp.startsWith(it + File.separator) } &&
+                        queuedFiles.none { it.canonicalPath == cp }) {
                         queuedFiles.add(f)
                         added++
                     }

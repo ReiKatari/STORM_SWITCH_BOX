@@ -4983,7 +4983,7 @@ object StormNczEngine {
 
     private fun extractZ3dsContainerMetadata(plainFile: File, underlyingMagic: ByteArray, frameSize: Int): LinkedHashMap<String, ByteArray> {
         val meta = LinkedHashMap<String, ByteArray>()
-        meta["compressor"] = "STORM SWITCH BOX 8.2.7".toByteArray(StandardCharsets.UTF_8)
+        meta["compressor"] = "STORM SWITCH BOX 8.2.8".toByteArray(StandardCharsets.UTF_8)
         val df = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US).apply {
             timeZone = java.util.TimeZone.getTimeZone("UTC")
         }
@@ -5811,7 +5811,7 @@ object StormNczEngine {
                 bundleMeta[k] = v
             }
         }
-        bundleMeta["bundler"] = "STORM SWITCH BOX 8.2.7".toByteArray(StandardCharsets.UTF_8)
+        bundleMeta["bundler"] = "STORM SWITCH BOX 8.2.8".toByteArray(StandardCharsets.UTF_8)
         val df = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US).apply {
             timeZone = java.util.TimeZone.getTimeZone("UTC")
         }
@@ -7220,6 +7220,25 @@ object StormNczEngine {
         // Если входной файл содержит .nup контейнер - направляем в конвейер сборки Switch 2
         val nupFile = inputFiles.firstOrNull { it.isFile && it.extension.lowercase() == "nup" }
         if (nupFile != null) {
+            if (targetFormatMode == 7) {
+                val outNup = File(outputDir, nupFile.name)
+                if (nupFile.canonicalPath != outNup.canonicalPath) {
+                    nupFile.copyTo(outNup, overwrite = true)
+                }
+                return CompressionResult(
+                    success = outNup.exists(),
+                    inputPath = nupFile.absolutePath,
+                    outputPath = outNup.absolutePath,
+                    originalBytes = nupFile.length(),
+                    compressedBytes = outNup.length(),
+                    elapsedMs = System.currentTimeMillis() - startMs,
+                    compressedNcaCount = 0,
+                    totalFilesCount = 1,
+                    blockSizeExponent = 20,
+                    zstdLevel = zstdLevel,
+                    message = "Контейнер уже в формате NUP: ${outNup.name}"
+                )
+            }
             val extractedDumpDir = extractNupToTempNspOrDir(nupFile, outputDir) { onProgress(it) }
             try {
                 return compileSwitch2DumpPackage(
@@ -7242,6 +7261,12 @@ object StormNczEngine {
                 targetFormatMode = targetFormatMode,
                 onProgress = onProgress
             )
+        }
+
+        if (targetFormatMode == 7) {
+            val outNupName = firstFile.nameWithoutExtension.ifBlank { "Game" } + ".nup"
+            val targetNup = File(outputDir, outNupName)
+            return packToNupContainer(inputFiles, targetNup, zstdLevel) { onProgress(it) }
         }
 
         // Если входной файл относится к семейству Nintendo 3DS (или выбран выходной формат 3DS/CCI/CIA: 4, 5, 6),
@@ -11875,19 +11900,32 @@ object StormNczEngine {
      * ProgramId cannot be read - the folder name carries a 16-hex TitleID starting with 04.
      * Extracted Switch 1 folders (ProgramId 01...) keep the 5.5.7 routing and are never hijacked.
      */
+    private fun isSwitch2ComponentSubdirName(name: String): Boolean {
+        val low = name.lowercase()
+        return low in setOf("base", "basedata", "exefs", "romfs", "update", "updates", "patch", "patches", "dlc", "dlcs", "dlcdata")
+    }
+
     fun isSwitch2DumpDirectory(dir: File): Boolean {
         if (!dir.exists() || !dir.isDirectory) return false
+        if (isSwitch2ComponentSubdirName(dir.name)) return false
         val containers = dir.listFiles()?.any { it.isFile && it.extension.lowercase() in listOf("nsp", "nsz", "xci", "xcz", "nup") } ?: false
         if (containers) return false
         val npdmCandidates = mutableListOf<Pair<File, File>>() // (npdm, owner dir)
-        for (rel in listOf("base/exefs/main.npdm", "exefs/main.npdm")) {
+        for (rel in listOf("base/exefs/main.npdm", "basedata/exefs/main.npdm", "exefs/main.npdm")) {
             val f = File(dir, rel)
             if (f.isFile) npdmCandidates.add(f to dir)
         }
+        val baseSub = File(dir, "base")
+        if (npdmCandidates.isEmpty() && baseSub.isDirectory) {
+            baseSub.listFiles()?.filter { it.isDirectory }?.forEach { sub ->
+                val f = File(sub, "exefs/main.npdm")
+                if (f.isFile) npdmCandidates.add(f to dir)
+            }
+        }
         if (npdmCandidates.isEmpty()) {
-            val subDirs = dir.listFiles()?.filter { it.isDirectory } ?: return false
+            val subDirs = dir.listFiles()?.filter { it.isDirectory && !isSwitch2ComponentSubdirName(it.name) } ?: return false
             for (sub in subDirs) {
-                for (rel in listOf("base/exefs/main.npdm", "exefs/main.npdm")) {
+                for (rel in listOf("base/exefs/main.npdm", "basedata/exefs/main.npdm", "exefs/main.npdm")) {
                     val f = File(sub, rel)
                     if (f.isFile) npdmCandidates.add(f to sub)
                 }
@@ -11910,14 +11948,24 @@ object StormNczEngine {
     fun inspectSwitch2DumpDirectory(dir: File): Switch2DumpInfo? {
         if (!dir.exists() || !dir.isDirectory) return null
         var rootDir = dir
-        if (!File(dir, "base/exefs/main.npdm").exists() && !File(dir, "exefs/main.npdm").exists()) {
-            val subCandidate = dir.listFiles()?.firstOrNull {
-                File(it, "base/exefs/main.npdm").exists() || File(it, "exefs/main.npdm").exists()
-            } ?: return null
-            rootDir = subCandidate
+        if (!File(dir, "base/exefs/main.npdm").exists() && !File(dir, "basedata/exefs/main.npdm").exists() && !File(dir, "exefs/main.npdm").exists()) {
+            val baseNestedOk = File(dir, "base").listFiles()?.any { File(it, "exefs/main.npdm").exists() } == true
+            if (!baseNestedOk) {
+                val subCandidate = dir.listFiles()?.firstOrNull { sub ->
+                    sub.isDirectory && !isSwitch2ComponentSubdirName(sub.name) &&
+                        (File(sub, "base/exefs/main.npdm").exists() || File(sub, "basedata/exefs/main.npdm").exists() || File(sub, "exefs/main.npdm").exists())
+                } ?: return null
+                rootDir = subCandidate
+            }
         }
 
-        val baseDir = if (File(rootDir, "base/exefs/main.npdm").exists()) File(rootDir, "base") else rootDir
+        val baseDir = when {
+            File(rootDir, "base/exefs/main.npdm").exists() || File(rootDir, "base/romfs").isDirectory -> File(rootDir, "base")
+            File(rootDir, "base").listFiles()?.any { File(it, "exefs/main.npdm").exists() } == true ->
+                File(rootDir, "base").listFiles()!!.first { File(it, "exefs/main.npdm").exists() }
+            File(rootDir, "basedata/exefs/main.npdm").exists() || File(rootDir, "basedata/romfs").isDirectory -> File(rootDir, "basedata")
+            else -> rootDir
+        }
         val npdmFile = File(baseDir, "exefs/main.npdm")
         if (!npdmFile.exists()) return null
 
@@ -11949,25 +11997,44 @@ object StormNczEngine {
 
         var updateDir: String? = null
         var maxVersion = ""
-        val updatesFolder = File(rootDir, "updates")
-        if (updatesFolder.exists() && updatesFolder.isDirectory) {
-            val updSubs = updatesFolder.listFiles()?.filter { it.isDirectory } ?: emptyList()
-            val latest = updSubs.maxByOrNull {
-                it.name.removePrefix("v").toIntOrNull() ?: 0
+        var bestVerNum = -1
+        fun considerUpdate(cand: File, hintName: String) {
+            if (!cand.isDirectory) return
+            if (!File(cand, "exefs").isDirectory && !File(cand, "romfs").isDirectory) return
+            val clean = hintName.removePrefix("v").removePrefix("V").removePrefix("p").removePrefix("P")
+            val num = clean.toIntOrNull() ?: Regex("\\d+").find(clean)?.value?.toIntOrNull() ?: 65536
+            val verStr = if (num == 65536 && clean.toIntOrNull() == null) "65536" else clean.ifBlank { num.toString() }
+            if (num > bestVerNum) {
+                bestVerNum = num
+                updateDir = cand.absolutePath
+                maxVersion = verStr
             }
-            if (latest != null) {
-                updateDir = latest.absolutePath
-                maxVersion = latest.name.removePrefix("v")
+        }
+        val updParentNames = if (baseDir != rootDir) listOf("updates", "update", "patch", "patches") else listOf("updates", "update")
+        for (pName in updParentNames) {
+            val updRoot = File(rootDir, pName)
+            if (!updRoot.isDirectory) continue
+            considerUpdate(updRoot, updRoot.name)
+            updRoot.listFiles()?.filter { it.isDirectory }?.forEach { sub ->
+                if (File(sub, "exefs").isDirectory || File(sub, "romfs").isDirectory) {
+                    considerUpdate(sub, sub.name)
+                } else {
+                    sub.listFiles()?.filter { it.isDirectory }?.forEach { nested ->
+                        considerUpdate(nested, nested.name)
+                    }
+                }
             }
         }
 
         val dlcFolders = mutableListOf<String>()
-        val dlcParent = File(rootDir, "dlc")
-        if (dlcParent.exists() && dlcParent.isDirectory) {
-            dlcParent.listFiles()?.filter { it.isDirectory }?.sortedBy { it.name }?.forEach { sub ->
-                val hasRealFiles = sub.walkTopDown().any { it.isFile && !it.name.equals(".listing", true) }
-                if (hasRealFiles) {
-                    dlcFolders.add(sub.absolutePath)
+        for (dName in listOf("dlc", "dlcs", "dlcdata")) {
+            val dlcParent = File(rootDir, dName)
+            if (dlcParent.exists() && dlcParent.isDirectory) {
+                dlcParent.listFiles()?.filter { it.isDirectory }?.sortedBy { it.name }?.forEach { sub ->
+                    val hasRealFiles = sub.walkTopDown().any { it.isFile && !it.name.equals(".listing", true) }
+                    if (hasRealFiles && !dlcFolders.contains(sub.absolutePath)) {
+                        dlcFolders.add(sub.absolutePath)
+                    }
                 }
             }
         }
@@ -12579,6 +12646,12 @@ object StormNczEngine {
         val sw2Info = inspectSwitch2DumpDirectory(inputDir) ?: throw Exception("Не удалось проанализировать дамп Switch 2 в ${inputDir.name}")
         outputDir.mkdirs()
 
+        val baseName = generateCanonicalSwitch2Name(sw2Info)
+        if (targetFormatMode == 7) {
+            val outNup = File(outputDir, "$baseName.nup")
+            return packToNupContainer(listOf(File(sw2Info.gameRootDir)), outNup, 18) { onProgress(it) }
+        }
+
         val isSwitch2 = sw2Info.titleId.startsWith("0400")
         val baseExeFs = File(sw2Info.baseDir, "exefs")
         val updExeFs = sw2Info.updateDir?.let { File(it, "exefs") }
@@ -12596,8 +12669,6 @@ object StormNczEngine {
             isNszTarget -> ".nsz"
             else -> ".nsp"
         }
-
-        val baseName = generateCanonicalSwitch2Name(sw2Info)
 
         // Pre-Flight Free Space Check (Gap 3 Parity with Switch2DumpCompilerService DriveInfo)
         var totalInputBytes = 0L

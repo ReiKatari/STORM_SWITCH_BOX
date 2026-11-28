@@ -1056,8 +1056,8 @@ public partial class TasksViewModel : ObservableObject
 						{
 							ulong patchTid = baseTid | 0x800UL;
 							string patchTidStr = $"{patchTid:X16}";
-							string relUpd = Path.GetFileName(sw2Info.UpdateDir);
-							filesList.Add($"[ОБНОВЛЕНИЕ] updates\\{relUpd} ({patchTidStr} • v{sw2Info.MaxUpdateVersion})");
+							string relUpd = Path.GetRelativePath(sw2Info.GameRootDir, sw2Info.UpdateDir);
+							filesList.Add($"[ОБНОВЛЕНИЕ] {relUpd} ({patchTidStr} • v{sw2Info.MaxUpdateVersion})");
 							inputFiles.Add(sw2Info.UpdateDir);
 						}
 
@@ -1300,7 +1300,24 @@ public partial class TasksViewModel : ObservableObject
 							else
 							{
 								var parts = relPath.Split(Path.DirectorySeparatorChar);
-								topFolder = parts.Length > 0 ? parts[0] : "ROOT";
+								string firstSeg = parts.Length > 0 ? parts[0] : "ROOT";
+								// Объединяем подпапки компонентов (base, update, updates, patch, dlc, dlcdata) в один корень игры
+								if (firstSeg.Equals("base", StringComparison.OrdinalIgnoreCase) ||
+								    firstSeg.Equals("basedata", StringComparison.OrdinalIgnoreCase) ||
+								    firstSeg.Equals("update", StringComparison.OrdinalIgnoreCase) ||
+								    firstSeg.Equals("updates", StringComparison.OrdinalIgnoreCase) ||
+								    firstSeg.Equals("patch", StringComparison.OrdinalIgnoreCase) ||
+								    firstSeg.Equals("patches", StringComparison.OrdinalIgnoreCase) ||
+								    firstSeg.Equals("dlc", StringComparison.OrdinalIgnoreCase) ||
+								    firstSeg.Equals("dlcs", StringComparison.OrdinalIgnoreCase) ||
+								    firstSeg.Equals("dlcdata", StringComparison.OrdinalIgnoreCase))
+								{
+									topFolder = "ROOT";
+								}
+								else
+								{
+									topFolder = firstSeg;
+								}
 							}
 							string? tid = null;
 							string ctype = "";
@@ -1645,7 +1662,30 @@ public partial class TasksViewModel : ObservableObject
 					long sizeBytes = files.Sum((string path) => CalculateSize(path));
 					int filesCount = files.Count((string path) => File.Exists(path));
 					List<string> inputFiles = new List<string>(files);
-					List<string> filesList = files.Where((string path) => !Directory.Exists(path)).Select((string path) => Path.GetFileName(path) ?? path).ToList();
+					// Гарантируем порядок: Application/Base (*000) всегда первый, далее Patch/Update (*800), затем DLC и моды
+					if (inputFiles.Count > 1 && !is3ds)
+					{
+						inputFiles = inputFiles
+							.OrderBy(f =>
+							{
+								if (Directory.Exists(f)) return 3;
+								try
+								{
+									var pInfo = App.SwitchFormat.ParseNsp(f);
+									if (string.Equals(pInfo.ContentType, "Application", StringComparison.OrdinalIgnoreCase) ||
+									    (!string.IsNullOrEmpty(pInfo.TitleId) && pInfo.TitleId.EndsWith("000", StringComparison.OrdinalIgnoreCase)))
+										return 0;
+									if (string.Equals(pInfo.ContentType, "Patch", StringComparison.OrdinalIgnoreCase) ||
+									    (!string.IsNullOrEmpty(pInfo.TitleId) && pInfo.TitleId.EndsWith("800", StringComparison.OrdinalIgnoreCase)))
+										return 1;
+									return 2;
+								}
+								catch { return 2; }
+							})
+							.ThenBy(f => f, StringComparer.OrdinalIgnoreCase)
+							.ToList();
+					}
+					List<string> filesList = inputFiles.Where((string path) => !Directory.Exists(path)).Select((string path) => Path.GetFileName(path) ?? path).ToList();
 					bool rFs = false;
 					bool eFs = false;
 					foreach (string f3 in files)
@@ -3082,6 +3122,36 @@ public partial class TasksViewModel : ObservableObject
 						try { File.Delete(expectedOutPath); } catch { }
 					}
 				}
+				else if (task.TargetFormat.Equals("NUP", StringComparison.OrdinalIgnoreCase))
+				{
+					task.PauseEvent.Wait(cts.Token);
+					string expectedNup = Path.ChangeExtension(expectedOutPath, ".nup");
+					int zstdLvl = task.IsSwitch2Task ? App.Settings.Current.Switch2CompressionLevel : App.Settings.Current.CompressionLevel;
+					var nupProg = new Progress<(double pct, string status)>(p => App.RunOnUI(() =>
+					{
+						task.Progress = Math.Clamp(p.pct, 0, 99);
+						if (!string.IsNullOrWhiteSpace(p.status)) task.Status = p.status;
+					}));
+					if (!string.IsNullOrEmpty(inputFolder) && Directory.Exists(inputFolder) &&
+					    (Directory.Exists(Path.Combine(inputFolder, "exefs")) || Directory.Exists(Path.Combine(inputFolder, "romfs")) ||
+					     Directory.Exists(Path.Combine(inputFolder, "base")) || Directory.Exists(Path.Combine(inputFolder, "basedata"))))
+					{
+						await NupContainerService.PackSwitchDumpToNupAsync(inputFolder, expectedNup, zstdLvl, nupProg, cts.Token);
+						if (File.Exists(expectedOutPath)) { try { File.Delete(expectedOutPath); } catch { } }
+					}
+					else
+					{
+						await NupContainerService.ConvertContainerToNupAsync(expectedOutPath, expectedNup, zstdLvl, nupProg, cts.Token);
+						if (File.Exists(expectedNup) && new FileInfo(expectedNup).Length > 0 && File.Exists(expectedOutPath))
+						{
+							try { File.Delete(expectedOutPath); } catch { }
+						}
+					}
+					if (File.Exists(expectedNup))
+					{
+						task.EnsureFinalMetricsPopulated(expectedNup);
+					}
+				}
 				App.RunOnUI(delegate
 				{
 					task.IsRunning = false;
@@ -3104,6 +3174,13 @@ public partial class TasksViewModel : ObservableObject
 			return;
 		}
 		task.IsRunning = true;
+		if (task.InputFiles.Count > 1)
+		{
+			string outPathMulti = Path.Combine(task.OutputFolder, task.OutputFileName + task.GetPrimaryExtension());
+			await PreAnalyzeFilesAsync(task, task.InputFiles);
+			await App.MultiContent.BuildMultiContentAsync(task, task.InputFiles, outPathMulti, patchFirmware: App.Settings.Current.ForceMultiRebuild, cts.Token);
+			return;
+		}
 		string inputPath2 = task.InputFiles.FirstOrDefault() ?? "";
 		if (string.IsNullOrEmpty(inputPath2) || !File.Exists(inputPath2))
 		{

@@ -175,13 +175,19 @@ namespace StormSwitchBox.Services
 
             try
             {
-                // Strict check: component directories (base, exefs, romfs, updates, dlc) are not dump roots
+                // Strict check: component directories (base, basedata, exefs, romfs, update, updates, patch, dlc, dlcdata) are not dump roots
                 string dirName = Path.GetFileName(dirPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
                 if (dirName.Equals("base", StringComparison.OrdinalIgnoreCase) ||
+                    dirName.Equals("basedata", StringComparison.OrdinalIgnoreCase) ||
                     dirName.Equals("exefs", StringComparison.OrdinalIgnoreCase) ||
                     dirName.Equals("romfs", StringComparison.OrdinalIgnoreCase) ||
                     dirName.Equals("updates", StringComparison.OrdinalIgnoreCase) ||
-                    dirName.Equals("dlc", StringComparison.OrdinalIgnoreCase))
+                    dirName.Equals("update", StringComparison.OrdinalIgnoreCase) ||
+                    dirName.Equals("patch", StringComparison.OrdinalIgnoreCase) ||
+                    dirName.Equals("patches", StringComparison.OrdinalIgnoreCase) ||
+                    dirName.Equals("dlc", StringComparison.OrdinalIgnoreCase) ||
+                    dirName.Equals("dlcs", StringComparison.OrdinalIgnoreCase) ||
+                    dirName.Equals("dlcdata", StringComparison.OrdinalIgnoreCase))
                 {
                     return false;
                 }
@@ -234,11 +240,22 @@ namespace StormSwitchBox.Services
                 }
                 catch { }
 
-                // Direct dump root with base/exefs/main.npdm + base/romfs
-                if (File.Exists(Path.Combine(dirPath, "base", "exefs", "main.npdm")) &&
-                    Directory.Exists(Path.Combine(dirPath, "base", "romfs")))
+                // Direct dump root with base/exefs/main.npdm + base/romfs (or basedata/...)
+                if ((File.Exists(Path.Combine(dirPath, "base", "exefs", "main.npdm")) && Directory.Exists(Path.Combine(dirPath, "base", "romfs"))) ||
+                    (File.Exists(Path.Combine(dirPath, "basedata", "exefs", "main.npdm")) && Directory.Exists(Path.Combine(dirPath, "basedata", "romfs"))))
                 {
                     return true;
+                }
+
+                // Single nested subfolder inside base/ (e.g. base/0/exefs/main.npdm + romfs)
+                string baseSubRoot = Path.Combine(dirPath, "base");
+                if (Directory.Exists(baseSubRoot))
+                {
+                    foreach (var sub in Directory.GetDirectories(baseSubRoot))
+                    {
+                        if (File.Exists(Path.Combine(sub, "exefs", "main.npdm")) && Directory.Exists(Path.Combine(sub, "romfs")))
+                            return true;
+                    }
                 }
 
                 // Full extracted dump with exefs/main.npdm + exefs/rtld + romfs (mods never have rtld alongside full exefs+romfs without containers)
@@ -249,9 +266,9 @@ namespace StormSwitchBox.Services
                     return true;
                 }
 
-                // Strict structure check: base/exefs AND base/romfs
-                if (Directory.Exists(Path.Combine(dirPath, "base", "exefs")) &&
-                    Directory.Exists(Path.Combine(dirPath, "base", "romfs")))
+                // Strict structure check: base/exefs AND base/romfs (or basedata)
+                if ((Directory.Exists(Path.Combine(dirPath, "base", "exefs")) && Directory.Exists(Path.Combine(dirPath, "base", "romfs"))) ||
+                    (Directory.Exists(Path.Combine(dirPath, "basedata", "exefs")) && Directory.Exists(Path.Combine(dirPath, "basedata", "romfs"))))
                 {
                     return true;
                 }
@@ -287,9 +304,9 @@ namespace StormSwitchBox.Services
             // 2. If inputPath is a directory
             if (Directory.Exists(inputPath))
             {
-                // Check if inputPath is a subfolder inside a dump root (e.g. base, exefs, romfs, updates, dlc, 0)
+                // Check if inputPath is a subfolder inside a dump root (e.g. base, basedata, exefs, romfs, updates, update, dlc, dlcdata, 0)
                 string dName = Path.GetFileName(inputPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)).ToLowerInvariant();
-                if (dName is "base" or "exefs" or "romfs" or "dlc" or "updates" or "0")
+                if (dName is "base" or "basedata" or "exefs" or "romfs" or "dlc" or "dlcs" or "dlcdata" or "updates" or "update" or "patch" or "patches" or "0")
                 {
                     var cur = Directory.GetParent(inputPath);
                     int depth = 0;
@@ -366,6 +383,141 @@ namespace StormSwitchBox.Services
             return s;
         }
 
+        private static bool HasExefsOrRomfs(string dir) =>
+            Directory.Exists(Path.Combine(dir, "exefs")) || Directory.Exists(Path.Combine(dir, "romfs"));
+
+        public static (string BaseDir, List<(string Dir, string VersionStr, int VersionNum)> Updates, List<string> DlcFolders) ResolveDumpComponents(string targetDir)
+        {
+            string baseDir = targetDir;
+            string directBase = Path.Combine(targetDir, "base");
+            string directBaseData = Path.Combine(targetDir, "basedata");
+            if (Directory.Exists(directBase))
+            {
+                if (HasExefsOrRomfs(directBase) || Directory.Exists(Path.Combine(directBase, "control")))
+                {
+                    baseDir = directBase;
+                }
+                else
+                {
+                    try
+                    {
+                        var sub = Directory.GetDirectories(directBase).FirstOrDefault(HasExefsOrRomfs);
+                        if (!string.IsNullOrEmpty(sub)) baseDir = sub;
+                    }
+                    catch { }
+                }
+            }
+            else if (Directory.Exists(directBaseData) && (HasExefsOrRomfs(directBaseData) || Directory.Exists(Path.Combine(directBaseData, "control"))))
+            {
+                baseDir = directBaseData;
+            }
+
+            var updates = new List<(string Dir, string VersionStr, int VersionNum)>();
+            var seenUpdates = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            void TryAddUpdate(string dir, string? hintName)
+            {
+                if (string.IsNullOrWhiteSpace(dir) || !Directory.Exists(dir) || !HasExefsOrRomfs(dir)) return;
+                string full = Path.GetFullPath(dir).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                if (!seenUpdates.Add(full)) return;
+
+                string vClean = (hintName ?? Path.GetFileName(dir)).Trim().TrimStart('v', 'V', 'p', 'P');
+                int vNum = 0;
+                if (int.TryParse(vClean, out int parsedNum) && parsedNum > 0)
+                {
+                    vNum = parsedNum;
+                }
+                else
+                {
+                    var mDigits = Regex.Match(vClean, @"\d+");
+                    if (mDigits.Success && int.TryParse(mDigits.Value, out int digNum) && digNum > 0)
+                    {
+                        vNum = digNum;
+                        vClean = digNum.ToString();
+                    }
+                    else
+                    {
+                        string nacpVer = DetectDisplayVersion(dir, dir, "");
+                        vNum = 65536;
+                        vClean = !string.IsNullOrWhiteSpace(nacpVer) ? nacpVer : "65536";
+                    }
+                }
+                updates.Add((dir, vClean, vNum));
+            }
+
+            var updContainerNames = new List<string> { "updates", "update" };
+            if (!string.Equals(baseDir, targetDir, StringComparison.OrdinalIgnoreCase))
+            {
+                updContainerNames.Add("patch");
+                updContainerNames.Add("patches");
+            }
+
+            foreach (var containerName in updContainerNames)
+            {
+                string updRoot = Path.Combine(targetDir, containerName);
+                if (!Directory.Exists(updRoot)) continue;
+
+                if (HasExefsOrRomfs(updRoot))
+                {
+                    TryAddUpdate(updRoot, Path.GetFileName(updRoot));
+                }
+
+                try
+                {
+                    foreach (var vDir in Directory.GetDirectories(updRoot))
+                    {
+                        if (HasExefsOrRomfs(vDir))
+                        {
+                            TryAddUpdate(vDir, Path.GetFileName(vDir));
+                        }
+                        else
+                        {
+                            try
+                            {
+                                foreach (var nested in Directory.GetDirectories(vDir))
+                                {
+                                    if (HasExefsOrRomfs(nested))
+                                        TryAddUpdate(nested, Path.GetFileName(nested));
+                                }
+                            }
+                            catch { }
+                        }
+                    }
+                }
+                catch { }
+            }
+
+            updates = updates
+                .OrderByDescending(u => u.VersionNum)
+                .ThenByDescending(u => u.Dir, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            var dlcFolders = new List<string>();
+            var seenDlcs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var dlcRootName in new[] { "dlc", "dlcs", "dlcdata" })
+            {
+                string dlcRoot = Path.Combine(targetDir, dlcRootName);
+                if (!Directory.Exists(dlcRoot)) continue;
+                try
+                {
+                    foreach (var d in Directory.GetDirectories(dlcRoot).OrderBy(x => x, StringComparer.OrdinalIgnoreCase))
+                    {
+                        string full = Path.GetFullPath(d).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                        if (!seenDlcs.Add(full)) continue;
+                        bool hasRealFiles = Directory.EnumerateFiles(d, "*", SearchOption.AllDirectories)
+                            .Any(f => !Path.GetFileName(f).Equals(".listing", StringComparison.OrdinalIgnoreCase));
+                        if (hasRealFiles)
+                        {
+                            dlcFolders.Add(d);
+                        }
+                    }
+                }
+                catch { }
+            }
+
+            return (baseDir, updates, dlcFolders);
+        }
+
         public static async Task<Switch2DumpInfo?> InspectSwitch2DumpDirectoryAsync(string dirPath)
         {
             if (string.IsNullOrWhiteSpace(dirPath)) return null;
@@ -382,8 +534,22 @@ namespace StormSwitchBox.Services
 
             if (!Directory.Exists(targetDir)) return null;
 
-            string npdmPath = Path.Combine(targetDir, "base", "exefs", "main.npdm");
+            var (baseDir, updates, dlcFolders) = ResolveDumpComponents(targetDir);
+            string maxVer = updates.Count > 0 ? updates[0].VersionStr : "";
+            string? maxUpdPath = updates.Count > 0 ? updates[0].Dir : null;
+
+            string npdmPath = Path.Combine(baseDir, "exefs", "main.npdm");
+            bool npdmFromUpdateOnly = false;
             if (!File.Exists(npdmPath)) npdmPath = Path.Combine(targetDir, "exefs", "main.npdm");
+            if (!File.Exists(npdmPath) && maxUpdPath != null)
+            {
+                string updNpdm = Path.Combine(maxUpdPath, "exefs", "main.npdm");
+                if (File.Exists(updNpdm))
+                {
+                    npdmPath = updNpdm;
+                    npdmFromUpdateOnly = true;
+                }
+            }
 
             if (!File.Exists(npdmPath)) return null;
 
@@ -403,52 +569,11 @@ namespace StormSwitchBox.Services
             if (aci0Offset == -1 || aci0Offset + 0x18 > npdmBytes.Length) return null;
 
             ulong tidVal = BitConverter.ToUInt64(npdmBytes, aci0Offset + 0x10);
+            if (npdmFromUpdateOnly && (tidVal & 0xFFFUL) == 0x800UL)
+            {
+                tidVal &= ~0xFFFUL;
+            }
             string titleId = $"{tidVal:X16}";
-
-            string baseDir = Directory.Exists(Path.Combine(targetDir, "base")) ? Path.Combine(targetDir, "base") : targetDir;
-
-            string updDir = Path.Combine(targetDir, "updates");
-            string maxVer = "";
-            int maxVerInt = 0;
-            string? maxUpdPath = null;
-            if (Directory.Exists(updDir))
-            {
-                foreach (var vDir in Directory.GetDirectories(updDir))
-                {
-                    string vName = Path.GetFileName(vDir);
-                    string vClean = vName.TrimStart('v', 'V', 'p', 'P');
-                    if (int.TryParse(vClean, out int vi) && vi > maxVerInt)
-                    {
-                        maxVerInt = vi;
-                        maxVer = vClean;
-                        maxUpdPath = vDir;
-                    }
-                    else if (string.IsNullOrEmpty(maxVer) && !string.IsNullOrWhiteSpace(vClean))
-                    {
-                        maxVer = vClean;
-                        maxUpdPath = vDir;
-                    }
-                }
-            }
-
-            string dlcDir = Path.Combine(targetDir, "dlc");
-            var dlcFolders = new List<string>();
-            if (Directory.Exists(dlcDir))
-            {
-                foreach (var d in Directory.GetDirectories(dlcDir).OrderBy(x => x, StringComparer.OrdinalIgnoreCase))
-                {
-                    try
-                    {
-                        bool hasRealFiles = Directory.EnumerateFiles(d, "*", SearchOption.AllDirectories)
-                            .Any(f => !Path.GetFileName(f).Equals(".listing", StringComparison.OrdinalIgnoreCase));
-                        if (hasRealFiles)
-                        {
-                            dlcFolders.Add(d);
-                        }
-                    }
-                    catch { }
-                }
-            }
 
             string compDesc = "[БАЗА";
             if (!string.IsNullOrEmpty(maxVer))
@@ -647,6 +772,87 @@ namespace StormSwitchBox.Services
                 : canonicalName;
 
             App.RunOnUI(() => { task.OutputFileName = baseFileName; });
+
+            if (targetFormat == "NUP")
+            {
+                string finalNupPath = Path.Combine(outDir, baseFileName + ".nup");
+                try
+                {
+                    App.RunOnUI(() =>
+                    {
+                        task.Progress = 10;
+                        task.Status = "Сборка контейнера NUP v1.0...";
+                        task.LogDetails += "📦 [NUP v1.0] Прямая упаковка дампа Switch 2 в .nup (Zstd + SHA-256 дедупликация)...\n";
+                    });
+                    var nupProg = new Progress<(double pct, string status)>(p => App.RunOnUI(() =>
+                    {
+                        task.Progress = Math.Clamp(10 + (p.pct * 0.90), 10, 99);
+                        if (!string.IsNullOrWhiteSpace(p.status))
+                            task.Status = p.status;
+                    }));
+                    int zstdLvl = Math.Clamp(App.Settings.Current.Switch2CompressionLevel, 1, 22);
+                    await NupContainerService.PackSwitchDumpToNupAsync(sw2Info.GameRootDir, finalNupPath, zstdLvl, nupProg, ct);
+
+                    if (!File.Exists(finalNupPath) || new FileInfo(finalNupPath).Length <= 0)
+                    {
+                        throw new InvalidOperationException($"Целевой .nup файл не был создан: {finalNupPath}");
+                    }
+
+                    long nupSize = new FileInfo(finalNupPath).Length;
+                    string formattedNupSize = ProcessingTask.FormatSize(nupSize);
+                    App.RunOnUI(() =>
+                    {
+                        task.OutputFolder = Path.GetDirectoryName(finalNupPath) ?? outDir;
+                        task.OutputFileName = Path.GetFileNameWithoutExtension(finalNupPath);
+                        task.TargetSize = formattedNupSize;
+                        if (task.SourceSizeBytes > 0 && nupSize > 0)
+                        {
+                            long diff = task.SourceSizeBytes - nupSize;
+                            double percent = (double)diff / task.SourceSizeBytes * 100.0;
+                            task.SizeDifference = $"{(diff > 0 ? "-" : "+")}{ProcessingTask.FormatSize(Math.Abs(diff))} ({Math.Abs(percent):F1}%)";
+                        }
+                        TimeSpan elapsedNup = DateTime.Now - startTime;
+                        if (elapsedNup.TotalSeconds > 0 && task.SourceSizeBytes > 0)
+                        {
+                            double mbPerSec = (task.SourceSizeBytes / (1024.0 * 1024.0)) / elapsedNup.TotalSeconds;
+                            task.Speed = $"{mbPerSec:F1} МБ/с";
+                        }
+                        task.Progress = 100;
+                        task.Status = "Успешно";
+                        task.IsRunning = false;
+                        task.FinishedAt = DateTime.Now;
+                        task.LogDetails += $"► Выходной файл: {finalNupPath} ({formattedNupSize})\n";
+                        task.LogDetails += $"✅ Сборка NUP v1.0 успешно завершена!\n   Выходная папка: {outDir}\n";
+                        HistoryService.AddToHistory(task);
+                    });
+                    App.Logger.Log($"[Switch 2 NUP] Сборка успешно завершена: {Path.GetFileName(finalNupPath)} ({formattedNupSize})", LogLevel.Success);
+                    return;
+                }
+                catch (OperationCanceledException)
+                {
+                    App.RunOnUI(() =>
+                    {
+                        task.Status = "Отменено";
+                        task.IsRunning = false;
+                        task.FinishedAt = DateTime.Now;
+                        HistoryService.AddToHistory(task);
+                    });
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    App.RunOnUI(() =>
+                    {
+                        task.Status = "Ошибка";
+                        task.IsRunning = false;
+                        task.FinishedAt = DateTime.Now;
+                        task.LogDetails += $"\n❌ Ошибка упаковки Switch 2 в .nup: {ex.Message}\n";
+                        HistoryService.AddToHistory(task);
+                    });
+                    App.Logger.Log($"[Switch 2 NUP] Ошибка сборки: {ex.Message}", LogLevel.Error);
+                    throw;
+                }
+            }
 
             string tempRoot = Path.Combine(Path.GetPathRoot(Path.GetFullPath(outDir)) ?? Path.GetTempPath(), "STORM_TMP");
             Directory.CreateDirectory(tempRoot);
@@ -2460,6 +2666,32 @@ namespace StormSwitchBox.Services
             if (string.IsNullOrWhiteSpace(nupPath) || !File.Exists(nupPath))
             {
                 throw new FileNotFoundException($"Файл .nup не найден: {nupPath}");
+            }
+
+            if (string.Equals(task.TargetFormat, "NUP", StringComparison.OrdinalIgnoreCase))
+            {
+                string targetOutDir = Path.GetDirectoryName(outPath) ?? task.OutputFolder;
+                if (string.IsNullOrWhiteSpace(targetOutDir)) targetOutDir = Path.GetDirectoryName(nupPath) ?? Directory.GetCurrentDirectory();
+                Directory.CreateDirectory(targetOutDir);
+                string baseName = !string.IsNullOrWhiteSpace(task.OutputFileName) ? task.OutputFileName : Path.GetFileNameWithoutExtension(nupPath);
+                string destNup = Path.Combine(targetOutDir, baseName + ".nup");
+                if (!string.Equals(Path.GetFullPath(nupPath), Path.GetFullPath(destNup), StringComparison.OrdinalIgnoreCase))
+                {
+                    File.Copy(nupPath, destNup, overwrite: true);
+                }
+                task.EnsureFinalMetricsPopulated(destNup);
+                App.RunOnUI(() =>
+                {
+                    task.OutputFolder = targetOutDir;
+                    task.OutputFileName = Path.GetFileNameWithoutExtension(destNup);
+                    task.Progress = 100;
+                    task.Status = "Успешно";
+                    task.IsRunning = false;
+                    task.FinishedAt = DateTime.Now;
+                    task.LogDetails += $"\n✅ Исходный контейнер уже в формате NUP: {destNup}\n";
+                    HistoryService.AddToHistory(task);
+                });
+                return;
             }
 
             App.RunOnUI(() =>
